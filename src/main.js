@@ -245,25 +245,65 @@ function updateTray() {
 // Bildirimler
 // =====================================================================
 function showNotification(title, body, messageId = null, silent = false) {
-  if (!Notification.isSupported()) return;
-  if (appConfig.get('notificationsEnabled') === false) return;
+  // v1.10.2: Detaylı log + error handling
+  if (!Notification.isSupported()) {
+    console.warn('[NOTIF] Notification.isSupported() = false');
+    return { ok: false, reason: 'not_supported' };
+  }
+  if (appConfig.get('notificationsEnabled') === false) {
+    console.warn('[NOTIF] notificationsEnabled config = false');
+    return { ok: false, reason: 'disabled_by_user' };
+  }
 
   const iconPath = getIconPath();
-  const n = new Notification({
-    title,
-    body,
-    icon: iconPath || undefined,
-    silent: !!silent
-  });
+  console.log('[NOTIF] Bildirim oluşturuluyor:', { title, body, iconPath, silent });
 
+  let n;
+  try {
+    n = new Notification({
+      title: String(title || ''),
+      body: String(body || ''),
+      icon: iconPath || undefined,
+      silent: !!silent
+    });
+  } catch (e) {
+    console.error('[NOTIF] Notification constructor hatası:', e);
+    return { ok: false, reason: 'constructor_error', error: e.message };
+  }
+
+  n.on('show', () => console.log('[NOTIF] ✓ show event tetiklendi'));
   n.on('click', () => {
+    console.log('[NOTIF] click');
     showWindow();
     if (messageId && mainWindow) {
       mainWindow.webContents.send('open-message', messageId);
     }
   });
+  n.on('failed', (e, err) => console.error('[NOTIF] ✗ failed event:', err));
+  n.on('close', () => console.log('[NOTIF] close'));
 
-  n.show();
+  try {
+    n.show();
+    return { ok: true };
+  } catch (e) {
+    console.error('[NOTIF] n.show() hatası:', e);
+    // v1.10.2: Tray balloon fallback (Windows için ek garanti)
+    try {
+      if (process.platform === 'win32' && tray && tray.displayBalloon) {
+        tray.displayBalloon({
+          title: String(title || ''),
+          content: String(body || ''),
+          icon: iconPath || undefined,
+          noSound: !!silent
+        });
+        console.log('[NOTIF] Tray balloon fallback gösterildi');
+        return { ok: true, viaFallback: 'tray_balloon' };
+      }
+    } catch (e2) {
+      console.error('[NOTIF] Tray balloon fallback de başarısız:', e2);
+    }
+    return { ok: false, reason: 'show_error', error: e.message };
+  }
 }
 
 // =====================================================================
@@ -464,8 +504,18 @@ ipcMain.handle('config:updatePrefs', (_, prefs) => {
 });
 
 ipcMain.handle('config:testNotification', () => {
-  showNotification('🔔 Test Bildirimi', 'CODEGA Mail bildirimleri çalışıyor.');
-  return { ok: true };
+  // v1.10.2: Tanı bilgileri ile birlikte
+  const supported = Notification.isSupported();
+  const enabled = appConfig.get('notificationsEnabled') !== false;
+  const result = showNotification('🔔 Test Bildirimi', 'CODEGA Mail bildirimleri çalışıyor.');
+  return {
+    ok: result && result.ok === true,
+    supported,
+    enabled,
+    reason: result && result.reason,
+    error: result && result.error,
+    platform: process.platform
+  };
 });
 
 // =====================================================================

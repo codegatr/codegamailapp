@@ -488,15 +488,38 @@ function bindSettings() {
   }
 
   document.getElementById('btnTestNotif').onclick = async () => {
-    await window.api.config.testNotification();
-    setStatus('Test bildirimi gönderildi - sağ alt köşeyi kontrol edin');
+    const r = await window.api.config.testNotification();
+    if (r && r.ok) {
+      setStatus('✓ Test bildirimi gönderildi - sağ alt köşeyi kontrol edin');
+    } else {
+      // Detaylı hata
+      let msg = 'Bildirim gönderilemedi.\n\n';
+      if (!r) msg += 'Sebep: IPC dönmedi';
+      else if (!r.supported) msg += 'Sebep: Bu sistem bildirim desteklemiyor';
+      else if (!r.enabled) msg += 'Sebep: Bildirimler config\'de kapalı';
+      else if (r.reason) msg += `Sebep: ${r.reason}` + (r.error ? '\nHata: ' + r.error : '');
+      else msg += 'Bilinmeyen hata';
+      msg += '\n\nWindows kontrol et:\n';
+      msg += '1. Ayarlar > Sistem > Bildirimler > AÇIK olmalı\n';
+      msg += '2. Ayarlar > Sistem > Bildirimler > "CODEGA Mail" uygulaması için AÇIK olmalı\n';
+      msg += '3. "Odaklanma Yardımı" (Focus Assist) > KAPALI veya "Yalnızca öncelikli" değil\n';
+      msg += '4. Eğer hâlâ çalışmıyorsa: Başlat menüsünde CODEGA Mail kısayolu var mı kontrol et';
+      alert(msg);
+      setStatus('Test bildirimi başarısız - detay alert\'te', 'error');
+    }
   };
 }
 
 async function openSettings() {
   const cfg = await window.api.config.get();
   document.getElementById('settingsPath').value = cfg.dataPath;
-  document.getElementById('appVersion').textContent = cfg.version || '1.2.0';
+  // v1.10.2: Settings'te de runtime app version kullan
+  let runtimeVer = cfg.version || '?';
+  try {
+    const v = await window.api.updater.appVersion();
+    if (v) runtimeVer = v;
+  } catch (_) {}
+  document.getElementById('appVersion').textContent = runtimeVer;
 
   // v1.2: Bildirim tercihlerini yükle
   document.getElementById('settings_notifications').checked = cfg.notificationsEnabled !== false;
