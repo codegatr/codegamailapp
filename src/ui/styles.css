@@ -1151,3 +1151,89 @@ body { display: flex; flex-direction: column; }
   margin-right: 6px;
   color: var(--ctx-color, currentColor);
 }
+
+/* ============= v1.9: Konuşma görünümü ============= */
+.thread-count {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--bg-3);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+}
+
+.thread-header-badge {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-3);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  vertical-align: middle;
+}
+
+.thread-timeline {
+  padding: 0;
+}
+.thread-msg {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  background: var(--surface);
+  transition: background 0.15s;
+}
+.thread-msg:hover { background: var(--surface-hi); }
+.thread-msg-current {
+  background: var(--bg-2);
+  border-left: 3px solid var(--primary);
+}
+.thread-msg-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  gap: 12px;
+}
+.thread-msg-from {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+.thread-msg-from small { color: var(--text-2); font-weight: 400; }
+.thread-msg-date {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.thread-msg-body {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.thread-msg-body pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: inherit;
+  margin: 0;
+}
+.thread-msg-body iframe {
+  width: 100%;
+  border: 0;
+  background: white;
+  border-radius: 4px;
+}
+
+/* Toolbar buton aktif durumu (Konuşma açık) */
+#btnConversationView.btn-primary {
+  background: var(--primary);
+  color: var(--primary-text);
+}

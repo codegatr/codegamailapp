@@ -38,7 +38,9 @@ contextBridge.exposeInMainWorld('api', {
     getCategories: (id) => ipcRenderer.invoke('messages:getCategories', id),
     addCategory: (id, catId) => ipcRenderer.invoke('messages:addCategory', id, catId),
     removeCategory: (id, catId) => ipcRenderer.invoke('messages:removeCategory', id, catId),
-    setCategories: (id, catIds) => ipcRenderer.invoke('messages:setCategories', id, catIds)
+    setCategories: (id, catIds) => ipcRenderer.invoke('messages:setCategories', id, catIds),
+    getThread: (threadId, accountId) => ipcRenderer.invoke('messages:getThread', threadId, accountId),
+    backfillThreads: () => ipcRenderer.invoke('messages:backfillThreads')
   },
   categories: {
     list: () => ipcRenderer.invoke('categories:list'),

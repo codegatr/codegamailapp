@@ -123,7 +123,8 @@ const state = {
   lastConfiguredEmail: '',
   composeAttachments: [],  // v1.4: yeni mesaj ekleri
   composeEditor: null,     // v1.6: zengin editör compose
-  signatureEditor: null    // v1.6: zengin editör imza
+  signatureEditor: null,   // v1.6: zengin editör imza
+  conversationView: false  // v1.9: konuşma görünümü
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -157,6 +158,7 @@ async function init() {
 
   await loadAccounts();
   await updateStorageInfo();
+  await loadConversationViewState();
 }
 
 // ============= TEPSİDEN GELEN OLAYLAR =============
@@ -400,6 +402,7 @@ function bindToolbar() {
   document.getElementById('btnAbout').onclick = openAbout;
   document.getElementById('btnRules').onclick = openRules;
   document.getElementById('btnCategories').onclick = openCategories;
+  document.getElementById('btnConversationView').onclick = toggleConversationView;
 }
 
 function bindModals() {
@@ -1181,7 +1184,9 @@ async function loadMessages() {
       (r.totalUnread > 0 ? ` · ${r.totalUnread} okunmamış` : '');
   } else {
     state.messages = await window.api.messages.list(state.selectedFolder.id, {
-      search: state.searchQuery || undefined, limit: 300
+      search: state.searchQuery || undefined,
+      limit: 300,
+      threaded: state.conversationView && !state.searchQuery  // arama varsa threading kapat
     });
   }
   renderMessageList();
@@ -1215,11 +1220,15 @@ function renderMessageList() {
           `<span class="msg-cat-chip" style="background:${c.color}25;color:${c.color};border:1px solid ${c.color};" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>`
         ).join('') + '</span>'
       : '';
+    // v1.9: konuşma sayacı (threaded modda)
+    const threadCount = (state.conversationView && m.thread_count > 1)
+      ? `<span class="thread-count" title="${m.thread_count} mesaj zincirde${m.thread_unread ? ' (' + m.thread_unread + ' okunmamış)' : ''}">💬 ${m.thread_count}</span>`
+      : '';
     return `
       <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${m.is_important ? 'is-important' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
            data-id="${m.id}">
         <div class="msg-line1">
-          <span class="msg-from">${importantStar}${accBadge}${escapeHtml(fromDisplay)}</span>
+          <span class="msg-from">${importantStar}${accBadge}${escapeHtml(fromDisplay)}${threadCount}</span>
           <span class="msg-date">${date}</span>
         </div>
         <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
@@ -1261,9 +1270,99 @@ async function openMessage(id) {
     await window.api.messages.markRead(id, true);
     await loadAccounts(); await loadMessages();
   }
+
+  // v1.9: Konuşma görünümü açıksa ve thread'de birden fazla mesaj varsa, hepsini göster
+  if (state.conversationView && msg.thread_id) {
+    try {
+      const threadMessages = await window.api.messages.getThread(msg.thread_id, msg.account_id);
+      if (threadMessages && threadMessages.length > 1) {
+        // Tüm thread mesajlarını okundu işaretle
+        for (const tm of threadMessages) {
+          if (!tm.is_read) await window.api.messages.markRead(tm.id, true);
+        }
+        renderThreadView(threadMessages, msg);
+        document.querySelectorAll('.message-item').forEach(el => el.classList.remove('active'));
+        document.querySelector(`.message-item[data-id="${id}"]`)?.classList.add('active');
+        await loadAccounts();
+        return;
+      }
+    } catch (e) {
+      console.warn('Thread yüklenemedi:', e.message);
+    }
+  }
+
   renderMessageView(msg);
   document.querySelectorAll('.message-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.message-item[data-id="${id}"]`)?.classList.add('active');
+}
+
+// v1.9: Thread (konuşma) görünümü - tüm mesajları timeline'da listele
+function renderThreadView(messages, currentMsg) {
+  const view = document.getElementById('messageView');
+  const subject = currentMsg.subject || '(Konu yok)';
+
+  let html = `
+    <div class="msg-view-header">
+      <div class="msg-view-subject">${escapeHtml(subject)}
+        <span class="thread-header-badge">💬 ${messages.length} mesaj</span>
+      </div>
+    </div>
+    <div class="thread-timeline">
+  `;
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    const isLast = i === messages.length - 1;
+    const fromDisplay = m.from_name
+      ? `${escapeHtml(m.from_name)} <small>&lt;${escapeHtml(m.from_addr || '')}&gt;</small>`
+      : escapeHtml(m.from_addr || '');
+    const date = m.date ? new Date(m.date).toLocaleString('tr-TR') : '';
+    let bodyHtml = '';
+    if (m.body_html) {
+      bodyHtml = `<iframe sandbox="allow-same-origin" srcdoc="${escapeHtmlAttr(m.body_html)}" style="width:100%;border:0;height:300px;"></iframe>`;
+    } else if (m.body_text) {
+      bodyHtml = `<pre>${escapeHtml(m.body_text)}</pre>`;
+    }
+
+    // Kategori chip'leri
+    const cats = m.categories ? parseCategoriesField(m.categories) : [];
+    const catChips = cats.length
+      ? '<div class="msg-view-cats">' + cats.map(c =>
+          `<span class="msg-cat-chip msg-cat-chip-lg" style="background:${c.color}25;color:${c.color};border:1px solid ${c.color};">🏷 ${escapeHtml(c.name)}</span>`
+        ).join('') + '</div>'
+      : '';
+
+    html += `
+      <div class="thread-msg ${isLast ? 'thread-msg-current' : ''}" data-msg-id="${m.id}">
+        <div class="thread-msg-header">
+          <div class="thread-msg-from">${fromDisplay}</div>
+          <div class="thread-msg-date">${date}</div>
+        </div>
+        ${catChips}
+        <div class="thread-msg-body">${bodyHtml}</div>
+        ${m.attachments && m.attachments.length ? `<div class="msg-view-attachments">📎 ${m.attachments.length} ek</div>` : ''}
+      </div>
+    `;
+  }
+  html += `
+    </div>
+    <div class="msg-view-actions">
+      <button class="btn" id="btnReply">↩ En son mesaja yanıtla</button>
+      <button class="btn" id="btnReplyAll">↩↩ Tümüne yanıtla</button>
+      <button class="btn" id="btnForward">→ İlet</button>
+    </div>
+  `;
+  view.innerHTML = html;
+
+  document.getElementById('btnReply').onclick = () => openCompose({ replyTo: currentMsg });
+  document.getElementById('btnReplyAll').onclick = () => openCompose({ replyTo: currentMsg, replyAll: true });
+  document.getElementById('btnForward').onclick = () => openCompose({ forward: currentMsg });
+
+  // Otomatik en son mesaja scroll
+  setTimeout(() => {
+    const lastMsg = view.querySelector('.thread-msg-current');
+    if (lastMsg) lastMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
 }
 
 function renderMessageView(msg) {
@@ -2140,4 +2239,48 @@ async function showCategorizeMenu(messageId, currentCategoryIds, anchorEvent) {
   items.push('---');
   items.push({ label: '+ Yeni Kategori Yönet...', action: () => openCategories() });
   showContextMenu(anchorEvent, items);
+}
+
+// ============= v1.9: Konuşma görünümü =============
+async function toggleConversationView() {
+  state.conversationView = !state.conversationView;
+  const cfg = await window.api.config.get();
+  cfg.conversationView = state.conversationView;
+  await window.api.config.set(cfg);
+
+  const btn = document.getElementById('btnConversationView');
+  btn.classList.toggle('btn-primary', state.conversationView);
+  btn.classList.toggle('btn-ghost', !state.conversationView);
+
+  // İlk açılışta backfill yap (mevcut mesajların thread_id'leri yoksa)
+  if (state.conversationView) {
+    setStatus('Konuşmalar gruplandırılıyor...');
+    try {
+      const r = await window.api.messages.backfillThreads();
+      if (r.ok && r.updated > 0) {
+        setStatus(`Konuşma görünümü açık - ${r.updated} mesaj gruplandırıldı`);
+      } else {
+        setStatus('Konuşma görünümü açık');
+      }
+    } catch (e) {
+      setStatus('Konuşma görünümü açık (backfill atlandı)');
+    }
+  } else {
+    setStatus('Konuşma görünümü kapalı - liste görünümü');
+  }
+
+  if (state.selectedFolder) await loadMessages();
+}
+
+// İlk yüklemede config'den oku
+async function loadConversationViewState() {
+  try {
+    const cfg = await window.api.config.get();
+    state.conversationView = !!cfg.conversationView;
+    const btn = document.getElementById('btnConversationView');
+    if (btn) {
+      btn.classList.toggle('btn-primary', state.conversationView);
+      btn.classList.toggle('btn-ghost', !state.conversationView);
+    }
+  } catch (_) {}
 }

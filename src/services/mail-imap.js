@@ -147,6 +147,10 @@ class ImapService {
                   folder_id: folderId,
                   uid: attrs ? attrs.uid : null,
                   message_id: parsed.messageId || null,
+                  in_reply_to: parsed.inReplyTo || null,
+                  msg_references: Array.isArray(parsed.references)
+                    ? parsed.references.join(' ')
+                    : (parsed.references || null),
                   from_addr: parsed.from?.value?.[0]?.address || null,
                   from_name: parsed.from?.value?.[0]?.name || null,
                   reply_to_addr: parsed.replyTo?.value?.[0]?.address || null,

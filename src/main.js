@@ -717,6 +717,21 @@ ipcMain.handle('messages:setCategories', (_, messageId, categoryIds) => {
 });
 
 // =====================================================================
+// v1.9 IPC: Konuşma görünümü (threading)
+// =====================================================================
+ipcMain.handle('messages:getThread', (_, threadId, accountId) => {
+  return db.getThread(threadId, accountId);
+});
+
+ipcMain.handle('messages:backfillThreads', () => {
+  try {
+    const updated = db.backfillThreadIds();
+    db.save();
+    return { ok: true, updated };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// =====================================================================
 // IPC: Senkronizasyon
 // =====================================================================
 ipcMain.handle('sync:account', async (_, accountId) => {

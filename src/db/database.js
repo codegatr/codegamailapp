@@ -220,8 +220,112 @@ class Database {
     this._safeAlter('ALTER TABLE messages ADD COLUMN spam_score INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_important INTEGER DEFAULT 0');
 
+    // v1.9: Threading kolonları
+    this._safeAlter('ALTER TABLE messages ADD COLUMN in_reply_to TEXT');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN msg_references TEXT');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN thread_id TEXT');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN subject_normalized TEXT');
+    try {
+      this.exec('CREATE INDEX IF NOT EXISTS idx_msg_thread ON messages(account_id, thread_id)');
+      this.exec('CREATE INDEX IF NOT EXISTS idx_msg_subj_norm ON messages(account_id, subject_normalized)');
+      this.exec('CREATE INDEX IF NOT EXISTS idx_msg_messageid ON messages(account_id, message_id)');
+    } catch (_) {}
+
     // v1.8: Default kategoriler (sadece kategori tablosu boşsa)
     this._seedDefaultCategories();
+  }
+
+  // v1.9: Subject normalization (Re:, Fwd:, vs. temizle)
+  _normalizeSubject(s) {
+    if (!s) return '';
+    return String(s)
+      .replace(/^\s*(re|fwd|fw|yan|ilt|sv|aw|wg)\s*:\s*/gi, '')
+      .replace(/^\s*(re|fwd|fw|yan|ilt|sv|aw|wg)\s*:\s*/gi, '')  // 2 kez (Re: Re:)
+      .replace(/^\s*(re|fwd|fw|yan|ilt|sv|aw|wg)\s*:\s*/gi, '')  // 3 kez
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  // v1.9: Bir mesajın thread_id'sini çöz - In-Reply-To, References, subject normalize ile
+  _resolveThreadId(accountId, msg) {
+    // 1. in_reply_to varsa parent'ın thread_id'sini al
+    if (msg.in_reply_to) {
+      const cleaned = String(msg.in_reply_to).replace(/[<>]/g, '').trim();
+      if (cleaned) {
+        const parent = this.prepare(
+          'SELECT thread_id FROM messages WHERE account_id = ? AND message_id = ? AND thread_id IS NOT NULL LIMIT 1'
+        ).get(accountId, cleaned);
+        if (parent && parent.thread_id) return parent.thread_id;
+      }
+    }
+
+    // 2. References varsa - en son referans (en yakın parent)
+    if (msg.msg_references) {
+      const refs = String(msg.msg_references)
+        .split(/\s+/)
+        .map(r => r.replace(/[<>]/g, '').trim())
+        .filter(Boolean);
+      for (let i = refs.length - 1; i >= 0; i--) {
+        const parent = this.prepare(
+          'SELECT thread_id FROM messages WHERE account_id = ? AND message_id = ? AND thread_id IS NOT NULL LIMIT 1'
+        ).get(accountId, refs[i]);
+        if (parent && parent.thread_id) return parent.thread_id;
+      }
+    }
+
+    // 3. Subject normalization fallback - son 90 gün, aynı normalized subject
+    const norm = msg.subject_normalized || this._normalizeSubject(msg.subject || '');
+    if (norm.length >= 3) {
+      try {
+        const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+        const candidate = this.prepare(`
+          SELECT thread_id FROM messages
+          WHERE account_id = ? AND subject_normalized = ? AND date > ?
+            AND thread_id IS NOT NULL
+          ORDER BY date DESC LIMIT 1
+        `).get(accountId, norm, cutoff);
+        if (candidate && candidate.thread_id) return candidate.thread_id;
+      } catch (_) {}
+    }
+
+    // 4. Yeni thread - kendi message_id'si veya unique fallback
+    return msg.message_id || ('t-' + Date.now() + '-' + Math.random().toString(36).substr(2, 8));
+  }
+
+  // v1.9: Mevcut tüm mesajların thread_id'lerini doldur (idempotent backfill)
+  backfillThreadIds() {
+    const accounts = this.listAccounts();
+    let updatedCount = 0;
+    for (const acc of accounts) {
+      const msgs = this.prepare(`
+        SELECT id, message_id, in_reply_to, msg_references, subject, subject_normalized, thread_id, date
+        FROM messages WHERE account_id = ? AND (thread_id IS NULL OR subject_normalized IS NULL)
+        ORDER BY date ASC
+      `).all(acc.id);
+
+      for (const m of msgs) {
+        const updates = [];
+        const vals = [];
+        if (!m.subject_normalized) {
+          const norm = this._normalizeSubject(m.subject || '');
+          updates.push('subject_normalized = ?');
+          vals.push(norm);
+          m.subject_normalized = norm;
+        }
+        if (!m.thread_id) {
+          const tid = this._resolveThreadId(acc.id, m);
+          updates.push('thread_id = ?');
+          vals.push(tid);
+        }
+        if (updates.length) {
+          this.prepare(`UPDATE messages SET ${updates.join(', ')} WHERE id = ?`)
+            .run(...vals, m.id);
+          updatedCount++;
+        }
+      }
+    }
+    return updatedCount;
   }
 
   _seedDefaultCategories() {
@@ -395,9 +499,34 @@ class Database {
       params.push(q, q, q, q);
     }
 
+    // v1.9: Konuşma görünümü - thread_id ile grupla, her thread'in son mesajını getir
+    if (opts.threaded) {
+      return this.prepare(`
+        SELECT m.id, m.uid, m.uidl, m.from_addr, m.from_name, m.to_addrs, m.subject, m.date,
+               m.is_read, m.is_flagged, m.is_spam, m.is_important, m.spam_score, m.has_attachments, m.size,
+               m.thread_id,
+               SUBSTR(m.body_text, 1, 200) AS preview,
+               (SELECT COUNT(*) FROM messages m2 WHERE m2.thread_id = m.thread_id AND m2.folder_id = m.folder_id) AS thread_count,
+               (SELECT SUM(CASE WHEN m3.is_read = 0 THEN 1 ELSE 0 END) FROM messages m3 WHERE m3.thread_id = m.thread_id AND m3.folder_id = m.folder_id) AS thread_unread,
+               (SELECT GROUP_CONCAT(c.id || char(31) || c.name || char(31) || c.color, char(30))
+                FROM message_categories mc JOIN categories c ON c.id = mc.category_id
+                WHERE mc.message_id = m.id) AS categories
+        FROM messages m
+        WHERE ${where} AND m.id IN (
+          SELECT MAX(id) FROM messages
+          WHERE folder_id = ? AND thread_id IS NOT NULL
+          GROUP BY thread_id
+          UNION
+          SELECT id FROM messages WHERE folder_id = ? AND thread_id IS NULL
+        )
+        ORDER BY m.date DESC LIMIT ? OFFSET ?
+      `).all(...params, folderId, folderId, limit, offset);
+    }
+
     return this.prepare(`
       SELECT m.id, m.uid, m.uidl, m.from_addr, m.from_name, m.to_addrs, m.subject, m.date,
              m.is_read, m.is_flagged, m.is_spam, m.is_important, m.spam_score, m.has_attachments, m.size,
+             m.thread_id,
              SUBSTR(m.body_text, 1, 200) AS preview,
              (SELECT GROUP_CONCAT(c.id || char(31) || c.name || char(31) || c.color, char(30))
               FROM message_categories mc JOIN categories c ON c.id = mc.category_id
@@ -405,6 +534,21 @@ class Database {
       FROM messages m WHERE ${where}
       ORDER BY m.date DESC LIMIT ? OFFSET ?
     `).all(...params, limit, offset);
+  }
+
+  // v1.9: Bir thread'deki tüm mesajları getir (folder bağımsız - account içinde)
+  getThread(threadId, accountId) {
+    return this.prepare(`
+      SELECT m.id, m.uid, m.uidl, m.from_addr, m.from_name, m.to_addrs, m.cc_addrs, m.subject, m.date,
+             m.is_read, m.is_flagged, m.is_spam, m.is_important, m.spam_score, m.has_attachments, m.size,
+             m.body_text, m.body_html, m.folder_id,
+             (SELECT GROUP_CONCAT(c.id || char(31) || c.name || char(31) || c.color, char(30))
+              FROM message_categories mc JOIN categories c ON c.id = mc.category_id
+              WHERE mc.message_id = m.id) AS categories
+      FROM messages m
+      WHERE m.thread_id = ? AND m.account_id = ?
+      ORDER BY m.date ASC
+    `).all(threadId, accountId);
   }
 
   getMessage(id) {
@@ -432,6 +576,11 @@ class Database {
   }
 
   insertMessage(msg) {
+    // v1.9: Threading - subject_normalized ve thread_id'yi resolve et
+    const subjectNormalized = this._normalizeSubject(msg.subject || '');
+    const msgWithNorm = Object.assign({}, msg, { subject_normalized: subjectNormalized });
+    const threadId = this._resolveThreadId(msg.account_id, msgWithNorm);
+
     const r = this.prepare(`
       INSERT INTO messages (
         account_id, folder_id, uid, uidl, message_id,
@@ -439,8 +588,9 @@ class Database {
         to_addrs, cc_addrs, bcc_addrs,
         subject, date, body_text, body_html, flags,
         is_read, is_flagged, is_spam, spam_score,
-        size, has_attachments
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        size, has_attachments,
+        in_reply_to, msg_references, thread_id, subject_normalized
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       msg.account_id, msg.folder_id, msg.uid || null, msg.uidl || null, msg.message_id || null,
       msg.from_addr || null, msg.from_name || null, msg.reply_to_addr || null,
@@ -450,7 +600,9 @@ class Database {
       JSON.stringify(msg.flags || []),
       msg.is_read ? 1 : 0, msg.is_flagged ? 1 : 0,
       msg.is_spam ? 1 : 0, msg.spam_score || 0,
-      msg.size || 0, msg.has_attachments ? 1 : 0
+      msg.size || 0, msg.has_attachments ? 1 : 0,
+      msg.in_reply_to || null, msg.msg_references || null,
+      threadId, subjectNormalized
     );
     return r.lastInsertRowid;
   }
