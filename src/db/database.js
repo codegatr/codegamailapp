@@ -172,6 +172,23 @@ class Database {
       );
 
       CREATE INDEX IF NOT EXISTS idx_spam_acc ON spam_rules(account_id);
+
+      CREATE TABLE IF NOT EXISTS rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER,
+        name TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        priority INTEGER DEFAULT 100,
+        conditions TEXT NOT NULL DEFAULT '[]',
+        actions TEXT NOT NULL DEFAULT '[]',
+        match_type TEXT DEFAULT 'all',
+        last_run TEXT,
+        run_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rules_acc ON rules(account_id, enabled, priority);
     `);
 
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_enabled INTEGER DEFAULT 1');
@@ -181,6 +198,7 @@ class Database {
     this._safeAlter('ALTER TABLE messages ADD COLUMN reply_to_addr TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_spam INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN spam_score INTEGER DEFAULT 0');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN is_important INTEGER DEFAULT 0');
   }
 
   // ====== Hesaplar ======
@@ -336,7 +354,7 @@ class Database {
 
     return this.prepare(`
       SELECT id, uid, uidl, from_addr, from_name, to_addrs, subject, date,
-             is_read, is_flagged, is_spam, spam_score, has_attachments, size,
+             is_read, is_flagged, is_spam, is_important, spam_score, has_attachments, size,
              SUBSTR(body_text, 1, 200) AS preview
       FROM messages WHERE ${where}
       ORDER BY date DESC LIMIT ? OFFSET ?
@@ -457,6 +475,77 @@ class Database {
 
   deleteSpamRule(id) {
     this.prepare('DELETE FROM spam_rules WHERE id = ?').run(id);
+  }
+
+  // ====== v1.7: Kurallar (Rules) ======
+  listRules(accountId) {
+    if (accountId) {
+      return this.prepare(`
+        SELECT * FROM rules WHERE account_id = ? OR account_id IS NULL
+        ORDER BY priority ASC, id ASC
+      `).all(accountId);
+    }
+    return this.prepare('SELECT * FROM rules ORDER BY priority ASC, id ASC').all();
+  }
+
+  getRule(id) {
+    return this.prepare('SELECT * FROM rules WHERE id = ?').get(id);
+  }
+
+  addRule(rule) {
+    const r = this.prepare(`
+      INSERT INTO rules (account_id, name, enabled, priority, conditions, actions, match_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      rule.account_id || null,
+      rule.name,
+      rule.enabled === false ? 0 : 1,
+      rule.priority || 100,
+      typeof rule.conditions === 'string' ? rule.conditions : JSON.stringify(rule.conditions || []),
+      typeof rule.actions === 'string' ? rule.actions : JSON.stringify(rule.actions || []),
+      rule.match_type || 'all'
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateRule(id, updates) {
+    const allowed = ['name', 'enabled', 'priority', 'conditions', 'actions', 'match_type', 'account_id'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ');
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (typeof v === 'boolean') v = v ? 1 : 0;
+      if (f === 'conditions' || f === 'actions') {
+        if (typeof v !== 'string') v = JSON.stringify(v || []);
+      }
+      return v;
+    });
+    this.prepare(`UPDATE rules SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteRule(id) {
+    this.prepare('DELETE FROM rules WHERE id = ?').run(id);
+  }
+
+  incrementRuleRunCount(id) {
+    this.prepare(`
+      UPDATE rules SET run_count = run_count + 1, last_run = ? WHERE id = ?
+    `).run(new Date().toISOString(), id);
+  }
+
+  // ====== v1.7: Çöp kovasını boşalt ======
+  emptyFolder(folderId) {
+    const r = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE folder_id = ?').get(folderId);
+    const count = (r && r.c) || 0;
+    this.prepare('DELETE FROM messages WHERE folder_id = ?').run(folderId);
+    this.updateFolderCounts(folderId);
+    return count;
+  }
+
+  // ====== v1.7: Önemli işaretleme ======
+  markMessageImportant(id, isImportant) {
+    this.prepare('UPDATE messages SET is_important = ? WHERE id = ?').run(isImportant ? 1 : 0, id);
   }
 }
 

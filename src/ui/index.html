@@ -22,7 +22,9 @@
       <button id="btnNewFolder" class="btn">+ Klasör</button>
       <div class="toolbar-spacer"></div>
       <button id="btnSpamRules" class="btn btn-ghost" title="Spam kuralları">🛡 Spam</button>
+      <button id="btnRules" class="btn btn-ghost" title="Filtre kuralları (otomatik klasörleme)">📋 Kurallar</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
+      <button id="btnAbout" class="btn btn-ghost" title="Hakkında">ℹ Hakkında</button>
       <button id="btnBackup" class="btn btn-ghost" title="Yedek al">⬇ Yedek</button>
       <button id="btnRestore" class="btn btn-ghost" title="Yedekten yükle">⬆ Geri Yükle</button>
       <button id="btnUpdateBadge" class="btn btn-update hidden" title="Güncelleme mevcut">🚀 Güncelle</button>
@@ -423,6 +425,176 @@
         <span id="composeAttCount" style="font-size:11px;color:var(--muted);"></span>
         <button id="btnSendMail" class="btn btn-primary">Gönder</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== Hakkında ===== -->
+  <div id="modalAbout" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2>ℹ Hakkında</h2>
+        <button class="modal-close" data-close="modalAbout">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="about-hero">
+          <div class="about-icon">✉</div>
+          <div>
+            <div class="about-app-name">CODEGA Mail</div>
+            <div class="about-version">Sürüm <span id="aboutVersion">1.7.0</span></div>
+            <div class="about-tagline">Yerel masaüstü mail istemcisi · IMAP/POP3 · OS-level şifreleme</div>
+          </div>
+        </div>
+
+        <div class="about-section">
+          <h3>🏢 CODEGA</h3>
+          <p>CODEGA (codega.com.tr), Konya merkezli, PHP 8.3+ ve modern web teknolojileri ile özel yazılım çözümleri üreten bir geliştirme stüdyosudur. Ağırlıklı olarak Türk KOBİ'leri için ERP, CMS, B2B portal, sigorta brokerlik ve özel entegrasyon yazılımları geliştirir.</p>
+          <p><strong>Yönetici:</strong> Yunus Aksoy</p>
+          <p><strong>Lokasyon:</strong> Konya, Türkiye</p>
+        </div>
+
+        <div class="about-section">
+          <h3>🔧 Aktif Projeler</h3>
+          <div class="project-grid">
+            <a href="#" data-link="https://codega.com.tr" class="project-card">
+              <div class="project-name">CODEGA</div>
+              <div class="project-desc">Ana ajans sitesi - codega.com.tr</div>
+            </a>
+            <a href="#" data-link="https://erp.codega.com.tr" class="project-card">
+              <div class="project-name">CODEGA ERP</div>
+              <div class="project-desc">96+ modüllü kurumsal ERP sistemi</div>
+            </a>
+            <a href="#" data-link="https://mizansigorta.com.tr" class="project-card">
+              <div class="project-name">Mizan Sigorta</div>
+              <div class="project-desc">Sigorta brokerlik platformu</div>
+            </a>
+            <a href="#" data-link="https://aksoy.web.tr" class="project-card">
+              <div class="project-name">Aksoy Group</div>
+              <div class="project-desc">Holding kurumsal web sitesi</div>
+            </a>
+            <a href="#" data-link="https://xnews.com.tr" class="project-card">
+              <div class="project-name">XNEWS</div>
+              <div class="project-desc">RSS aggregator (90+ kaynak)</div>
+            </a>
+            <a href="#" data-link="https://babacoin.network" class="project-card">
+              <div class="project-name">Babacoin (BBC)</div>
+              <div class="project-desc">GhostRider PoW kripto network</div>
+            </a>
+          </div>
+        </div>
+
+        <div class="about-section">
+          <h3>🛠 Bu Uygulama</h3>
+          <p><strong>Teknoloji:</strong> Electron + Node.js + sql.js (WASM) + node-imap + node-pop3 + nodemailer + mailparser</p>
+          <p><strong>Veri konumu:</strong> <code id="aboutDataPath">...</code></p>
+          <p><strong>Lisans:</strong> Özel kullanım (UNLICENSED)</p>
+          <p><strong>Repository:</strong> <a href="#" data-link="https://github.com/codegatr/codegamailapp">github.com/codegatr/codegamailapp</a></p>
+          <p><strong>Otomatik güncelleme:</strong> GitHub Releases üzerinden electron-updater</p>
+        </div>
+
+        <div class="about-section">
+          <h3>📊 İstatistikler</h3>
+          <div class="about-stats">
+            <div class="stat-item">
+              <div class="stat-value" id="statAccounts">0</div>
+              <div class="stat-label">Hesap</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="statFolders">0</div>
+              <div class="stat-label">Klasör</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="statMessages">0</div>
+              <div class="stat-label">Mesaj</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value" id="statRules">0</div>
+              <div class="stat-label">Kural</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="about-footer">
+          © 2025 CODEGA · Yunus Aksoy · Konya
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close="modalAbout">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Filtre Kuralları (Rules) ===== -->
+  <div id="modalRules" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2>📋 Filtre Kuralları</h2>
+        <button class="modal-close" data-close="modalRules">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;line-height:1.6;">
+          Gelen mesajları otomatik klasörlemek, okundu işaretlemek, önemli olarak işaretlemek veya silmek için kurallar tanımlayın. Her sync sonrası yeni mesajlara uygulanır.
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn btn-primary" id="btnNewRule">+ Yeni Kural</button>
+          <div style="flex:1;"></div>
+          <select id="rulesAccountFilter">
+            <option value="all">Tüm hesaplar</option>
+          </select>
+        </div>
+
+        <div id="rulesList" class="rules-list"></div>
+
+        <!-- Kural editörü -->
+        <div id="ruleEditor" class="rule-editor hidden">
+          <div class="form-section full">Yeni / Düzenle</div>
+          <div class="form-grid" style="grid-template-columns:1fr 140px;">
+            <div class="form-group">
+              <label>Kural Adı</label>
+              <input type="text" id="rule_name" placeholder="Örn: Banka mailleri Bankalar klasörüne">
+            </div>
+            <div class="form-group">
+              <label>Hesap</label>
+              <select id="rule_account">
+                <option value="">Tüm hesaplar</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-grid" style="grid-template-columns:140px 140px 100px;align-items:end;margin-top:6px;">
+            <div class="form-group">
+              <label>Eşleştir</label>
+              <select id="rule_match_type">
+                <option value="all">Tüm koşullar (AND)</option>
+                <option value="any">Herhangi biri (OR)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Öncelik</label>
+              <input type="number" id="rule_priority" value="100" min="1" max="999" title="Düşük = önce uygulanır">
+            </div>
+            <div class="form-group">
+              <label class="toggle-row" style="padding:0;">
+                <input type="checkbox" id="rule_enabled" checked>
+                <span>Aktif</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-section full" style="margin-top:14px;">Koşullar</div>
+          <div id="conditionsList"></div>
+          <button class="btn btn-ghost" id="btnAddCondition">+ Koşul Ekle</button>
+
+          <div class="form-section full" style="margin-top:14px;">Aksiyonlar</div>
+          <div id="actionsList"></div>
+          <button class="btn btn-ghost" id="btnAddAction">+ Aksiyon Ekle</button>
+
+          <div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end;">
+            <button class="btn btn-ghost" id="btnCancelRule">İptal</button>
+            <button class="btn btn-primary" id="btnSaveRule">Kaydet</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" data-close="modalRules">Kapat</button></div>
     </div>
   </div>
 

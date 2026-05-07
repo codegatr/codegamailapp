@@ -648,6 +648,46 @@ ipcMain.handle('spam:delete', (_, ruleId) => {
 });
 
 // =====================================================================
+// v1.7 IPC: Filtre Kuralları (Rules)
+// =====================================================================
+ipcMain.handle('rules:list', (_, accountId) => db.listRules(accountId));
+ipcMain.handle('rules:get', (_, id) => db.getRule(id));
+ipcMain.handle('rules:add', (_, rule) => ({ ok: true, id: db.addRule(rule) }));
+ipcMain.handle('rules:update', (_, id, updates) => {
+  db.updateRule(id, updates);
+  return { ok: true };
+});
+ipcMain.handle('rules:delete', (_, id) => {
+  db.deleteRule(id);
+  return { ok: true };
+});
+ipcMain.handle('rules:applyNow', async (_, ruleId, accountId) => {
+  // Kuralı tüm mevcut mesajlara uygula (sadece bu hesap)
+  try {
+    const applied = mailService._applyRulesToNewMessages(accountId, 0);
+    db.save();
+    return { ok: true, applied };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// =====================================================================
+// v1.7 IPC: Çöp/Klasör Boşaltma + Önemli işaretleme
+// =====================================================================
+ipcMain.handle('folders:empty', (_, folderId) => {
+  try {
+    const count = db.emptyFolder(folderId);
+    db.save();
+    updateTray();
+    return { ok: true, count };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('messages:markImportant', (_, messageId, isImportant) => {
+  db.markMessageImportant(messageId, !!isImportant);
+  return { ok: true };
+});
+
+// =====================================================================
 // IPC: Senkronizasyon
 // =====================================================================
 ipcMain.handle('sync:account', async (_, accountId) => {

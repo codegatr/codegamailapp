@@ -397,6 +397,8 @@ function bindToolbar() {
   document.getElementById('btnSettings').onclick = openSettings;
   document.getElementById('btnSpamRules').onclick = openSpamRules;
   document.getElementById('btnNewFolder').onclick = openNewFolder;
+  document.getElementById('btnAbout').onclick = openAbout;
+  document.getElementById('btnRules').onclick = openRules;
 }
 
 function bindModals() {
@@ -969,6 +971,11 @@ async function showMessageContextMenu(e, message) {
       await window.api.messages.markRead(message.id, !message.is_read);
       await loadAccounts(); await loadMessages();
     }},
+    { label: message.is_important ? '☆ Önemli işaretini kaldır' : '⭐ Önemli işaretle', action: async () => {
+      await window.api.messages.markImportant(message.id, !message.is_important);
+      setStatus(message.is_important ? 'Önemli işareti kaldırıldı' : 'Önemli olarak işaretlendi');
+      await loadMessages();
+    }},
     '---',
     ...moveItems,
     '---',
@@ -1026,6 +1033,7 @@ async function renderAccounts() {
           <div class="folder-item ${state.selectedFolder?.id === f.id ? 'active' : ''}"
                data-folder-id="${f.id}" data-account-id="${acc.id}"
                data-is-local="${f.is_local ? 1 : 0}"
+               data-folder-name="${escapeHtml(f.name || '')}"
                data-special="${f.special_use || ''}">
             <span class="folder-icon">${folderIcon(f.special_use, f.is_local)}</span>
             <span class="folder-name">${escapeHtml(f.name)}</span>
@@ -1045,23 +1053,55 @@ async function renderAccounts() {
       const isLocal = el.dataset.isLocal === '1';
       const special = el.dataset.special;
       const folderId = parseInt(el.dataset.folderId, 10);
-      if (!isLocal || special === '\\Inbox' || special === '\\Junk' || special === '\\Sent') return;
+      const folderName = el.dataset.folderName || 'Klasör';
       e.preventDefault(); e.stopPropagation();
-      const items = [
-        { label: '✏ Yeniden Adlandır', action: async () => {
-          const newName = prompt('Yeni klasör adı:');
-          if (newName && newName.trim()) {
-            await window.api.folders.rename(folderId, newName.trim());
-            await loadAccounts();
-          }
-        }},
-        { label: '🗑 Klasörü Sil', danger: true, action: async () => {
-          if (!confirm('Klasörü silmek istediğinizden emin misiniz?')) return;
-          const r = await window.api.folders.delete(folderId);
-          if (!r.ok) return alert(r.error);
+
+      const items = [];
+
+      // v1.7: Trash/Junk için ÖZELLİKLE "Boşalt" üstte vurgulu
+      if (special === '\\Trash' || special === '\\Junk' || /trash|junk|spam|deleted|çöp/i.test(folderName)) {
+        items.push({ label: '🗑️ Çöp Kovasını Boşalt', danger: true, action: async () => {
+          if (!confirm(`"${folderName}" klasöründeki TÜM mesajlar kalıcı olarak silinecek. Bu işlem geri alınamaz.\n\nDevam etmek istiyor musunuz?`)) return;
+          const r = await window.api.folders.empty(folderId);
+          if (!r.ok) return alert(r.error || 'Hata');
+          setStatus(`${r.count} mesaj silindi (${folderName})`);
           await loadAccounts();
-        }}
-      ];
+          if (state.selectedFolder?.id === folderId) await loadMessages();
+        }});
+        items.push('---');
+      }
+
+      // Local olmayan ve özel klasörler için sadece "boşalt" göster
+      if (!isLocal || special === '\\Inbox' || special === '\\Sent') {
+        // Inbox/Sent için boşaltma yok ama yine de yukarıdaki Trash/Junk varsa zaten gösterildi
+        if (!items.length) return; // hiçbir şey yoksa menü açma
+      } else {
+        // Yerel klasör seçenekleri
+        items.push(
+          { label: '✏ Yeniden Adlandır', action: async () => {
+            const newName = prompt('Yeni klasör adı:', folderName);
+            if (newName && newName.trim()) {
+              await window.api.folders.rename(folderId, newName.trim());
+              await loadAccounts();
+            }
+          }},
+          { label: '🗑 Klasörü Boşalt', action: async () => {
+            if (!confirm(`"${folderName}" klasöründeki tüm mesajlar silinecek. Devam?`)) return;
+            const r = await window.api.folders.empty(folderId);
+            if (!r.ok) return alert(r.error || 'Hata');
+            setStatus(`${r.count} mesaj silindi`);
+            await loadAccounts();
+            if (state.selectedFolder?.id === folderId) await loadMessages();
+          }},
+          { label: '🗑 Klasörü Sil', danger: true, action: async () => {
+            if (!confirm('Klasörü silmek istediğinizden emin misiniz?')) return;
+            const r = await window.api.folders.delete(folderId);
+            if (!r.ok) return alert(r.error);
+            await loadAccounts();
+          }}
+        );
+      }
+
       showContextMenu(e, items);
     };
   });
@@ -1157,11 +1197,15 @@ function renderMessageList() {
     const accBadge = isUnified && m._accountName
       ? `<span class="acc-badge" style="background:hsl(${m._accountHue},55%,22%);color:hsl(${m._accountHue},80%,75%);border:1px solid hsl(${m._accountHue},45%,40%);" title="${escapeHtml(m._accountEmail || '')}">${escapeHtml(m._accountName)}</span>`
       : '';
+    // v1.7: önemli yıldız
+    const importantStar = m.is_important
+      ? `<span class="msg-important" title="Önemli (kaldır)" data-toggle-important="${m.id}">⭐</span>`
+      : `<span class="msg-important-empty" title="Önemli işaretle" data-toggle-important="${m.id}">☆</span>`;
     return `
-      <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
+      <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${m.is_important ? 'is-important' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
            data-id="${m.id}">
         <div class="msg-line1">
-          <span class="msg-from">${accBadge}${escapeHtml(fromDisplay)}</span>
+          <span class="msg-from">${importantStar}${accBadge}${escapeHtml(fromDisplay)}</span>
           <span class="msg-date">${date}</span>
         </div>
         <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
@@ -1173,10 +1217,23 @@ function renderMessageList() {
   }).join('');
   container.querySelectorAll('.message-item').forEach(el => {
     const id = parseInt(el.dataset.id, 10);
-    el.onclick = () => openMessage(id);
+    el.onclick = (e) => {
+      // Yıldız tıklamaysa mesajı açma
+      if (e.target.dataset.toggleImportant) return;
+      openMessage(id);
+    };
     el.oncontextmenu = async (e) => {
       const fullMsg = await window.api.messages.get(id);
       if (fullMsg) showMessageContextMenu(e, fullMsg);
+    };
+  });
+  // Yıldız toggle
+  container.querySelectorAll('[data-toggle-important]').forEach(el => {
+    el.onclick = async (e) => {
+      e.stopPropagation();
+      const id = parseInt(el.dataset.toggleImportant, 10);
+      const msg = state.messages.find(m => m.id === id);
+      await toggleMessageImportant(id, msg?.is_important);
     };
   });
 }
@@ -1657,4 +1714,279 @@ function setStatus(text, kind) {
   const el = document.getElementById('statusText');
   el.textContent = text;
   el.style.color = kind === 'error' ? 'var(--danger)' : '';
+}
+
+// ============= v1.7: HAKKINDA =============
+async function openAbout() {
+  const cfg = await window.api.config.get();
+  const v = await window.api.updater.appVersion();
+  document.getElementById('aboutVersion').textContent = v;
+  document.getElementById('aboutDataPath').textContent = cfg.dataPath;
+
+  // İstatistikler
+  try {
+    const accounts = await window.api.accounts.list();
+    let totalFolders = 0, totalMessages = 0;
+    for (const acc of accounts) {
+      const folders = await window.api.folders.list(acc.id);
+      totalFolders += folders.length;
+      for (const f of folders) totalMessages += (f.total_count || 0);
+    }
+    const rules = await window.api.rules.list();
+    document.getElementById('statAccounts').textContent = accounts.length;
+    document.getElementById('statFolders').textContent = totalFolders;
+    document.getElementById('statMessages').textContent = totalMessages.toLocaleString('tr-TR');
+    document.getElementById('statRules').textContent = rules.length;
+  } catch (e) {}
+
+  // Link click handler
+  document.querySelectorAll('#modalAbout [data-link]').forEach(el => {
+    el.onclick = (e) => {
+      e.preventDefault();
+      window.api.app.openExternal(el.dataset.link);
+    };
+  });
+
+  document.getElementById('modalAbout').classList.remove('hidden');
+}
+
+// ============= v1.7: KURALLAR =============
+let currentRule = null;  // editlenmekte olan kural
+
+async function openRules() {
+  await populateRulesAccountFilter();
+  await renderRulesList();
+  hideRuleEditor();
+  bindRulesUI();
+  document.getElementById('modalRules').classList.remove('hidden');
+}
+
+async function populateRulesAccountFilter() {
+  const sel1 = document.getElementById('rulesAccountFilter');
+  const sel2 = document.getElementById('rule_account');
+  const opts = '<option value="all">Tüm hesaplar</option>' +
+    state.accounts.map(a => `<option value="${a.id}">${escapeHtml(a.email)}</option>`).join('');
+  sel1.innerHTML = opts;
+  sel2.innerHTML = '<option value="">Tüm hesaplar</option>' +
+    state.accounts.map(a => `<option value="${a.id}">${escapeHtml(a.email)}</option>`).join('');
+}
+
+let rulesUIBound = false;
+function bindRulesUI() {
+  if (rulesUIBound) return;
+  rulesUIBound = true;
+  document.getElementById('btnNewRule').onclick = () => showRuleEditor(null);
+  document.getElementById('btnAddCondition').onclick = () => addConditionRow();
+  document.getElementById('btnAddAction').onclick = () => addActionRow();
+  document.getElementById('btnCancelRule').onclick = () => hideRuleEditor();
+  document.getElementById('btnSaveRule').onclick = saveRule;
+  document.getElementById('rulesAccountFilter').onchange = renderRulesList;
+}
+
+async function renderRulesList() {
+  const sel = document.getElementById('rulesAccountFilter');
+  const accountId = sel.value === 'all' ? null : parseInt(sel.value, 10);
+  const rules = accountId ? await window.api.rules.list(accountId) : await window.api.rules.list();
+  const list = document.getElementById('rulesList');
+  if (!rules.length) {
+    list.innerHTML = '<div class="empty-state">Henüz kural yok. "+ Yeni Kural" ile başlayın.</div>';
+    return;
+  }
+  list.innerHTML = rules.map(r => {
+    const conditions = JSON.parse(r.conditions || '[]');
+    const actions = JSON.parse(r.actions || '[]');
+    const accLabel = r.account_id
+      ? (state.accounts.find(a => a.id === r.account_id)?.email || '?')
+      : 'Tüm hesaplar';
+    return `
+      <div class="rule-item ${r.enabled ? '' : 'disabled'}">
+        <div class="rule-toggle">
+          <input type="checkbox" ${r.enabled ? 'checked' : ''} data-toggle="${r.id}">
+        </div>
+        <div class="rule-info">
+          <div class="rule-name">${escapeHtml(r.name)}</div>
+          <div class="rule-meta">
+            ${escapeHtml(accLabel)} · Öncelik: ${r.priority} · ${conditions.length} koşul → ${actions.length} aksiyon
+            ${r.run_count > 0 ? ` · ${r.run_count} kez çalıştı` : ''}
+          </div>
+        </div>
+        <button class="btn btn-ghost" data-edit="${r.id}">Düzenle</button>
+        <button class="btn btn-ghost" data-delete="${r.id}" style="color:var(--danger);">Sil</button>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('[data-toggle]').forEach(el => {
+    el.onchange = async () => {
+      await window.api.rules.update(parseInt(el.dataset.toggle, 10), { enabled: el.checked });
+      await renderRulesList();
+    };
+  });
+  list.querySelectorAll('[data-edit]').forEach(el => {
+    el.onclick = async () => {
+      const rule = await window.api.rules.get(parseInt(el.dataset.edit, 10));
+      showRuleEditor(rule);
+    };
+  });
+  list.querySelectorAll('[data-delete]').forEach(el => {
+    el.onclick = async () => {
+      if (!confirm('Bu kuralı silmek istediğinizden emin misiniz?')) return;
+      await window.api.rules.delete(parseInt(el.dataset.delete, 10));
+      await renderRulesList();
+    };
+  });
+}
+
+function showRuleEditor(rule) {
+  currentRule = rule;
+  document.getElementById('ruleEditor').classList.remove('hidden');
+  document.getElementById('rule_name').value = rule?.name || '';
+  document.getElementById('rule_account').value = rule?.account_id || '';
+  document.getElementById('rule_match_type').value = rule?.match_type || 'all';
+  document.getElementById('rule_priority').value = rule?.priority || 100;
+  document.getElementById('rule_enabled').checked = rule ? rule.enabled !== 0 : true;
+
+  document.getElementById('conditionsList').innerHTML = '';
+  document.getElementById('actionsList').innerHTML = '';
+
+  const conditions = rule ? JSON.parse(rule.conditions || '[]') : [{ field: 'from', operator: 'contains', value: '' }];
+  const actions = rule ? JSON.parse(rule.actions || '[]') : [{ type: 'markAsRead' }];
+
+  conditions.forEach(c => addConditionRow(c));
+  actions.forEach(a => addActionRow(a));
+}
+
+function hideRuleEditor() {
+  document.getElementById('ruleEditor').classList.add('hidden');
+  currentRule = null;
+}
+
+function addConditionRow(cond = { field: 'from', operator: 'contains', value: '' }) {
+  const wrap = document.getElementById('conditionsList');
+  const row = document.createElement('div');
+  row.className = 'condition-row';
+  row.innerHTML = `
+    <select class="cond-field">
+      <option value="from"${cond.field==='from'?' selected':''}>Gönderen</option>
+      <option value="fromDomain"${cond.field==='fromDomain'?' selected':''}>Gönderen Domain</option>
+      <option value="to"${cond.field==='to'?' selected':''}>Alıcı</option>
+      <option value="subject"${cond.field==='subject'?' selected':''}>Konu</option>
+      <option value="body"${cond.field==='body'?' selected':''}>İçerik</option>
+      <option value="hasAttachment"${cond.field==='hasAttachment'?' selected':''}>Ek Dosya</option>
+    </select>
+    <select class="cond-op">
+      <option value="contains"${cond.operator==='contains'?' selected':''}>içerir</option>
+      <option value="notContains"${cond.operator==='notContains'?' selected':''}>içermez</option>
+      <option value="equals"${cond.operator==='equals'?' selected':''}>eşittir</option>
+      <option value="startsWith"${cond.operator==='startsWith'?' selected':''}>ile başlar</option>
+      <option value="endsWith"${cond.operator==='endsWith'?' selected':''}>ile biter</option>
+      <option value="matches"${cond.operator==='matches'?' selected':''}>regex</option>
+      <option value="is"${cond.operator==='is'?' selected':''}>vardır/yoktur</option>
+    </select>
+    <input type="text" class="cond-value" value="${escapeHtml(cond.value || '')}" placeholder="değer">
+    <button class="btn btn-ghost cond-remove" title="Kaldır">×</button>
+  `;
+  row.querySelector('.cond-remove').onclick = () => row.remove();
+  wrap.appendChild(row);
+}
+
+function addActionRow(act = { type: 'markAsRead' }) {
+  const wrap = document.getElementById('actionsList');
+  const row = document.createElement('div');
+  row.className = 'action-row';
+
+  // Tüm klasörleri topla (folder seçimi için)
+  const folderOptions = [];
+  // Bu sync olarak bilemeyiz, async olarak doldur
+  row.innerHTML = `
+    <select class="act-type">
+      <option value="moveToFolder"${act.type==='moveToFolder'?' selected':''}>Klasöre taşı</option>
+      <option value="markAsRead"${act.type==='markAsRead'?' selected':''}>Okundu işaretle</option>
+      <option value="markAsImportant"${act.type==='markAsImportant'?' selected':''}>Önemli işaretle</option>
+      <option value="markAsSpam"${act.type==='markAsSpam'?' selected':''}>Spam işaretle</option>
+      <option value="delete"${act.type==='delete'?' selected':''}>Sil</option>
+    </select>
+    <select class="act-value" style="display:none;"></select>
+    <button class="btn btn-ghost act-remove" title="Kaldır">×</button>
+  `;
+  const typeSel = row.querySelector('.act-type');
+  const valueSel = row.querySelector('.act-value');
+
+  const updateValue = async () => {
+    if (typeSel.value === 'moveToFolder') {
+      // Tüm hesapların klasörlerini doldur
+      let html = '';
+      for (const acc of state.accounts) {
+        const folders = await window.api.folders.list(acc.id);
+        for (const f of folders) {
+          const sel = String(f.id) === String(act.value) ? ' selected' : '';
+          html += `<option value="${f.id}"${sel}>${escapeHtml(acc.display_name)} › ${escapeHtml(f.name)}</option>`;
+        }
+      }
+      valueSel.innerHTML = html;
+      valueSel.style.display = '';
+    } else {
+      valueSel.style.display = 'none';
+    }
+  };
+  typeSel.onchange = updateValue;
+  updateValue();
+  row.querySelector('.act-remove').onclick = () => row.remove();
+  wrap.appendChild(row);
+}
+
+async function saveRule() {
+  const name = document.getElementById('rule_name').value.trim();
+  if (!name) return alert('Kural adı gerekli');
+
+  const accountId = document.getElementById('rule_account').value;
+  const matchType = document.getElementById('rule_match_type').value;
+  const priority = parseInt(document.getElementById('rule_priority').value, 10) || 100;
+  const enabled = document.getElementById('rule_enabled').checked;
+
+  // Koşulları topla
+  const conditions = [];
+  document.querySelectorAll('#conditionsList .condition-row').forEach(row => {
+    const field = row.querySelector('.cond-field').value;
+    const operator = row.querySelector('.cond-op').value;
+    const value = row.querySelector('.cond-value').value.trim();
+    if (value || field === 'hasAttachment') conditions.push({ field, operator, value });
+  });
+  if (!conditions.length) return alert('En az bir koşul gerekli');
+
+  // Aksiyonları topla
+  const actions = [];
+  document.querySelectorAll('#actionsList .action-row').forEach(row => {
+    const type = row.querySelector('.act-type').value;
+    const valueSel = row.querySelector('.act-value');
+    const value = valueSel.style.display !== 'none' ? valueSel.value : null;
+    actions.push({ type, value });
+  });
+  if (!actions.length) return alert('En az bir aksiyon gerekli');
+
+  const ruleData = {
+    name, account_id: accountId || null, match_type: matchType,
+    priority, enabled, conditions, actions
+  };
+
+  try {
+    if (currentRule) {
+      await window.api.rules.update(currentRule.id, ruleData);
+    } else {
+      await window.api.rules.add(ruleData);
+    }
+    hideRuleEditor();
+    await renderRulesList();
+    setStatus('Kural kaydedildi');
+  } catch (e) {
+    alert('Hata: ' + e.message);
+  }
+}
+
+// ============= v1.7: Önemli işaretleme - mesaj listesi yıldız =============
+// Mesaj satırına yıldız butonu eklemek için renderMessageList'i wrap etmiyoruz,
+// sağ tık menüsüne Önemli ekleyeceğiz ve renderMessageList'te yıldız ikonu göstereceğiz
+async function toggleMessageImportant(messageId, currentValue) {
+  await window.api.messages.markImportant(messageId, !currentValue);
+  if (state.selectedFolder) await loadMessages();
 }

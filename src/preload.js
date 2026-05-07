@@ -22,13 +22,15 @@ contextBridge.exposeInMainWorld('api', {
     list: (accountId) => ipcRenderer.invoke('folders:list', accountId),
     create: (accountId, name, onServer) => ipcRenderer.invoke('folders:create', accountId, name, onServer),
     rename: (id, name) => ipcRenderer.invoke('folders:rename', id, name),
-    delete: (id) => ipcRenderer.invoke('folders:delete', id)
+    delete: (id) => ipcRenderer.invoke('folders:delete', id),
+    empty: (id) => ipcRenderer.invoke('folders:empty', id)
   },
   messages: {
     list: (folderId, opts) => ipcRenderer.invoke('messages:list', folderId, opts),
     listUnified: (opts) => ipcRenderer.invoke('messages:listUnified', opts),
     get: (id) => ipcRenderer.invoke('messages:get', id),
     markRead: (id, isRead) => ipcRenderer.invoke('messages:markRead', id, isRead),
+    markImportant: (id, isImportant) => ipcRenderer.invoke('messages:markImportant', id, isImportant),
     delete: (id) => ipcRenderer.invoke('messages:delete', id),
     move: (id, folderId) => ipcRenderer.invoke('messages:move', id, folderId),
     markSpam: (id) => ipcRenderer.invoke('messages:markSpam', id),
@@ -38,6 +40,14 @@ contextBridge.exposeInMainWorld('api', {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),
     delete: (id) => ipcRenderer.invoke('spam:delete', id)
+  },
+  rules: {
+    list: (accountId) => ipcRenderer.invoke('rules:list', accountId),
+    get: (id) => ipcRenderer.invoke('rules:get', id),
+    add: (rule) => ipcRenderer.invoke('rules:add', rule),
+    update: (id, updates) => ipcRenderer.invoke('rules:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('rules:delete', id),
+    applyNow: (ruleId, accountId) => ipcRenderer.invoke('rules:applyNow', ruleId, accountId)
   },
   sync: {
     account: (id) => ipcRenderer.invoke('sync:account', id),

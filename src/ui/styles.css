@@ -837,3 +837,228 @@ body { display: flex; flex-direction: column; }
   width: 26px;
   height: 22px;
 }
+
+/* ============= v1.7: Hakkında modal ============= */
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.about-icon {
+  font-size: 48px;
+  width: 72px;
+  height: 72px;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+.about-app-name { font-size: 22px; font-weight: 700; color: var(--text); }
+.about-version { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+.about-tagline { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.about-section { margin: 18px 0; }
+.about-section h3 {
+  font-size: 14px;
+  color: var(--accent);
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.about-section p {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.6;
+  margin: 6px 0;
+}
+.about-section a { color: var(--primary); text-decoration: none; }
+.about-section a:hover { text-decoration: underline; }
+.about-section code {
+  background: var(--bg-3);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+.project-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.project-card {
+  display: block;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none !important;
+  color: var(--text) !important;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.project-card:hover {
+  border-color: var(--primary);
+  background: var(--surface-hi);
+}
+.project-name { font-size: 13px; font-weight: 600; color: var(--accent); }
+.project-desc { font-size: 11px; color: var(--text-2); margin-top: 4px; }
+.about-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 8px;
+}
+.stat-item {
+  text-align: center;
+  padding: 12px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.stat-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+.about-footer {
+  text-align: center;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ============= v1.7: Kurallar (Rules) modal ============= */
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.rule-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.rule-item.disabled { opacity: 0.5; }
+.rule-toggle input { cursor: pointer; transform: scale(1.2); }
+.rule-info { flex: 1; min-width: 0; }
+.rule-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.rule-meta { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+.rule-editor {
+  margin-top: 16px;
+  padding: 14px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.rule-editor.hidden { display: none; }
+.condition-row, .action-row {
+  display: grid;
+  grid-template-columns: 140px 130px 1fr 32px;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+.action-row { grid-template-columns: 160px 1fr 32px; }
+.condition-row select, .condition-row input, .action-row select {
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.cond-remove, .act-remove {
+  padding: 2px 6px !important;
+  min-width: auto !important;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+/* ============= v1.7: Önemli (yıldız) işareti ============= */
+.msg-important, .msg-important-empty {
+  display: inline-block;
+  margin-right: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  vertical-align: middle;
+  user-select: none;
+}
+.msg-important {
+  color: #f9c43e;
+  text-shadow: 0 0 6px rgba(249, 196, 62, 0.4);
+}
+.msg-important-empty {
+  color: var(--muted);
+  opacity: 0.4;
+}
+.msg-important-empty:hover {
+  opacity: 1;
+  color: #f9c43e;
+}
+.msg-important:hover { transform: scale(1.15); }
+.message-item.is-important {
+  border-left: 3px solid #f9c43e;
+  padding-left: calc(var(--list-padding, 12px) - 3px);
+}
+
+/* Rule editor button row spacing fix */
+.rule-editor .form-section {
+  font-size: 12px;
+  color: var(--accent);
+  margin: 4px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.rule-editor .form-grid {
+  display: grid;
+  gap: 10px;
+}
+.rule-editor .form-group { margin-bottom: 0; }
+.rule-editor .form-group label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-2);
+  margin-bottom: 3px;
+}
+.rule-editor input, .rule-editor select {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+/* Empty state for rules */
+.empty-state {
+  padding: 30px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Modal large variant */
+.modal-lg { max-width: 720px; width: 90vw; }

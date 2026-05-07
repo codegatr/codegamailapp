@@ -51,10 +51,139 @@ class MailService {
 
   async syncAccount(accountId, onProgress) {
     const { account, inPassword } = this._getDecryptedAccount(accountId);
+
+    // Sync öncesi en yüksek mesaj id'sini al (kurallar için)
+    let beforeMaxId = 0;
+    try {
+      const r = this.db.prepare('SELECT MAX(id) AS m FROM messages WHERE account_id = ?').get(accountId);
+      beforeMaxId = (r && r.m) || 0;
+    } catch (_) {}
+
+    let result;
     if (account.protocol === 'pop3') {
-      return await Pop3Service.syncAccount(account, inPassword, this.db, onProgress);
+      result = await Pop3Service.syncAccount(account, inPassword, this.db, onProgress);
     } else {
-      return await ImapService.syncAccount(account, inPassword, this.db, onProgress);
+      result = await ImapService.syncAccount(account, inPassword, this.db, onProgress);
+    }
+
+    // v1.7: Yeni gelen mesajlara kuralları uygula
+    try {
+      const rulesApplied = this._applyRulesToNewMessages(accountId, beforeMaxId);
+      if (rulesApplied > 0) {
+        result.rulesApplied = rulesApplied;
+      }
+    } catch (e) {
+      console.warn('Kural uygulama hatası:', e.message);
+    }
+
+    return result;
+  }
+
+  // v1.7: Belirli mesajlara kuralları uygula
+  _applyRulesToNewMessages(accountId, sinceId) {
+    if (!this.db) return 0;
+    const rules = this.db.listRules(accountId).filter(r => r.enabled);
+    if (!rules.length) return 0;
+
+    // Yeni mesajları al (id > sinceId, spam değil)
+    const newMessages = this.db.prepare(`
+      SELECT * FROM messages WHERE account_id = ? AND id > ? AND is_spam = 0
+    `).all(accountId, sinceId);
+
+    if (!newMessages.length) return 0;
+
+    let appliedCount = 0;
+    for (const msg of newMessages) {
+      for (const rule of rules) {
+        try {
+          const conditions = JSON.parse(rule.conditions || '[]');
+          const actions = JSON.parse(rule.actions || '[]');
+          const matchType = rule.match_type || 'all';
+
+          // Conditions değerlendir
+          const results = conditions.map(c => this._evalCondition(msg, c));
+          const matched = matchType === 'any' ? results.some(r => r) : results.every(r => r);
+
+          if (matched) {
+            // Aksiyonları uygula
+            for (const action of actions) {
+              this._applyAction(msg, action);
+            }
+            this.db.incrementRuleRunCount(rule.id);
+            appliedCount++;
+          }
+        } catch (e) {
+          console.warn(`Kural ${rule.id} hatası:`, e.message);
+        }
+      }
+    }
+    return appliedCount;
+  }
+
+  _evalCondition(msg, c) {
+    const field = String(c.field || '').toLowerCase();
+    const op = String(c.operator || 'contains').toLowerCase();
+    const value = String(c.value || '').toLowerCase().trim();
+    if (!value) return false;
+
+    let target = '';
+    switch (field) {
+      case 'from': target = (msg.from_addr || '') + ' ' + (msg.from_name || ''); break;
+      case 'fromdomain': target = (msg.from_addr || '').split('@')[1] || ''; break;
+      case 'to': target = msg.to_addrs || ''; break;
+      case 'subject': target = msg.subject || ''; break;
+      case 'body': target = msg.body_text || ''; break;
+      case 'hasattachment': return op === 'is' ? msg.has_attachments == 1 : msg.has_attachments == 0;
+      default: return false;
+    }
+    target = target.toLowerCase();
+
+    switch (op) {
+      case 'contains': return target.includes(value);
+      case 'notcontains': return !target.includes(value);
+      case 'equals': return target === value;
+      case 'startswith': return target.startsWith(value);
+      case 'endswith': return target.endsWith(value);
+      case 'matches':
+        try { return new RegExp(value, 'i').test(target); }
+        catch (_) { return false; }
+      default: return false;
+    }
+  }
+
+  _applyAction(msg, action) {
+    const type = action.type;
+    switch (type) {
+      case 'movetofolder':
+      case 'moveToFolder': {
+        const targetFolderId = parseInt(action.value, 10);
+        if (targetFolderId && targetFolderId !== msg.folder_id) {
+          // Sadece DB seviyesinde taşı (sunucudan ayrı)
+          this.db.prepare('UPDATE messages SET folder_id = ? WHERE id = ?')
+            .run(targetFolderId, msg.id);
+          this.db.updateFolderCounts(msg.folder_id);
+          this.db.updateFolderCounts(targetFolderId);
+          msg.folder_id = targetFolderId;
+        }
+        break;
+      }
+      case 'markasread':
+      case 'markAsRead':
+        this.db.markMessageRead(msg.id, true);
+        msg.is_read = 1;
+        break;
+      case 'markasimportant':
+      case 'markAsImportant':
+        this.db.markMessageImportant(msg.id, true);
+        msg.is_important = 1;
+        break;
+      case 'delete':
+        this.db.deleteMessage(msg.id);
+        break;
+      case 'markasspam':
+      case 'markAsSpam':
+        this.db.prepare('UPDATE messages SET is_spam = 1, spam_score = 100 WHERE id = ?').run(msg.id);
+        break;
     }
   }
 
