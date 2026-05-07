@@ -121,7 +121,9 @@ const state = {
   editingAccountId: null,
   wizardStep: 1,
   lastConfiguredEmail: '',
-  composeAttachments: []  // v1.4: yeni mesaj ekleri
+  composeAttachments: [],  // v1.4: yeni mesaj ekleri
+  composeEditor: null,     // v1.6: zengin editör compose
+  signatureEditor: null    // v1.6: zengin editör imza
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -674,7 +676,7 @@ async function openAccountModal(editAccountId = null) {
   state.detectedProvider = null;
 
   ['acc_display_name','acc_email','acc_in_host','acc_in_username','acc_in_password',
-   'acc_smtp_host','acc_smtp_username','acc_smtp_password','acc_signature'].forEach(id => {
+   'acc_smtp_host','acc_smtp_username','acc_smtp_password'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   document.getElementById('acc_protocol').value = 'imap';
@@ -697,6 +699,15 @@ async function openAccountModal(editAccountId = null) {
   document.getElementById('acc_protocol').disabled = false;
   document.getElementById('advancedToggle').open = false;
 
+  // v1.6: imza editörünü init (sadece bir kere) ve içeriği temizle
+  if (!state.signatureEditor && typeof RichEditor !== 'undefined') {
+    state.signatureEditor = new RichEditor('signatureEditor', {
+      placeholder: '-- imzanızı buraya yazın (Bold, italic, link, vs.) --',
+      compact: true
+    });
+  }
+  if (state.signatureEditor) state.signatureEditor.clear();
+
   if (editAccountId) {
     document.getElementById('wizardSteps').style.display = 'none';
     document.querySelectorAll('.wizard-page').forEach(el => el.classList.remove('hidden'));
@@ -717,7 +728,12 @@ async function openAccountModal(editAccountId = null) {
       document.getElementById('acc_smtp_port').value = acc.smtp_port;
       document.getElementById('acc_smtp_secure').value = String(acc.smtp_secure);
       document.getElementById('acc_smtp_username').value = acc.smtp_username || '';
-      document.getElementById('acc_signature').value = acc.signature || '';
+      // v1.6: imzayı editor'e yükle (HTML veya plain - ikisini de destekle)
+      if (state.signatureEditor) {
+        const sig = acc.signature || '';
+        const sigIsHtml = /<[a-z][\s\S]*>/i.test(sig);
+        state.signatureEditor.setHTML(sigIsHtml ? sig : sig.replace(/\n/g, '<br>'));
+      }
       document.getElementById('acc_spam_enabled').value = String(acc.spam_enabled || 0);
       document.getElementById('acc_spam_threshold').value = acc.spam_threshold || 50;
       document.getElementById('acc_pop3_leave').checked = !!acc.pop3_leave_on_server;
@@ -757,7 +773,7 @@ function readAccountForm() {
     pop3_leave_on_server: document.getElementById('acc_pop3_leave').checked,
     spam_enabled: document.getElementById('acc_spam_enabled').value === '1',
     spam_threshold: parseInt(document.getElementById('acc_spam_threshold').value, 10) || 50,
-    signature: document.getElementById('acc_signature').value
+    signature: state.signatureEditor ? state.signatureEditor.getHTML() : ''
   };
 }
 
@@ -1307,6 +1323,13 @@ async function syncAccount(accountId) {
 function bindCompose() {
   document.getElementById('btnSendMail').onclick = sendMail;
 
+  // v1.6: zengin metin editörü
+  if (!state.composeEditor && typeof RichEditor !== 'undefined') {
+    state.composeEditor = new RichEditor('composeEditor', {
+      placeholder: 'Mesajınızı yazın...'
+    });
+  }
+
   // v1.4: Drag-drop ek dosya
   const dropZone = document.getElementById('attachmentDropZone');
   const fileInput = document.getElementById('attachmentInput');
@@ -1358,16 +1381,20 @@ function bindCompose() {
     });
 
     // Paste - panodaki dosyayı/görüntüyü ek olarak al
-    const composeBody = document.getElementById('compose_body');
-    composeBody.addEventListener('paste', async (e) => {
-      const items = Array.from(e.clipboardData?.items || []);
-      const fileItems = items.filter(i => i.kind === 'file');
-      if (fileItems.length > 0) {
-        e.preventDefault();
-        const files = fileItems.map(i => i.getAsFile()).filter(Boolean);
-        await addAttachments(files);
-      }
-    });
+    // v1.6: artık compose_body div editör. Editor element'inde paste'i yakala
+    const composeEditorEl = document.querySelector('#composeEditor .rte-content');
+    if (composeEditorEl) {
+      composeEditorEl.addEventListener('paste', async (e) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const fileItems = items.filter(i => i.kind === 'file');
+        if (fileItems.length > 0) {
+          e.preventDefault();
+          const files = fileItems.map(i => i.getAsFile()).filter(Boolean);
+          await addAttachments(files);
+        }
+        // dosya yoksa default davranış (RichEditor sanitizer çalışacak)
+      });
+    }
   }
 }
 
@@ -1459,22 +1486,47 @@ function openCompose(opts = {}) {
   state.composeAttachments = [];
   renderAttachmentList();
 
-  let to = '', subject = '', body = '';
+  // v1.6: editor varsa init et (modal hidden iken init zor olabilir, burada da güvence)
+  if (!state.composeEditor && typeof RichEditor !== 'undefined') {
+    state.composeEditor = new RichEditor('composeEditor', {
+      placeholder: 'Mesajınızı yazın...'
+    });
+  }
+
+  let to = '', subject = '', initialHTML = '<p><br></p>';
   if (opts.replyTo) {
     to = opts.replyTo.from_addr || '';
     subject = (opts.replyTo.subject || '').startsWith('Re:') ? opts.replyTo.subject : 'Re: ' + (opts.replyTo.subject || '');
-    body = `\n\n--- ${opts.replyTo.from_name || opts.replyTo.from_addr} (${formatDate(opts.replyTo.date)}) yazdı ---\n${opts.replyTo.body_text || ''}`;
+    const quotedBody = opts.replyTo.body_html
+      ? opts.replyTo.body_html
+      : '<pre>' + escapeHtml(opts.replyTo.body_text || '') + '</pre>';
+    initialHTML = `<p><br></p><blockquote style="border-left:3px solid #ccc;padding-left:10px;color:#888;">
+      <div><strong>${escapeHtml(opts.replyTo.from_name || opts.replyTo.from_addr || '')}</strong>
+      &lt;${escapeHtml(opts.replyTo.from_addr || '')}&gt; (${formatDate(opts.replyTo.date)}) yazdı:</div>
+      ${quotedBody}
+    </blockquote>`;
     fromSel.value = opts.replyTo.account_id;
   } else if (opts.forward) {
     subject = (opts.forward.subject || '').startsWith('Fwd:') ? opts.forward.subject : 'Fwd: ' + (opts.forward.subject || '');
-    body = `\n\n--- İletilen mesaj ---\nGönderen: ${opts.forward.from_addr}\nKonu: ${opts.forward.subject}\n\n${opts.forward.body_text || ''}`;
+    const quotedBody = opts.forward.body_html
+      ? opts.forward.body_html
+      : '<pre>' + escapeHtml(opts.forward.body_text || '') + '</pre>';
+    initialHTML = `<p><br></p><div style="border-top:1px solid #ccc;margin-top:10px;padding-top:10px;">
+      <strong>İletilen mesaj</strong><br>
+      Gönderen: ${escapeHtml(opts.forward.from_addr || '')}<br>
+      Konu: ${escapeHtml(opts.forward.subject || '')}
+      <hr>
+      ${quotedBody}
+    </div>`;
     fromSel.value = opts.forward.account_id;
   }
   document.getElementById('compose_to').value = to;
   document.getElementById('compose_cc').value = '';
   document.getElementById('compose_subject').value = subject;
-  document.getElementById('compose_body').value = body;
+  if (state.composeEditor) state.composeEditor.setHTML(initialHTML);
   document.getElementById('modalCompose').classList.remove('hidden');
+  // Cursor en başa
+  setTimeout(() => state.composeEditor?.focus(), 100);
 }
 
 async function sendMail() {
@@ -1482,7 +1534,9 @@ async function sendMail() {
   const to = document.getElementById('compose_to').value.trim();
   const cc = document.getElementById('compose_cc').value.trim();
   const subject = document.getElementById('compose_subject').value.trim();
-  const text = document.getElementById('compose_body').value;
+  // v1.6: zengin editör'den HTML + text al
+  const html = state.composeEditor ? state.composeEditor.getHTML() : '';
+  const text = state.composeEditor ? state.composeEditor.getText() : '';
   if (!to) return alert('Alıcı gerekli');
   if (!subject && !confirm('Konu boş - yine de göndermek istiyor musunuz?')) return;
 
@@ -1492,9 +1546,24 @@ async function sendMail() {
     if (!confirm(`Toplam ek boyutu ${(totalAttSize/1024/1024).toFixed(1)} MB - SMTP sağlayıcısı reddedebilir. Yine de göndermek istiyor musunuz?`)) return;
   }
 
+  // v1.6: imzayı HTML olarak ekle
   const acc = state.accounts.find(a => a.id === accountId);
   let finalText = text;
-  if (acc?.signature) finalText = text + '\n\n' + acc.signature;
+  let finalHtml = html;
+  if (acc?.signature) {
+    // Eski textonly imzaları da destekle (içinde HTML tag yoksa düz metin sayalım)
+    const sigIsHtml = /<[a-z][\s\S]*>/i.test(acc.signature);
+    if (sigIsHtml) {
+      finalHtml = html + '<br><br>' + acc.signature;
+      // Plain text için stripped versiyon
+      const tmp = document.createElement('div');
+      tmp.innerHTML = acc.signature;
+      finalText = text + '\n\n' + (tmp.innerText || tmp.textContent || '');
+    } else {
+      finalHtml = html + '<br><br>' + acc.signature.replace(/\n/g, '<br>');
+      finalText = text + '\n\n' + acc.signature;
+    }
+  }
 
   // Attachments → nodemailer formatına çevir
   const attachments = state.composeAttachments.map(a => ({
@@ -1507,13 +1576,14 @@ async function sendMail() {
   try {
     await window.api.mail.send(accountId, {
       to, cc: cc || undefined, subject,
-      text: finalText, html: finalText.replace(/\n/g, '<br>'),
+      text: finalText, html: finalHtml,
       attachments: attachments.length ? attachments : undefined
     });
     document.getElementById('modalCompose').classList.add('hidden');
     setStatus('Mesaj gönderildi ✓' + (attachments.length ? ` (${attachments.length} ek)` : ''));
     state.composeAttachments = [];
     renderAttachmentList();
+    if (state.composeEditor) state.composeEditor.clear();
     await loadAccounts();
     if (state.selectedFolder) await loadMessages();
   } catch (e) {
