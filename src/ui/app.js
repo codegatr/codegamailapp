@@ -124,7 +124,8 @@ const state = {
   composeAttachments: [],  // v1.4: yeni mesaj ekleri
   composeEditor: null,     // v1.6: zengin editör compose
   signatureEditor: null,   // v1.6: zengin editör imza
-  conversationView: false  // v1.9: konuşma görünümü
+  conversationView: false, // v1.9: konuşma görünümü
+  templateEditor: null     // v1.10: şablon editörü
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -403,6 +404,8 @@ function bindToolbar() {
   document.getElementById('btnRules').onclick = openRules;
   document.getElementById('btnCategories').onclick = openCategories;
   document.getElementById('btnConversationView').onclick = toggleConversationView;
+  document.getElementById('btnTemplates').onclick = openTemplatesManager;
+  document.getElementById('btnScheduled').onclick = openScheduledManager;
 }
 
 function bindModals() {
@@ -1510,6 +1513,50 @@ function bindCompose() {
     });
   }
 
+  // v1.10: şablon dropdown
+  const tplSel = document.getElementById('composeTemplateSelect');
+  if (tplSel) {
+    tplSel.onchange = async () => {
+      const id = parseInt(tplSel.value, 10);
+      if (!id) return;
+      const tpl = await window.api.templates.get(id);
+      if (!tpl) return;
+      // Subject ve body doldur (üzerine yazar)
+      if (tpl.subject) document.getElementById('compose_subject').value = tpl.subject;
+      if (state.composeEditor && tpl.body_html) {
+        state.composeEditor.setHTML(tpl.body_html);
+      }
+      await window.api.templates.incrementUse(id);
+      tplSel.value = '';  // reset dropdown
+      setStatus(`Şablon yüklendi: ${tpl.name}`);
+    };
+  }
+
+  // v1.10: "Bu mesajı şablon olarak kaydet"
+  const saveTplBtn = document.getElementById('btnSaveAsTemplate');
+  if (saveTplBtn) {
+    saveTplBtn.onclick = async () => {
+      const subject = document.getElementById('compose_subject').value.trim();
+      const html = state.composeEditor ? state.composeEditor.getHTML() : '';
+      const text = state.composeEditor ? state.composeEditor.getText() : '';
+      if (!subject && !text) return alert('Boş şablon kaydedilemez. Önce konu/içerik yazın.');
+      const name = prompt('Şablon adı:', subject.slice(0, 50) || 'Yeni Şablon');
+      if (!name || !name.trim()) return;
+      const category = prompt('Kategori (opsiyonel):', '') || null;
+      try {
+        await window.api.templates.add({ name: name.trim(), category, subject, body_html: html, body_text: text });
+        setStatus(`Şablon kaydedildi: ${name}`);
+        await refreshComposeTemplateDropdown();
+      } catch (e) { alert('Hata: ' + e.message); }
+    };
+  }
+
+  // v1.10: Zamanla butonu
+  const schedBtn = document.getElementById('btnScheduleMail');
+  if (schedBtn) {
+    schedBtn.onclick = openSchedulePicker;
+  }
+
   // v1.4: Drag-drop ek dosya
   const dropZone = document.getElementById('attachmentDropZone');
   const fileInput = document.getElementById('attachmentInput');
@@ -1704,6 +1751,8 @@ function openCompose(opts = {}) {
   document.getElementById('compose_cc').value = '';
   document.getElementById('compose_subject').value = subject;
   if (state.composeEditor) state.composeEditor.setHTML(initialHTML);
+  // v1.10: şablon dropdown'unu doldur
+  refreshComposeTemplateDropdown().catch(() => {});
   document.getElementById('modalCompose').classList.remove('hidden');
   // Cursor en başa
   setTimeout(() => state.composeEditor?.focus(), 100);
@@ -2283,4 +2332,308 @@ async function loadConversationViewState() {
       btn.classList.toggle('btn-ghost', !state.conversationView);
     }
   } catch (_) {}
+}
+
+// ============= v1.10: ŞABLONLAR =============
+async function refreshComposeTemplateDropdown() {
+  const sel = document.getElementById('composeTemplateSelect');
+  if (!sel) return;
+  const tpls = await window.api.templates.list();
+  let html = '<option value="">📝 Şablon Yükle...</option>';
+  // Kategoriye göre grupla
+  const byCategory = {};
+  for (const t of tpls) {
+    const cat = t.category || 'Genel';
+    (byCategory[cat] = byCategory[cat] || []).push(t);
+  }
+  for (const cat of Object.keys(byCategory).sort()) {
+    html += `<optgroup label="${escapeHtml(cat)}">`;
+    for (const t of byCategory[cat]) {
+      html += `<option value="${t.id}">${escapeHtml(t.name)}${t.use_count > 0 ? ` (${t.use_count})` : ''}</option>`;
+    }
+    html += '</optgroup>';
+  }
+  sel.innerHTML = html;
+}
+
+let templatesUIBound = false;
+async function openTemplatesManager() {
+  await renderTemplatesList();
+  hideTemplateEditor();
+  if (!templatesUIBound) {
+    templatesUIBound = true;
+    document.getElementById('btnNewTemplate').onclick = () => showTemplateEditor(null);
+    document.getElementById('btnCancelTemplate').onclick = () => hideTemplateEditor();
+    document.getElementById('btnSaveTemplate').onclick = saveTemplate;
+  }
+  document.getElementById('modalTemplates').classList.remove('hidden');
+}
+
+async function renderTemplatesList() {
+  const list = document.getElementById('templatesList');
+  const tpls = await window.api.templates.list();
+  if (!tpls.length) {
+    list.innerHTML = '<div class="empty-state">Henüz şablon yok. "+ Yeni Şablon" ile başlayın.</div>';
+    return;
+  }
+  list.innerHTML = tpls.map(t => `
+    <div class="rule-item">
+      <div class="rule-info">
+        <div class="rule-name">${escapeHtml(t.name)}</div>
+        <div class="rule-meta">
+          ${t.category ? '🏷 ' + escapeHtml(t.category) + ' · ' : ''}
+          ${t.subject ? 'Konu: ' + escapeHtml(t.subject.slice(0,50)) : 'Konusuz'} · 
+          ${t.use_count} kez kullanıldı
+        </div>
+      </div>
+      <button class="btn btn-ghost" data-edit-tpl="${t.id}">Düzenle</button>
+      <button class="btn btn-ghost" data-delete-tpl="${t.id}" style="color:var(--danger);">Sil</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('[data-edit-tpl]').forEach(el => {
+    el.onclick = async () => {
+      const tpl = await window.api.templates.get(parseInt(el.dataset.editTpl, 10));
+      showTemplateEditor(tpl);
+    };
+  });
+  list.querySelectorAll('[data-delete-tpl]').forEach(el => {
+    el.onclick = async () => {
+      if (!confirm('Bu şablonu silmek istediğinizden emin misiniz?')) return;
+      await window.api.templates.delete(parseInt(el.dataset.deleteTpl, 10));
+      await renderTemplatesList();
+    };
+  });
+}
+
+let currentTemplate = null;
+function showTemplateEditor(tpl) {
+  currentTemplate = tpl;
+  document.getElementById('templateEditor').classList.remove('hidden');
+  document.getElementById('tpl_name').value = tpl?.name || '';
+  document.getElementById('tpl_category').value = tpl?.category || '';
+  document.getElementById('tpl_subject').value = tpl?.subject || '';
+  // Editor init/set
+  if (!state.templateEditor && typeof RichEditor !== 'undefined') {
+    state.templateEditor = new RichEditor('tpl_editor', {
+      placeholder: 'Şablon içeriği (Bold, italic, link, vs. desteklenir)',
+      compact: true
+    });
+  }
+  if (state.templateEditor) {
+    state.templateEditor.setHTML(tpl?.body_html || '');
+  }
+}
+
+function hideTemplateEditor() {
+  document.getElementById('templateEditor').classList.add('hidden');
+  currentTemplate = null;
+}
+
+async function saveTemplate() {
+  const name = document.getElementById('tpl_name').value.trim();
+  if (!name) return alert('Şablon adı gerekli');
+  const data = {
+    name,
+    category: document.getElementById('tpl_category').value.trim() || null,
+    subject: document.getElementById('tpl_subject').value,
+    body_html: state.templateEditor ? state.templateEditor.getHTML() : '',
+    body_text: state.templateEditor ? state.templateEditor.getText() : ''
+  };
+  try {
+    if (currentTemplate) {
+      await window.api.templates.update(currentTemplate.id, data);
+    } else {
+      await window.api.templates.add(data);
+    }
+    hideTemplateEditor();
+    await renderTemplatesList();
+    setStatus('Şablon kaydedildi');
+  } catch (e) {
+    alert('Hata: ' + e.message);
+  }
+}
+
+// ============= v1.10: ZAMANLANMIŞ GÖNDERİM =============
+let schedulePickerBound = false;
+function openSchedulePicker() {
+  // Compose modal'ında en az alıcı + konu var mı kontrol
+  const to = document.getElementById('compose_to').value.trim();
+  if (!to) return alert('Önce alıcı (Kime) alanını doldurun');
+
+  // Default: 1 saat sonra
+  const now = new Date();
+  now.setMinutes(now.getMinutes() + 60);
+  document.getElementById('schedule_datetime').value = formatLocalDatetime(now);
+
+  if (!schedulePickerBound) {
+    schedulePickerBound = true;
+    document.querySelectorAll('.sched-preset').forEach(btn => {
+      btn.onclick = () => {
+        const dt = new Date();
+        if (btn.dataset.mins) {
+          dt.setMinutes(dt.getMinutes() + parseInt(btn.dataset.mins, 10));
+        } else if (btn.dataset.tomorrow) {
+          dt.setDate(dt.getDate() + 1);
+          dt.setHours(parseInt(btn.dataset.tomorrow, 10), 0, 0, 0);
+        } else if (btn.dataset.monday) {
+          // Önümüzdeki Pazartesi (eğer bugün Pazartesi'yse 1 hafta sonra)
+          const day = dt.getDay(); // 0=Sun, 1=Mon
+          let daysUntil = (8 - day) % 7;
+          if (daysUntil === 0) daysUntil = 7;
+          dt.setDate(dt.getDate() + daysUntil);
+          dt.setHours(parseInt(btn.dataset.monday, 10), 0, 0, 0);
+        }
+        document.getElementById('schedule_datetime').value = formatLocalDatetime(dt);
+      };
+    });
+    document.getElementById('btnConfirmSchedule').onclick = confirmSchedule;
+  }
+
+  document.getElementById('modalSchedulePicker').classList.remove('hidden');
+}
+
+function formatLocalDatetime(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function confirmSchedule() {
+  const dtVal = document.getElementById('schedule_datetime').value;
+  if (!dtVal) return alert('Tarih/saat seçin');
+  const scheduledFor = new Date(dtVal);
+  if (scheduledFor <= new Date()) return alert('Geçmiş bir zamanı seçemezsiniz');
+
+  // Compose form'undan veriyi al
+  const accountId = parseInt(document.getElementById('compose_from').value, 10);
+  const to = document.getElementById('compose_to').value.trim();
+  const cc = document.getElementById('compose_cc').value.trim();
+  const subject = document.getElementById('compose_subject').value.trim();
+  const html = state.composeEditor ? state.composeEditor.getHTML() : '';
+  const text = state.composeEditor ? state.composeEditor.getText() : '';
+  if (!to) return alert('Alıcı gerekli');
+
+  // İmza ekle (sendMail'deki gibi)
+  const acc = state.accounts.find(a => a.id === accountId);
+  let finalText = text, finalHtml = html;
+  if (acc?.signature) {
+    const sigIsHtml = /<[a-z][\s\S]*>/i.test(acc.signature);
+    if (sigIsHtml) {
+      finalHtml = html + '<br><br>' + acc.signature;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = acc.signature;
+      finalText = text + '\n\n' + (tmp.innerText || tmp.textContent || '');
+    } else {
+      finalHtml = html + '<br><br>' + acc.signature.replace(/\n/g, '<br>');
+      finalText = text + '\n\n' + acc.signature;
+    }
+  }
+
+  // Attachments → JSON-serileştirilebilir hale getir
+  const attachments = state.composeAttachments.map(a => ({
+    filename: a.name,
+    content: { type: 'Buffer', data: Array.from(a.bytes) },
+    contentType: a.type
+  }));
+
+  try {
+    const r = await window.api.scheduled.add({
+      account_id: accountId,
+      to_addrs: to,
+      cc_addrs: cc || null,
+      subject,
+      body_html: finalHtml,
+      body_text: finalText,
+      attachments,
+      scheduled_for: scheduledFor.toISOString()
+    });
+    if (!r.ok) throw new Error(r.error);
+
+    document.getElementById('modalSchedulePicker').classList.add('hidden');
+    document.getElementById('modalCompose').classList.add('hidden');
+    state.composeAttachments = [];
+    renderAttachmentList();
+    if (state.composeEditor) state.composeEditor.clear();
+
+    const whenStr = scheduledFor.toLocaleString('tr-TR');
+    setStatus(`✓ Mesaj zamanlandı: ${whenStr}`);
+  } catch (e) {
+    alert('Zamanlama hatası: ' + e.message);
+  }
+}
+
+let scheduledManagerBound = false;
+async function openScheduledManager() {
+  await renderScheduledList();
+  if (!scheduledManagerBound) {
+    scheduledManagerBound = true;
+    document.getElementById('schedFilter').onchange = renderScheduledList;
+  }
+  document.getElementById('modalScheduled').classList.remove('hidden');
+}
+
+async function renderScheduledList() {
+  const filter = document.getElementById('schedFilter').value;
+  const items = await window.api.scheduled.list(filter || undefined);
+  const list = document.getElementById('scheduledList');
+  if (!items.length) {
+    list.innerHTML = `<div class="empty-state">${filter ? 'Bu durumda mesaj yok' : 'Henüz zamanlanmış mesaj yok'}</div>`;
+    return;
+  }
+  list.innerHTML = items.map(s => {
+    const acc = state.accounts.find(a => a.id === s.account_id);
+    const when = s.scheduled_for ? new Date(s.scheduled_for).toLocaleString('tr-TR') : '?';
+    const sentWhen = s.sent_at ? new Date(s.sent_at).toLocaleString('tr-TR') : '';
+    let statusBadge = '';
+    let statusColor = '';
+    switch (s.status) {
+      case 'pending':   statusBadge = '⏳ Bekliyor';     statusColor = 'var(--accent)'; break;
+      case 'sending':   statusBadge = '📤 Gönderiliyor'; statusColor = 'var(--accent)'; break;
+      case 'sent':      statusBadge = '✓ Gönderildi';   statusColor = 'var(--success)'; break;
+      case 'failed':    statusBadge = '❌ Başarısız';    statusColor = 'var(--danger)'; break;
+      case 'cancelled': statusBadge = '🚫 İptal';        statusColor = 'var(--muted)'; break;
+      default:          statusBadge = s.status;
+    }
+    return `
+      <div class="rule-item">
+        <div class="rule-info">
+          <div class="rule-name" style="display:flex;align-items:center;gap:8px;">
+            <span style="color:${statusColor};font-size:11px;font-weight:600;">${statusBadge}</span>
+            ${escapeHtml(s.subject || '(konusuz)')}
+          </div>
+          <div class="rule-meta">
+            ${acc ? escapeHtml(acc.email) + ' → ' : ''}${escapeHtml(s.to_addrs)} · 
+            <strong>Zamanlanmış:</strong> ${when}
+            ${sentWhen ? ` · <strong>Gönderildi:</strong> ${sentWhen}` : ''}
+            ${s.error ? `<br><span style="color:var(--danger);">⚠ ${escapeHtml(s.error.slice(0,200))}</span>` : ''}
+          </div>
+        </div>
+        ${s.status === 'pending' || s.status === 'sending'
+          ? `<button class="btn btn-ghost" data-cancel-sched="${s.id}" style="color:var(--danger);">İptal</button>`
+          : `<button class="btn btn-ghost" data-delete-sched="${s.id}" style="color:var(--danger);">Sil</button>`}
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('[data-cancel-sched]').forEach(el => {
+    el.onclick = async () => {
+      if (!confirm('Bu zamanlanmış mesajı iptal etmek istediğinize emin misiniz?')) return;
+      await window.api.scheduled.cancel(parseInt(el.dataset.cancelSched, 10));
+      await renderScheduledList();
+    };
+  });
+  list.querySelectorAll('[data-delete-sched]').forEach(el => {
+    el.onclick = async () => {
+      if (!confirm('Bu kaydı listeden silmek istediğinize emin misiniz?')) return;
+      await window.api.scheduled.delete(parseInt(el.dataset.deleteSched, 10));
+      await renderScheduledList();
+    };
+  });
+}
+
+// "Zamanlanmış mesaj gönderildi" event
+if (window.api.scheduled && window.api.scheduled.onSent) {
+  window.api.scheduled.onSent((data) => {
+    setStatus(`✓ Zamanlanmış mesaj gönderildi: "${data.subject || '(konusuz)'}" → ${data.to}`);
+  });
 }

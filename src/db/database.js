@@ -209,6 +209,38 @@ class Database {
 
       CREATE INDEX IF NOT EXISTS idx_msg_cat_msg ON message_categories(message_id);
       CREATE INDEX IF NOT EXISTS idx_msg_cat_cat ON message_categories(category_id);
+
+      CREATE TABLE IF NOT EXISTS templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category TEXT,
+        subject TEXT,
+        body_html TEXT,
+        body_text TEXT,
+        use_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_templates_name ON templates(name);
+
+      CREATE TABLE IF NOT EXISTS scheduled_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id INTEGER NOT NULL,
+        to_addrs TEXT NOT NULL,
+        cc_addrs TEXT,
+        bcc_addrs TEXT,
+        subject TEXT,
+        body_html TEXT,
+        body_text TEXT,
+        attachments TEXT,
+        scheduled_for TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        sent_at TEXT,
+        status TEXT DEFAULT 'pending',
+        error TEXT,
+        FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_sched_status ON scheduled_messages(status, scheduled_for);
     `);
 
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_enabled INTEGER DEFAULT 1');
@@ -808,6 +840,93 @@ class Database {
     for (const cid of (categoryIds || [])) {
       try { stmt.run(messageId, cid); } catch (_) {}
     }
+  }
+
+  // ====== v1.10: Şablonlar ======
+  listTemplates() {
+    return this.prepare('SELECT * FROM templates ORDER BY use_count DESC, name ASC').all();
+  }
+
+  getTemplate(id) {
+    return this.prepare('SELECT * FROM templates WHERE id = ?').get(id);
+  }
+
+  addTemplate(t) {
+    const r = this.prepare(`
+      INSERT INTO templates (name, category, subject, body_html, body_text)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(t.name, t.category || null, t.subject || '', t.body_html || '', t.body_text || '');
+    return r.lastInsertRowid;
+  }
+
+  updateTemplate(id, updates) {
+    const allowed = ['name', 'category', 'subject', 'body_html', 'body_text'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => updates[f]);
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE templates SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteTemplate(id) {
+    this.prepare('DELETE FROM templates WHERE id = ?').run(id);
+  }
+
+  incrementTemplateUseCount(id) {
+    this.prepare('UPDATE templates SET use_count = use_count + 1 WHERE id = ?').run(id);
+  }
+
+  // ====== v1.10: Zamanlanmış mesajlar ======
+  listScheduledMessages(status) {
+    if (status) {
+      return this.prepare('SELECT * FROM scheduled_messages WHERE status = ? ORDER BY scheduled_for ASC').all(status);
+    }
+    return this.prepare('SELECT * FROM scheduled_messages ORDER BY scheduled_for DESC').all();
+  }
+
+  getScheduledMessage(id) {
+    return this.prepare('SELECT * FROM scheduled_messages WHERE id = ?').get(id);
+  }
+
+  addScheduledMessage(msg) {
+    const r = this.prepare(`
+      INSERT INTO scheduled_messages
+      (account_id, to_addrs, cc_addrs, bcc_addrs, subject, body_html, body_text, attachments, scheduled_for)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      msg.account_id, msg.to_addrs, msg.cc_addrs || null, msg.bcc_addrs || null,
+      msg.subject || '', msg.body_html || '', msg.body_text || '',
+      typeof msg.attachments === 'string' ? msg.attachments : JSON.stringify(msg.attachments || []),
+      msg.scheduled_for
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateScheduledStatus(id, status, error) {
+    if (status === 'sent') {
+      this.prepare(`UPDATE scheduled_messages SET status = ?, sent_at = ?, error = NULL WHERE id = ?`)
+        .run(status, new Date().toISOString(), id);
+    } else if (status === 'failed') {
+      this.prepare(`UPDATE scheduled_messages SET status = ?, error = ? WHERE id = ?`)
+        .run(status, error || 'Bilinmeyen hata', id);
+    } else {
+      this.prepare(`UPDATE scheduled_messages SET status = ? WHERE id = ?`).run(status, id);
+    }
+  }
+
+  deleteScheduledMessage(id) {
+    this.prepare('DELETE FROM scheduled_messages WHERE id = ?').run(id);
+  }
+
+  // Vakti gelmiş bekleyen mesajları al (background scheduler için)
+  getDueScheduledMessages() {
+    const now = new Date().toISOString();
+    return this.prepare(`
+      SELECT * FROM scheduled_messages
+      WHERE status = 'pending' AND scheduled_for <= ?
+      ORDER BY scheduled_for ASC LIMIT 10
+    `).all(now);
   }
 }
 

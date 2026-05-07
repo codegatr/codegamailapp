@@ -49,6 +49,21 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, updates) => ipcRenderer.invoke('categories:update', id, updates),
     delete: (id) => ipcRenderer.invoke('categories:delete', id)
   },
+  templates: {
+    list: () => ipcRenderer.invoke('templates:list'),
+    get: (id) => ipcRenderer.invoke('templates:get', id),
+    add: (t) => ipcRenderer.invoke('templates:add', t),
+    update: (id, updates) => ipcRenderer.invoke('templates:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('templates:delete', id),
+    incrementUse: (id) => ipcRenderer.invoke('templates:incrementUse', id)
+  },
+  scheduled: {
+    list: (status) => ipcRenderer.invoke('scheduled:list', status),
+    add: (msg) => ipcRenderer.invoke('scheduled:add', msg),
+    cancel: (id) => ipcRenderer.invoke('scheduled:cancel', id),
+    delete: (id) => ipcRenderer.invoke('scheduled:delete', id),
+    onSent: (cb) => ipcRenderer.on('scheduled:sent', (_, data) => cb(data))
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

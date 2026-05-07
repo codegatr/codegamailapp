@@ -386,6 +386,7 @@ app.whenReady().then(async () => {
     applyAutoStart();
     setupAutoUpdater();
     scheduleAutoUpdateCheck();
+    startSchedulerLoop();  // v1.10: zamanlanmış mesajlar
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -730,6 +731,116 @@ ipcMain.handle('messages:backfillThreads', () => {
     return { ok: true, updated };
   } catch (e) { return { ok: false, error: e.message }; }
 });
+
+// =====================================================================
+// v1.10 IPC: Şablonlar
+// =====================================================================
+ipcMain.handle('templates:list', () => db.listTemplates());
+ipcMain.handle('templates:get', (_, id) => db.getTemplate(id));
+ipcMain.handle('templates:add', (_, t) => ({ ok: true, id: db.addTemplate(t) }));
+ipcMain.handle('templates:update', (_, id, updates) => {
+  db.updateTemplate(id, updates);
+  return { ok: true };
+});
+ipcMain.handle('templates:delete', (_, id) => {
+  db.deleteTemplate(id);
+  return { ok: true };
+});
+ipcMain.handle('templates:incrementUse', (_, id) => {
+  db.incrementTemplateUseCount(id);
+  return { ok: true };
+});
+
+// =====================================================================
+// v1.10 IPC: Zamanlanmış mesajlar
+// =====================================================================
+ipcMain.handle('scheduled:list', (_, status) => db.listScheduledMessages(status));
+ipcMain.handle('scheduled:add', (_, msg) => {
+  const id = db.addScheduledMessage(msg);
+  db.save();
+  // Yakın gelecekte (5 dk içinde) ise scheduler'ı hemen tetikle
+  scheduleProcessSoon();
+  return { ok: true, id };
+});
+ipcMain.handle('scheduled:cancel', (_, id) => {
+  db.updateScheduledStatus(id, 'cancelled');
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('scheduled:delete', (_, id) => {
+  db.deleteScheduledMessage(id);
+  db.save();
+  return { ok: true };
+});
+
+// Background scheduler - her 30 saniyede bir kontrol
+let scheduledTimer = null;
+let processingScheduled = false;
+
+function scheduleProcessSoon() {
+  setTimeout(() => processDueScheduledMessages().catch(e => console.warn('Scheduler error:', e.message)), 1000);
+}
+
+async function processDueScheduledMessages() {
+  if (processingScheduled || !db || !mailService) return;
+  processingScheduled = true;
+  try {
+    const due = db.getDueScheduledMessages();
+    for (const msg of due) {
+      try {
+        // Status'u sending yap (yarış koşulu engelleme)
+        db.updateScheduledStatus(msg.id, 'sending');
+
+        const attachments = msg.attachments ? JSON.parse(msg.attachments) : [];
+        // Buffer'ları geri canlandır (toJSON ile string'e dönmüştü)
+        const restoredAttachments = attachments.map(a => ({
+          filename: a.filename,
+          content: a.content && a.content.data ? Buffer.from(a.content.data) : (typeof a.content === 'string' ? Buffer.from(a.content, 'base64') : a.content),
+          contentType: a.contentType
+        }));
+
+        await mailService.sendMail(msg.account_id, {
+          to: msg.to_addrs,
+          cc: msg.cc_addrs || undefined,
+          bcc: msg.bcc_addrs || undefined,
+          subject: msg.subject,
+          html: msg.body_html,
+          text: msg.body_text,
+          attachments: restoredAttachments.length ? restoredAttachments : undefined
+        });
+
+        db.updateScheduledStatus(msg.id, 'sent');
+
+        // Bildirim
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('scheduled:sent', { id: msg.id, subject: msg.subject, to: msg.to_addrs });
+        }
+        try {
+          if (Notification.isSupported()) {
+            new Notification({
+              title: 'Zamanlanmış mesaj gönderildi',
+              body: `"${(msg.subject || '(konusuz)').slice(0, 60)}" → ${msg.to_addrs}`,
+              silent: false
+            }).show();
+          }
+        } catch (_) {}
+      } catch (e) {
+        console.warn('Zamanlanmış mesaj gönderim hatası:', msg.id, e.message);
+        db.updateScheduledStatus(msg.id, 'failed', e.message);
+      }
+    }
+    if (due.length) db.save();
+  } finally {
+    processingScheduled = false;
+  }
+}
+
+function startSchedulerLoop() {
+  if (scheduledTimer) clearInterval(scheduledTimer);
+  scheduledTimer = setInterval(() => {
+    processDueScheduledMessages().catch(e => console.warn('Scheduler error:', e.message));
+  }, 30 * 1000); // 30 saniye
+}
 
 // =====================================================================
 // IPC: Senkronizasyon

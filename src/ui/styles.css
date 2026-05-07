@@ -1237,3 +1237,27 @@ body { display: flex; flex-direction: column; }
   background: var(--primary);
   color: var(--primary-text);
 }
+
+/* ============= v1.10: Şablonlar + Zamanlanmış ============= */
+.sched-preset {
+  text-align: left;
+  padding: 8px 12px !important;
+  font-size: 12px;
+}
+.sched-preset:hover {
+  background: var(--surface-hi) !important;
+  border-color: var(--primary) !important;
+}
+#schedule_datetime {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  font-family: inherit;
+}
+#composeTemplateSelect optgroup {
+  color: var(--accent);
+  font-weight: 700;
+}

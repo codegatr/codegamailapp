@@ -25,6 +25,8 @@
       <button id="btnRules" class="btn btn-ghost" title="Filtre kuralları (otomatik klasörleme)">📋 Kurallar</button>
       <button id="btnCategories" class="btn btn-ghost" title="Renkli kategoriler/etiketler">🏷 Kategoriler</button>
       <button id="btnConversationView" class="btn btn-ghost" title="Konuşma görünümü (Re: zincirleri grupla)">💬 Konuşma</button>
+      <button id="btnTemplates" class="btn btn-ghost" title="Mesaj şablonları">📝 Şablonlar</button>
+      <button id="btnScheduled" class="btn btn-ghost" title="Zamanlanmış mesajlar">⏰ Zamanlanmış</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
       <button id="btnAbout" class="btn btn-ghost" title="Hakkında">ℹ Hakkında</button>
       <button id="btnBackup" class="btn btn-ghost" title="Yedek al">⬇ Yedek</button>
@@ -401,7 +403,15 @@
   <!-- ===== Yeni Mesaj ===== -->
   <div id="modalCompose" class="modal hidden">
     <div class="modal-content modal-lg">
-      <div class="modal-header"><h2>Yeni Mesaj</h2><button class="modal-close" data-close="modalCompose">×</button></div>
+      <div class="modal-header">
+        <h2>Yeni Mesaj</h2>
+        <div style="flex:1;"></div>
+        <select id="composeTemplateSelect" style="font-size:11px;padding:3px 6px;background:var(--bg-3);color:var(--text);border:1px solid var(--border);border-radius:4px;margin-right:8px;">
+          <option value="">📝 Şablon Yükle...</option>
+        </select>
+        <button id="btnSaveAsTemplate" class="btn btn-ghost" title="Bu mesajı şablon olarak kaydet" style="font-size:11px;margin-right:6px;">💾 Şablon Kaydet</button>
+        <button class="modal-close" data-close="modalCompose">×</button>
+      </div>
       <div class="modal-body">
         <div class="form-group"><label>Gönderen Hesap</label><select id="compose_from"></select></div>
         <div class="form-group"><label>Kime</label><input type="text" id="compose_to" placeholder="ornek@adres.com"></div>
@@ -425,8 +435,112 @@
         <button class="btn btn-ghost" data-close="modalCompose">İptal</button>
         <div style="flex:1;"></div>
         <span id="composeAttCount" style="font-size:11px;color:var(--muted);"></span>
+        <button id="btnScheduleMail" class="btn btn-ghost" title="Belirli bir zamanda gönder">⏰ Zamanla</button>
         <button id="btnSendMail" class="btn btn-primary">Gönder</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== Zamanlama Picker ===== -->
+  <div id="modalSchedulePicker" class="modal hidden">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header"><h2>⏰ Zamanlanmış Gönderim</h2><button class="modal-close" data-close="modalSchedulePicker">×</button></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;line-height:1.6;">
+          Mesaj seçilen tarih/saatte gönderilir. <strong>Önemli:</strong> Uygulama açık olmalı (sistem tepsisinde de olabilir). App kapalıyken gönderim atlanır.
+        </div>
+
+        <div class="form-section full">Hızlı Seçenekler</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px;">
+          <button class="btn btn-ghost sched-preset" data-mins="60">⏱ 1 saat sonra</button>
+          <button class="btn btn-ghost sched-preset" data-mins="180">⏱ 3 saat sonra</button>
+          <button class="btn btn-ghost sched-preset" data-tomorrow="9">🌅 Yarın 09:00</button>
+          <button class="btn btn-ghost sched-preset" data-tomorrow="14">☀ Yarın 14:00</button>
+          <button class="btn btn-ghost sched-preset" data-monday="9">📅 Pazartesi 09:00</button>
+          <button class="btn btn-ghost sched-preset" data-mins="10080">📆 1 hafta sonra</button>
+        </div>
+
+        <div class="form-section full">Özel Tarih/Saat</div>
+        <div class="form-group">
+          <input type="datetime-local" id="schedule_datetime" style="font-size:13px;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalSchedulePicker">İptal</button>
+        <div style="flex:1;"></div>
+        <button id="btnConfirmSchedule" class="btn btn-primary">Zamanla ve Kuyruğa Ekle</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Şablonlar Yönetim ===== -->
+  <div id="modalTemplates" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header"><h2>📝 Mesaj Şablonları</h2><button class="modal-close" data-close="modalTemplates">×</button></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;line-height:1.6;">
+          Sık kullandığınız mesajları şablon olarak kaydedin. Yeni Mesaj penceresinde "Şablon Yükle" dropdown'ından çağırın.
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="btn btn-primary" id="btnNewTemplate">+ Yeni Şablon</button>
+        </div>
+
+        <div id="templatesList" class="rules-list"></div>
+
+        <!-- Şablon editörü -->
+        <div id="templateEditor" class="rule-editor hidden">
+          <div class="form-section full">Yeni / Düzenle Şablon</div>
+          <div class="form-grid" style="grid-template-columns:1fr 200px;">
+            <div class="form-group">
+              <label>Şablon Adı</label>
+              <input type="text" id="tpl_name" placeholder="Örn: Müşteri Onay Maili">
+            </div>
+            <div class="form-group">
+              <label>Kategori (opsiyonel)</label>
+              <input type="text" id="tpl_category" placeholder="Müşteri, İş, Fatura...">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:8px;">
+            <label>Konu</label>
+            <input type="text" id="tpl_subject" placeholder="Mesaj konusu (boş bırakılabilir)">
+          </div>
+          <div class="form-group" style="margin-top:8px;">
+            <label>İçerik</label>
+            <div id="tpl_editor"></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end;">
+            <button class="btn btn-ghost" id="btnCancelTemplate">İptal</button>
+            <button class="btn btn-primary" id="btnSaveTemplate">Kaydet</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" data-close="modalTemplates">Kapat</button></div>
+    </div>
+  </div>
+
+  <!-- ===== Zamanlanmış Mesajlar Listesi ===== -->
+  <div id="modalScheduled" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header"><h2>⏰ Zamanlanmış Mesajlar</h2><button class="modal-close" data-close="modalScheduled">×</button></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;line-height:1.6;">
+          Henüz gönderilmemiş ve zamanlanmış mesajlarınız. <strong>İptal</strong> = gönderilmez (durum). <strong>Sil</strong> = listeden tamamen kaldır.
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <select id="schedFilter" style="font-size:12px;">
+            <option value="pending">⏳ Bekleyen</option>
+            <option value="sent">✓ Gönderilmiş</option>
+            <option value="failed">❌ Başarısız</option>
+            <option value="cancelled">🚫 İptal Edilmiş</option>
+            <option value="">Tümü</option>
+          </select>
+        </div>
+
+        <div id="scheduledList" class="rules-list"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" data-close="modalScheduled">Kapat</button></div>
     </div>
   </div>
 
@@ -442,7 +556,7 @@
           <div class="about-icon">✉</div>
           <div>
             <div class="about-app-name">CODEGA Mail</div>
-            <div class="about-version">Sürüm <span id="aboutVersion">1.9.0</span></div>
+            <div class="about-version">Sürüm <span id="aboutVersion">1.10.0</span></div>
             <div class="about-tagline">Yerel masaüstü mail istemcisi · IMAP/POP3 · OS-level şifreleme</div>
           </div>
         </div>
