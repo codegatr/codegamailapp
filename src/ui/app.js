@@ -490,24 +490,51 @@ function bindSettings() {
   document.getElementById('btnTestNotif').onclick = async () => {
     const r = await window.api.config.testNotification();
     if (r && r.ok) {
-      setStatus('✓ Test bildirimi gönderildi - sağ alt köşeyi kontrol edin');
+      const layer = r.viaLayer || 'bilinmiyor';
+      let layerName = layer;
+      if (layer === 'node-notifier') layerName = 'SnoreToast (Windows native)';
+      else if (layer === 'electron') layerName = 'Electron Notification API';
+      else if (layer === 'tray_balloon') layerName = 'Sistem Tepsisi Balonu';
+      setStatus(`✓ Test bildirimi gönderildi (${layerName}) - sağ alt köşeyi kontrol edin`);
+      // 5 saniye sonra hâlâ göremedim deyip sorulduğunda yardımcı olmak için
+      setTimeout(() => {
+        const yes = confirm(`Bildirim göründü mü?\n\nGönderildiği katman: ${layerName}\n\nGörmediyseniz "İptal" tıklayın, Windows kontrol checklist'i göstereyim.`);
+        if (!yes) showNotificationTroubleshoot(r);
+      }, 3000);
     } else {
-      // Detaylı hata
       let msg = 'Bildirim gönderilemedi.\n\n';
       if (!r) msg += 'Sebep: IPC dönmedi';
-      else if (!r.supported) msg += 'Sebep: Bu sistem bildirim desteklemiyor';
       else if (!r.enabled) msg += 'Sebep: Bildirimler config\'de kapalı';
       else if (r.reason) msg += `Sebep: ${r.reason}` + (r.error ? '\nHata: ' + r.error : '');
       else msg += 'Bilinmeyen hata';
       msg += '\n\nWindows kontrol et:\n';
       msg += '1. Ayarlar > Sistem > Bildirimler > AÇIK olmalı\n';
-      msg += '2. Ayarlar > Sistem > Bildirimler > "CODEGA Mail" uygulaması için AÇIK olmalı\n';
-      msg += '3. "Odaklanma Yardımı" (Focus Assist) > KAPALI veya "Yalnızca öncelikli" değil\n';
-      msg += '4. Eğer hâlâ çalışmıyorsa: Başlat menüsünde CODEGA Mail kısayolu var mı kontrol et';
+      msg += '2. Aynı yerde "CODEGA Mail" listesi (varsa) > AÇIK\n';
+      msg += '3. "Odaklanma Yardımı" (Focus Assist) > KAPALI\n';
+      msg += '4. Başlat menüsünde "CODEGA Mail" kısayolu var mı';
       alert(msg);
-      setStatus('Test bildirimi başarısız - detay alert\'te', 'error');
+      setStatus('Test bildirimi başarısız', 'error');
     }
   };
+}
+
+function showNotificationTroubleshoot(result) {
+  let msg = 'Windows bildirim sorunu giderme:\n\n';
+  msg += `Test sonucu: Katman ${result.viaLayer || '?'} kullanıldı, ok=${result.ok}\n\n`;
+  msg += '🔍 KONTROL ET:\n';
+  msg += '1. Görev çubuğunda saat yanındaki BİLDİRİM MERKEZİ ikonuna tıkla, gelen bildirimler orada birikmiş olabilir\n';
+  msg += '2. Windows Ayarlar > Sistem > Bildirimler:\n';
+  msg += '   • "Bildirimleri al" AÇIK olmalı\n';
+  msg += '   • Aşağı kaydır, "CODEGA Mail" varsa AÇIK\n';
+  msg += '3. Windows Ayarlar > Sistem > "Odaklanma" (Focus assist):\n';
+  msg += '   • "Kapalı" olmalı (öncelik veya yalnızca alarm DEĞİL)\n';
+  msg += '4. Ses kontrolü: Bildirim sesi mute mı?\n';
+  msg += '5. Sistem tepsisinde CODEGA Mail simgesine sağ tıklayıp dene\n\n';
+  msg += '📋 Eğer bildirimler hâlâ gelmiyorsa:\n';
+  msg += '• Uygulamayı tepsiden kapat, tekrar aç\n';
+  msg += '• Bilgisayarı yeniden başlat\n';
+  msg += '• CODEGA Mail\'i Başlat menüsüne sabitle (sağ tık > Sabitle)';
+  alert(msg);
 }
 
 async function openSettings() {

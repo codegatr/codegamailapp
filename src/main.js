@@ -246,64 +246,90 @@ function updateTray() {
 // =====================================================================
 function showNotification(title, body, messageId = null, silent = false) {
   // v1.10.2: Detaylı log + error handling
-  if (!Notification.isSupported()) {
-    console.warn('[NOTIF] Notification.isSupported() = false');
-    return { ok: false, reason: 'not_supported' };
-  }
   if (appConfig.get('notificationsEnabled') === false) {
     console.warn('[NOTIF] notificationsEnabled config = false');
     return { ok: false, reason: 'disabled_by_user' };
   }
 
   const iconPath = getIconPath();
-  console.log('[NOTIF] Bildirim oluşturuluyor:', { title, body, iconPath, silent });
+  console.log('[NOTIF] Bildirim deneniyor:', { title, body, iconPath, silent });
 
-  let n;
+  const titleStr = String(title || '');
+  const bodyStr = String(body || '');
+
+  // v1.10.3: KATMAN 1 - node-notifier (Windows için SnoreToast, AUMID sorunu olmadan native toast)
   try {
-    n = new Notification({
-      title: String(title || ''),
-      body: String(body || ''),
+    const notifier = require('node-notifier');
+    notifier.notify({
+      title: titleStr,
+      message: bodyStr,
       icon: iconPath || undefined,
-      silent: !!silent
-    });
-  } catch (e) {
-    console.error('[NOTIF] Notification constructor hatası:', e);
-    return { ok: false, reason: 'constructor_error', error: e.message };
-  }
-
-  n.on('show', () => console.log('[NOTIF] ✓ show event tetiklendi'));
-  n.on('click', () => {
-    console.log('[NOTIF] click');
-    showWindow();
-    if (messageId && mainWindow) {
-      mainWindow.webContents.send('open-message', messageId);
-    }
-  });
-  n.on('failed', (e, err) => console.error('[NOTIF] ✗ failed event:', err));
-  n.on('close', () => console.log('[NOTIF] close'));
-
-  try {
-    n.show();
-    return { ok: true };
-  } catch (e) {
-    console.error('[NOTIF] n.show() hatası:', e);
-    // v1.10.2: Tray balloon fallback (Windows için ek garanti)
-    try {
-      if (process.platform === 'win32' && tray && tray.displayBalloon) {
-        tray.displayBalloon({
-          title: String(title || ''),
-          content: String(body || ''),
-          icon: iconPath || undefined,
-          noSound: !!silent
-        });
-        console.log('[NOTIF] Tray balloon fallback gösterildi');
-        return { ok: true, viaFallback: 'tray_balloon' };
+      sound: !silent,
+      appID: 'tr.com.codega.mail',
+      wait: false
+    }, (err, response, metadata) => {
+      if (err) {
+        console.warn('[NOTIF] node-notifier callback err:', err.message);
+      } else {
+        console.log('[NOTIF] node-notifier OK, response:', response);
+        if (response === 'activate' || (metadata && metadata.activationType === 'clicked')) {
+          showWindow();
+          if (messageId && mainWindow) {
+            mainWindow.webContents.send('open-message', messageId);
+          }
+        }
       }
-    } catch (e2) {
-      console.error('[NOTIF] Tray balloon fallback de başarısız:', e2);
-    }
-    return { ok: false, reason: 'show_error', error: e.message };
+    });
+    console.log('[NOTIF] ✓ node-notifier.notify çağrıldı (KATMAN 1)');
+    return { ok: true, viaLayer: 'node-notifier' };
+  } catch (e) {
+    console.warn('[NOTIF] KATMAN 1 (node-notifier) başarısız:', e.message);
   }
+
+  // KATMAN 2 - Electron Notification API
+  if (!Notification.isSupported()) {
+    console.warn('[NOTIF] Notification.isSupported() = false');
+  } else {
+    try {
+      const n = new Notification({
+        title: titleStr,
+        body: bodyStr,
+        icon: iconPath || undefined,
+        silent: !!silent
+      });
+      n.on('show', () => console.log('[NOTIF] ✓ Electron show event'));
+      n.on('click', () => {
+        showWindow();
+        if (messageId && mainWindow) {
+          mainWindow.webContents.send('open-message', messageId);
+        }
+      });
+      n.on('failed', (e, err) => console.error('[NOTIF] Electron failed:', err));
+      n.show();
+      console.log('[NOTIF] ✓ Electron Notification.show() (KATMAN 2)');
+      return { ok: true, viaLayer: 'electron' };
+    } catch (e) {
+      console.error('[NOTIF] KATMAN 2 (Electron) başarısız:', e.message);
+    }
+  }
+
+  // KATMAN 3 - Tray balloon (Windows için son çare)
+  try {
+    if (process.platform === 'win32' && tray && tray.displayBalloon) {
+      tray.displayBalloon({
+        title: titleStr,
+        content: bodyStr,
+        icon: iconPath || undefined,
+        noSound: !!silent
+      });
+      console.log('[NOTIF] ✓ Tray balloon (KATMAN 3)');
+      return { ok: true, viaLayer: 'tray_balloon' };
+    }
+  } catch (e2) {
+    console.error('[NOTIF] KATMAN 3 (tray balloon) başarısız:', e2.message);
+  }
+
+  return { ok: false, reason: 'all_layers_failed' };
 }
 
 // =====================================================================
@@ -504,16 +530,17 @@ ipcMain.handle('config:updatePrefs', (_, prefs) => {
 });
 
 ipcMain.handle('config:testNotification', () => {
-  // v1.10.2: Tanı bilgileri ile birlikte
+  // v1.10.3: 3 katmanlı tanı
   const supported = Notification.isSupported();
   const enabled = appConfig.get('notificationsEnabled') !== false;
-  const result = showNotification('🔔 Test Bildirimi', 'CODEGA Mail bildirimleri çalışıyor.');
+  const result = showNotification('🔔 CODEGA Mail Test', 'Bildirimler çalışıyor! Bu bir test mesajıdır.');
   return {
     ok: result && result.ok === true,
     supported,
     enabled,
     reason: result && result.reason,
     error: result && result.error,
+    viaLayer: result && result.viaLayer,
     platform: process.platform
   };
 });
