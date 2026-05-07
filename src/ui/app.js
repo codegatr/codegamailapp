@@ -1,0 +1,1199 @@
+/* CODEGA Mail v1.2 - Renderer (tepsi + bildirim + autoconfig wizard) */
+
+// ============= PROVIDER DATABASE =============
+const PROVIDERS = {
+  gmail: {
+    name: 'Gmail', icon: '📧', color: '#ea4335',
+    domains: ['gmail.com', 'googlemail.com'],
+    imap: { host: 'imap.gmail.com', port: 993, secure: true },
+    pop3: { host: 'pop.gmail.com', port: 995, secure: true },
+    smtp: { host: 'smtp.gmail.com', port: 465, secure: true },
+    notes: 'Gmail için **Uygulama Şifresi** gerekir. 2 Adımlı Doğrulama açık olmalı.',
+    helpUrl: 'https://myaccount.google.com/apppasswords',
+    helpText: 'Gmail Uygulama Şifresi al'
+  },
+  outlook: {
+    name: 'Outlook / Hotmail', icon: '📨', color: '#0078d4',
+    domains: ['outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+              'outlook.com.tr', 'hotmail.com.tr', 'live.com.tr',
+              'outlook.de', 'hotmail.de', 'outlook.fr', 'hotmail.fr'],
+    imap: { host: 'outlook.office365.com', port: 993, secure: true },
+    pop3: { host: 'outlook.office365.com', port: 995, secure: true },
+    smtp: { host: 'smtp.office365.com', port: 587, secure: false },
+    notes: 'Microsoft basic auth\'u kapattığı için **Uygulama Şifresi** gerekir.',
+    helpUrl: 'https://account.microsoft.com/security',
+    helpText: 'Microsoft Uygulama Şifresi al'
+  },
+  yandex: {
+    name: 'Yandex Mail', icon: '📬', color: '#fc3f1d',
+    domains: ['yandex.com', 'yandex.ru', 'yandex.com.tr', 'ya.ru',
+              'yandex.ua', 'yandex.kz', 'yandex.by'],
+    imap: { host: 'imap.yandex.com', port: 993, secure: true },
+    pop3: { host: 'pop.yandex.com', port: 995, secure: true },
+    smtp: { host: 'smtp.yandex.com', port: 465, secure: true },
+    notes: 'Yandex için **Uygulama Parolası** üretmeniz gerekir.',
+    helpUrl: 'https://passport.yandex.com/profile/security',
+    helpText: 'Yandex Uygulama Parolası al'
+  },
+  icloud: {
+    name: 'iCloud Mail', icon: '☁', color: '#007aff',
+    domains: ['icloud.com', 'me.com', 'mac.com'],
+    imap: { host: 'imap.mail.me.com', port: 993, secure: true },
+    smtp: { host: 'smtp.mail.me.com', port: 587, secure: false },
+    notes: 'Apple ID için **Uygulamaya Özel Şifre** gerekir (2FA aktif olmalı).',
+    helpUrl: 'https://appleid.apple.com',
+    helpText: 'Apple Uygulama Şifresi al'
+  },
+  yahoo: {
+    name: 'Yahoo Mail', icon: '💌', color: '#6001d2',
+    domains: ['yahoo.com', 'yahoo.com.tr', 'ymail.com', 'rocketmail.com',
+              'yahoo.de', 'yahoo.fr', 'yahoo.co.uk', 'yahoo.it', 'yahoo.es'],
+    imap: { host: 'imap.mail.yahoo.com', port: 993, secure: true },
+    pop3: { host: 'pop.mail.yahoo.com', port: 995, secure: true },
+    smtp: { host: 'smtp.mail.yahoo.com', port: 465, secure: true },
+    notes: 'Yahoo için **Uygulama Şifresi** gerekir.',
+    helpUrl: 'https://login.yahoo.com/account/security',
+    helpText: 'Yahoo Uygulama Şifresi al'
+  },
+  aol: {
+    name: 'AOL Mail', icon: '📩', color: '#1bb14e',
+    domains: ['aol.com'],
+    imap: { host: 'imap.aol.com', port: 993, secure: true },
+    smtp: { host: 'smtp.aol.com', port: 465, secure: true },
+    notes: 'AOL için **Uygulama Şifresi** gerekir.'
+  },
+  gmx: {
+    name: 'GMX', icon: '📭', color: '#1c449b',
+    domains: ['gmx.com', 'gmx.net', 'gmx.de', 'gmx.at', 'gmx.ch', 'gmx.fr'],
+    imap: { host: 'imap.gmx.com', port: 993, secure: true },
+    smtp: { host: 'mail.gmx.com', port: 465, secure: true }
+  },
+  zoho: {
+    name: 'Zoho Mail', icon: '✉', color: '#dc6e08',
+    domains: ['zoho.com', 'zohomail.com'],
+    imap: { host: 'imap.zoho.com', port: 993, secure: true },
+    smtp: { host: 'smtp.zoho.com', port: 465, secure: true }
+  },
+  mailru: {
+    name: 'Mail.ru', icon: '📫', color: '#168de2',
+    domains: ['mail.ru', 'inbox.ru', 'list.ru', 'bk.ru'],
+    imap: { host: 'imap.mail.ru', port: 993, secure: true },
+    smtp: { host: 'smtp.mail.ru', port: 465, secure: true },
+    notes: 'Mail.ru için **Uygulama Parolası** gerekir.'
+  },
+  fastmail: {
+    name: 'Fastmail', icon: '⚡', color: '#0067b9',
+    domains: ['fastmail.com', 'fastmail.fm'],
+    imap: { host: 'imap.fastmail.com', port: 993, secure: true },
+    smtp: { host: 'smtp.fastmail.com', port: 465, secure: true },
+    notes: 'Fastmail için **Uygulama Parolası** gerekir.'
+  }
+};
+
+function detectProvider(email) {
+  if (!email || !email.includes('@')) return null;
+  const domain = email.split('@')[1].toLowerCase().trim();
+  if (!domain) return null;
+  for (const [key, p] of Object.entries(PROVIDERS)) {
+    if (p.domains && p.domains.includes(domain)) {
+      return Object.assign({}, p, { key, domain });
+    }
+  }
+  return null;
+}
+
+function customProvider(domain) {
+  return {
+    name: 'Özel Sunucu', icon: '📂', color: '#cba6f7', key: 'custom', domain,
+    imap: { host: 'mail.' + domain, port: 993, secure: true },
+    pop3: { host: 'mail.' + domain, port: 995, secure: true },
+    smtp: { host: 'mail.' + domain, port: 465, secure: true },
+    notes: 'Sağlayıcı tanınamadı. **mail.' + domain + '** olarak tahmin edildi (DirectAdmin/cPanel). Yanlışsa "Sunucu ayarlarını düzenle" altından değiştirebilirsiniz.'
+  };
+}
+
+const state = {
+  accounts: [],
+  selectedFolder: null,
+  selectedMessage: null,
+  messages: [],
+  searchQuery: '',
+  editingAccountId: null,
+  wizardStep: 1,
+  lastConfiguredEmail: ''
+};
+
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  bindToolbar();
+  bindModals();
+  bindAccountWizard();
+  bindCompose();
+  bindSearch();
+  bindKeyboard();
+  bindFirstRun();
+  bindSettings();
+  bindNewFolder();
+  bindSpam();
+  bindTrayEvents();
+
+  window.api.sync.onProgress((data) => {
+    if (data.stage === 'fetching') setStatus(`Yeni mesajlar indiriliyor: ${data.folder} (${data.count})`);
+    else if (data.stage === 'folders') setStatus(`${data.count} klasör senkronize ediliyor…`);
+    else if (data.stage === 'folder-error') setStatus(`Hata: ${data.folder}`, 'error');
+  });
+
+  const cfg = await window.api.config.get();
+  if (cfg.firstRun) {
+    document.getElementById('firstRunPath').value = cfg.dataPath;
+    document.getElementById('modalFirstRun').classList.remove('hidden');
+  }
+
+  await loadAccounts();
+  await updateStorageInfo();
+}
+
+// ============= TEPSİDEN GELEN OLAYLAR =============
+function bindTrayEvents() {
+  // Tepsi menüsü → "Yeni Mesaj"
+  window.api.on('open-compose', () => openCompose());
+
+  // Tepsi menüsü → "Ayarlar"
+  window.api.on('open-settings', () => openSettings());
+
+  // Bildirim tıklama → mesajı aç
+  window.api.on('open-message', async (messageId) => {
+    if (!messageId) return;
+    const msg = await window.api.messages.get(messageId);
+    if (!msg) return;
+    await selectFolder(msg.folder_id, msg.account_id);
+    await openMessage(messageId);
+  });
+
+  // Arka plan sync bitti → listeyi yenile
+  window.api.on('background-sync-done', async (data) => {
+    await loadAccounts();
+    if (state.selectedFolder) await loadMessages();
+    if (data && data.newCount > 0) {
+      setStatus(`📬 ${data.newCount} yeni mesaj geldi`);
+    }
+  });
+}
+
+// ============= Toolbar =============
+function bindToolbar() {
+  document.getElementById('btnAddAccount').onclick = () => openAccountModal();
+  document.getElementById('btnSyncAll').onclick = syncAll;
+  document.getElementById('btnCompose').onclick = () => openCompose();
+  document.getElementById('btnBackup').onclick = doBackup;
+  document.getElementById('btnRestore').onclick = doRestore;
+  document.getElementById('btnSettings').onclick = openSettings;
+  document.getElementById('btnSpamRules').onclick = openSpamRules;
+  document.getElementById('btnNewFolder').onclick = openNewFolder;
+}
+
+function bindModals() {
+  document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.onclick = () => document.getElementById(btn.dataset.close).classList.add('hidden');
+  });
+}
+
+function bindKeyboard() {
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openCompose(); }
+    else if (e.key === 'F5') { e.preventDefault(); syncAll(); }
+    else if (e.key === 'Delete' && state.selectedMessage) {
+      if (confirm('Bu mesajı silmek istediğinizden emin misiniz?')) deleteCurrentMessage();
+    } else if (e.key === 'Escape') hideContextMenu();
+  });
+  document.addEventListener('click', hideContextMenu);
+}
+
+// ============= İlk Çalıştırma =============
+function bindFirstRun() {
+  document.getElementById('firstRunBrowse').onclick = async () => {
+    const r = await window.api.config.chooseDataPath();
+    if (r.ok) document.getElementById('firstRunPath').value = r.path;
+  };
+  document.getElementById('firstRunContinue').onclick = async () => {
+    const newPath = document.getElementById('firstRunPath').value;
+    const cfg = await window.api.config.get();
+    if (newPath !== cfg.defaultDataPath) {
+      const r = await window.api.config.setDataPath(newPath);
+      if (!r.ok) { alert('Veri konumu ayarlanamadı: ' + r.error); return; }
+    }
+    await window.api.config.setFirstRunDone();
+    document.getElementById('modalFirstRun').classList.add('hidden');
+    await updateStorageInfo();
+  };
+}
+
+// ============= AYARLAR (v1.2: tepsi/bildirim ekli) =============
+function bindSettings() {
+  document.getElementById('settingsBrowsePath').onclick = async () => {
+    const r = await window.api.config.chooseDataPath();
+    if (!r.ok) return;
+    if (!confirm(`Veri konumu değiştirilecek:\n\n→ ${r.path}\n\nMevcut veritabanı yeni konuma taşınacak. Devam edilsin mi?`)) return;
+    const result = await window.api.config.setDataPath(r.path);
+    if (result.ok) {
+      document.getElementById('settingsPath').value = r.path;
+      await updateStorageInfo();
+      await loadAccounts();
+      setStatus('Veri konumu değiştirildi: ' + r.path);
+    } else alert('Hata: ' + result.error);
+  };
+  document.getElementById('settingsOpenFolder').onclick = () => window.api.app.openDataFolder();
+
+  // v1.2: Bildirim/tepsi tercihleri - değişince anında kaydet
+  const prefIds = [
+    ['settings_notifications', 'notificationsEnabled', 'checkbox'],
+    ['settings_sync_interval', 'backgroundSyncMinutes', 'number'],
+    ['settings_close_to_tray', 'closeToTray', 'checkbox'],
+    ['settings_auto_start', 'autoStart', 'checkbox'],
+    ['settings_start_minimized', 'startMinimized', 'checkbox']
+  ];
+  for (const [domId, key, type] of prefIds) {
+    const el = document.getElementById(domId);
+    if (!el) continue;
+    el.addEventListener('change', async () => {
+      const value = type === 'checkbox' ? el.checked
+                   : type === 'number' ? parseInt(el.value, 10)
+                   : el.value;
+      await window.api.config.updatePrefs({ [key]: value });
+      setStatus('Ayar kaydedildi');
+    });
+  }
+
+  document.getElementById('btnTestNotif').onclick = async () => {
+    await window.api.config.testNotification();
+    setStatus('Test bildirimi gönderildi - sağ alt köşeyi kontrol edin');
+  };
+}
+
+async function openSettings() {
+  const cfg = await window.api.config.get();
+  document.getElementById('settingsPath').value = cfg.dataPath;
+  document.getElementById('appVersion').textContent = cfg.version || '1.2.0';
+
+  // v1.2: Bildirim tercihlerini yükle
+  document.getElementById('settings_notifications').checked = cfg.notificationsEnabled !== false;
+  document.getElementById('settings_sync_interval').value = String(cfg.backgroundSyncMinutes || 0);
+  document.getElementById('settings_close_to_tray').checked = cfg.closeToTray !== false;
+  document.getElementById('settings_auto_start').checked = !!cfg.autoStart;
+  document.getElementById('settings_start_minimized').checked = !!cfg.startMinimized;
+
+  await renderSettingsAccountList();
+  document.getElementById('modalSettings').classList.remove('hidden');
+}
+
+async function renderSettingsAccountList() {
+  const container = document.getElementById('settingsAccountList');
+  const accounts = await window.api.accounts.list();
+  if (!accounts.length) {
+    container.innerHTML = '<div class="empty-state">Hesap yok</div>';
+    return;
+  }
+  container.innerHTML = accounts.map(a => `
+    <div class="settings-account-item">
+      <div style="flex:1;">
+        <div style="font-weight:600;">${escapeHtml(a.display_name)}</div>
+        <div style="font-size:11px;color:var(--muted);">
+          ${escapeHtml(a.email)} · ${a.protocol.toUpperCase()}
+          · Spam: ${a.spam_enabled ? 'aktif' : 'kapalı'}
+          ${a.last_sync ? '· Son sync: ' + formatDate(a.last_sync) : ''}
+        </div>
+      </div>
+      <button class="btn btn-ghost" data-edit-acc="${a.id}">Düzenle</button>
+      <button class="btn btn-ghost" data-delete-acc="${a.id}" style="color:var(--danger);">Sil</button>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('[data-edit-acc]').forEach(btn => {
+    btn.onclick = async () => {
+      document.getElementById('modalSettings').classList.add('hidden');
+      await openAccountModal(parseInt(btn.dataset.editAcc, 10));
+    };
+  });
+  container.querySelectorAll('[data-delete-acc]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.deleteAcc, 10);
+      const acc = accounts.find(a => a.id === id);
+      if (!confirm(`"${acc.email}" hesabını silmek istediğinizden emin misiniz?`)) return;
+      await window.api.accounts.delete(id);
+      await loadAccounts();
+      await renderSettingsAccountList();
+    };
+  });
+}
+
+// ============= HESAP WIZARD =============
+function bindAccountWizard() {
+  const emailInput = document.getElementById('acc_email');
+  emailInput.addEventListener('input', updateProviderHint);
+  emailInput.addEventListener('blur', () => {
+    const email = emailInput.value.trim();
+    const usernameField = document.getElementById('acc_in_username');
+    if (email.includes('@') && !usernameField.value) usernameField.value = email;
+  });
+
+  document.getElementById('acc_protocol').onchange = (e) => {
+    const isPop3 = e.target.value === 'pop3';
+    const provider = state.detectedProvider;
+    const portField = document.getElementById('acc_in_port');
+    if (isPop3) {
+      portField.value = (provider && provider.pop3) ? provider.pop3.port : 995;
+      if (provider && provider.pop3) document.getElementById('acc_in_host').value = provider.pop3.host;
+    } else {
+      portField.value = (provider && provider.imap) ? provider.imap.port : 993;
+      if (provider && provider.imap) document.getElementById('acc_in_host').value = provider.imap.host;
+    }
+    document.getElementById('pop3OptionsWrap').style.display = isPop3 ? 'flex' : 'none';
+  };
+
+  document.getElementById('btnWizardNext').onclick = wizardNext;
+  document.getElementById('btnWizardBack').onclick = wizardBack;
+  document.getElementById('btnTestAccount').onclick = testAccount;
+  document.getElementById('btnSaveAccount').onclick = saveAccount;
+}
+
+function updateProviderHint() {
+  const email = document.getElementById('acc_email').value.trim();
+  const hint = document.getElementById('providerHint');
+  if (!email.includes('@')) { hint.innerHTML = ''; hint.className = 'provider-hint'; return; }
+  const provider = detectProvider(email);
+  if (provider) {
+    hint.innerHTML = `<span style="color:${provider.color};">${provider.icon}</span> <strong>${provider.name}</strong> tespit edildi · ayarlar otomatik doldurulacak`;
+    hint.className = 'provider-hint detected';
+  } else {
+    const domain = email.split('@')[1];
+    if (domain) {
+      hint.innerHTML = `📂 <strong>Özel sunucu</strong> · <code>mail.${escapeHtml(domain)}</code> denenecek`;
+      hint.className = 'provider-hint custom';
+    }
+  }
+}
+
+function setWizardStep(step) {
+  state.wizardStep = step;
+  document.querySelectorAll('.wizard-page').forEach(el => {
+    el.classList.toggle('hidden', parseInt(el.dataset.step, 10) !== step);
+  });
+  document.querySelectorAll('.wizard-step-indicator').forEach(el => {
+    const s = parseInt(el.dataset.step, 10);
+    el.classList.toggle('active', s === step);
+    el.classList.toggle('completed', s < step);
+  });
+  const editing = !!state.editingAccountId;
+  document.getElementById('btnWizardBack').style.display = (step > 1 && !editing) ? '' : 'none';
+  document.getElementById('btnWizardNext').style.display = (step < 3 && !editing) ? '' : 'none';
+  document.getElementById('btnTestAccount').style.display = (step >= 2) ? '' : 'none';
+  document.getElementById('btnSaveAccount').style.display = (step === 3 || editing) ? '' : 'none';
+}
+
+function wizardNext() {
+  if (state.wizardStep === 1) {
+    const email = document.getElementById('acc_email').value.trim();
+    const password = document.getElementById('acc_in_password').value;
+    const displayName = document.getElementById('acc_display_name').value.trim();
+    if (!displayName) return alert('Görünen ad gerekli');
+    if (!email.includes('@')) return alert('Geçerli bir e-posta adresi girin');
+    if (!password) return alert('Şifre gerekli');
+    if (email !== state.lastConfiguredEmail) {
+      applyProviderConfig(email);
+      state.lastConfiguredEmail = email;
+    }
+    setWizardStep(2);
+  } else if (state.wizardStep === 2) setWizardStep(3);
+}
+
+function wizardBack() { if (state.wizardStep > 1) setWizardStep(state.wizardStep - 1); }
+
+function applyProviderConfig(email) {
+  const provider = detectProvider(email) || customProvider(email.split('@')[1]);
+  state.detectedProvider = provider;
+  document.getElementById('acc_in_username').value = email;
+  document.getElementById('acc_in_host').value = provider.imap.host;
+  document.getElementById('acc_in_port').value = provider.imap.port;
+  document.getElementById('acc_in_secure').value = provider.imap.secure ? '1' : '0';
+  document.getElementById('acc_smtp_host').value = provider.smtp.host;
+  document.getElementById('acc_smtp_port').value = provider.smtp.port;
+  document.getElementById('acc_smtp_secure').value = provider.smtp.secure ? '1' : '0';
+  document.getElementById('acc_protocol').value = 'imap';
+  document.getElementById('pop3OptionsWrap').style.display = 'none';
+  renderProviderCard(provider);
+  renderAutoConfigSummary(provider);
+}
+
+function renderProviderCard(provider) {
+  const card = document.getElementById('providerCard');
+  const isCustom = provider.key === 'custom';
+  const formattedNotes = (provider.notes || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  let html = `
+    <div class="provider-card-header">
+      <div class="provider-icon-large" style="background:${provider.color}22;color:${provider.color};">${provider.icon}</div>
+      <div class="provider-info">
+        <div class="provider-name-large">${escapeHtml(provider.name)}</div>
+        <div class="provider-domain">@${escapeHtml(provider.domain)}</div>
+      </div>
+      <span class="provider-tag ${isCustom ? 'custom' : 'detected'}">${isCustom ? 'tahmin' : '✓ tespit edildi'}</span>
+    </div>
+  `;
+  if (provider.notes) html += `<div class="provider-notes">⚠ ${formattedNotes}</div>`;
+  if (provider.helpUrl) html += `<button class="btn provider-help-btn" data-url="${provider.helpUrl}">${escapeHtml(provider.helpText)} ↗</button>`;
+  card.innerHTML = html;
+  const helpBtn = card.querySelector('.provider-help-btn');
+  if (helpBtn) helpBtn.onclick = () => window.api.app.openExternal(helpBtn.dataset.url);
+}
+
+function renderAutoConfigSummary(provider) {
+  document.getElementById('autoConfigSummary').innerHTML = `
+    <div class="cfg-row">
+      <span class="cfg-label">📥 Gelen:</span>
+      <code>${escapeHtml(provider.imap.host)}:${provider.imap.port}</code>
+      <span class="cfg-tag">IMAP/${provider.imap.secure ? 'SSL' : 'STARTTLS'}</span>
+    </div>
+    <div class="cfg-row">
+      <span class="cfg-label">📤 Giden:</span>
+      <code>${escapeHtml(provider.smtp.host)}:${provider.smtp.port}</code>
+      <span class="cfg-tag">SMTP/${provider.smtp.secure ? 'SSL' : 'STARTTLS'}</span>
+    </div>
+  `;
+}
+
+async function openAccountModal(editAccountId = null) {
+  state.editingAccountId = editAccountId;
+  state.lastConfiguredEmail = '';
+  state.detectedProvider = null;
+
+  ['acc_display_name','acc_email','acc_in_host','acc_in_username','acc_in_password',
+   'acc_smtp_host','acc_smtp_username','acc_smtp_password','acc_signature'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('acc_protocol').value = 'imap';
+  document.getElementById('acc_in_port').value = 993;
+  document.getElementById('acc_smtp_port').value = 465;
+  document.getElementById('acc_in_secure').value = '1';
+  document.getElementById('acc_smtp_secure').value = '1';
+  document.getElementById('acc_pop3_leave').checked = true;
+  document.getElementById('acc_spam_enabled').value = '1';
+  document.getElementById('acc_spam_threshold').value = 50;
+  document.getElementById('pop3OptionsWrap').style.display = 'none';
+  document.getElementById('testResult').style.display = 'none';
+  document.getElementById('testResult').className = 'test-result';
+  document.getElementById('acc_pw_hint').textContent = '';
+  document.getElementById('acc_smtp_pw_hint').textContent = '(boşsa gelen ile aynı)';
+  document.getElementById('providerHint').innerHTML = '';
+  document.getElementById('providerCard').innerHTML = '';
+  document.getElementById('autoConfigSummary').innerHTML = '';
+  document.getElementById('acc_email').readOnly = false;
+  document.getElementById('acc_protocol').disabled = false;
+  document.getElementById('advancedToggle').open = false;
+
+  if (editAccountId) {
+    document.getElementById('wizardSteps').style.display = 'none';
+    document.querySelectorAll('.wizard-page').forEach(el => el.classList.remove('hidden'));
+    document.getElementById('advancedToggle').open = true;
+    const acc = await window.api.accounts.get(editAccountId);
+    if (acc) {
+      document.getElementById('accountModalTitle').textContent = 'Hesabı Düzenle: ' + acc.email;
+      document.getElementById('acc_display_name').value = acc.display_name || '';
+      document.getElementById('acc_email').value = acc.email || '';
+      document.getElementById('acc_email').readOnly = true;
+      document.getElementById('acc_protocol').value = acc.protocol;
+      document.getElementById('acc_protocol').disabled = true;
+      document.getElementById('acc_in_host').value = acc.in_host;
+      document.getElementById('acc_in_port').value = acc.in_port;
+      document.getElementById('acc_in_secure').value = String(acc.in_secure);
+      document.getElementById('acc_in_username').value = acc.in_username;
+      document.getElementById('acc_smtp_host').value = acc.smtp_host;
+      document.getElementById('acc_smtp_port').value = acc.smtp_port;
+      document.getElementById('acc_smtp_secure').value = String(acc.smtp_secure);
+      document.getElementById('acc_smtp_username').value = acc.smtp_username || '';
+      document.getElementById('acc_signature').value = acc.signature || '';
+      document.getElementById('acc_spam_enabled').value = String(acc.spam_enabled || 0);
+      document.getElementById('acc_spam_threshold').value = acc.spam_threshold || 50;
+      document.getElementById('acc_pop3_leave').checked = !!acc.pop3_leave_on_server;
+      if (acc.protocol === 'pop3') document.getElementById('pop3OptionsWrap').style.display = 'flex';
+      if (acc.has_in_password) document.getElementById('acc_pw_hint').textContent = 'Boş bırakılırsa mevcut şifre korunur';
+      if (acc.has_smtp_password) document.getElementById('acc_smtp_pw_hint').textContent = '(boş bırakılırsa mevcut korunur)';
+      state.wizardStep = 3;
+      document.getElementById('btnWizardBack').style.display = 'none';
+      document.getElementById('btnWizardNext').style.display = 'none';
+      document.getElementById('btnTestAccount').style.display = '';
+      document.getElementById('btnSaveAccount').style.display = '';
+    }
+  } else {
+    document.getElementById('accountModalTitle').textContent = '+ Mail Hesabı Ekle';
+    document.getElementById('wizardSteps').style.display = '';
+    setWizardStep(1);
+  }
+
+  document.getElementById('modalAccount').classList.remove('hidden');
+}
+
+function readAccountForm() {
+  return {
+    display_name: document.getElementById('acc_display_name').value.trim(),
+    email: document.getElementById('acc_email').value.trim(),
+    protocol: document.getElementById('acc_protocol').value,
+    in_host: document.getElementById('acc_in_host').value.trim(),
+    in_port: parseInt(document.getElementById('acc_in_port').value, 10),
+    in_secure: document.getElementById('acc_in_secure').value === '1',
+    in_username: document.getElementById('acc_in_username').value.trim(),
+    in_password: document.getElementById('acc_in_password').value,
+    smtp_host: document.getElementById('acc_smtp_host').value.trim(),
+    smtp_port: parseInt(document.getElementById('acc_smtp_port').value, 10),
+    smtp_secure: document.getElementById('acc_smtp_secure').value === '1',
+    smtp_username: document.getElementById('acc_smtp_username').value.trim() || null,
+    smtp_password: document.getElementById('acc_smtp_password').value || null,
+    pop3_leave_on_server: document.getElementById('acc_pop3_leave').checked,
+    spam_enabled: document.getElementById('acc_spam_enabled').value === '1',
+    spam_threshold: parseInt(document.getElementById('acc_spam_threshold').value, 10) || 50,
+    signature: document.getElementById('acc_signature').value
+  };
+}
+
+function validateAccount(a, isEdit) {
+  if (!a.display_name) return 'Görünen ad gerekli';
+  if (!a.email) return 'E-posta gerekli';
+  if (!a.in_host) return 'Gelen sunucu gerekli';
+  if (!a.in_username) return 'Kullanıcı adı gerekli';
+  if (!isEdit && !a.in_password) return 'Şifre gerekli';
+  if (!a.smtp_host) return 'SMTP sunucu gerekli';
+  return null;
+}
+
+async function testAccount() {
+  const data = readAccountForm();
+  const err = validateAccount(data, false);
+  if (err) return showTestResult(err, 'error');
+  showTestResult('Bağlantı test ediliyor…', 'info');
+  if (state.wizardStep < 3 && !state.editingAccountId) setWizardStep(3);
+  const result = await window.api.accounts.test(data);
+  if (result.ok) {
+    showTestResult('✓ Bağlantı başarılı\n  Gelen sunucu: OK\n  Giden sunucu (SMTP): OK', 'success');
+  } else {
+    let msg = '';
+    msg += result.incoming ? '✓ Gelen sunucu: OK\n' : '✗ Gelen sunucu: BAŞARISIZ\n';
+    msg += result.outgoing ? '✓ Giden sunucu: OK\n' : '✗ Giden sunucu: BAŞARISIZ\n';
+    if (result.errors && result.errors.length) msg += '\n' + result.errors.join('\n');
+    showTestResult(msg, 'error');
+  }
+}
+
+function showTestResult(text, kind) {
+  const el = document.getElementById('testResult');
+  el.textContent = text;
+  el.className = 'test-result ' + kind;
+}
+
+async function saveAccount() {
+  const data = readAccountForm();
+  const isEdit = !!state.editingAccountId;
+  const err = validateAccount(data, isEdit);
+  if (err) return showTestResult(err, 'error');
+  showTestResult('Kaydediliyor…', 'info');
+  try {
+    if (isEdit) {
+      const updates = Object.assign({}, data);
+      if (!updates.in_password) delete updates.in_password;
+      if (!updates.smtp_password) delete updates.smtp_password;
+      await window.api.accounts.update(state.editingAccountId, updates);
+      document.getElementById('modalAccount').classList.add('hidden');
+      setStatus(`Hesap güncellendi: ${data.email}`);
+      await loadAccounts();
+    } else {
+      const res = await window.api.accounts.add(data);
+      document.getElementById('modalAccount').classList.add('hidden');
+      setStatus(`Hesap eklendi: ${data.email} - ilk senkronizasyon başlatılıyor…`);
+      await loadAccounts();
+      syncAccount(res.id);
+    }
+  } catch (e) { showTestResult('Hata: ' + e.message, 'error'); }
+}
+
+// ============= Klasör Oluşturma =============
+function bindNewFolder() {
+  const accSel = document.getElementById('folder_account');
+  accSel.onchange = () => {
+    const acc = state.accounts.find(a => a.id === parseInt(accSel.value, 10));
+    document.getElementById('folder_server_option').style.display =
+      (acc && acc.protocol === 'imap') ? 'block' : 'none';
+  };
+  document.getElementById('btnCreateFolder').onclick = async () => {
+    const accountId = parseInt(accSel.value, 10);
+    const name = document.getElementById('folder_name').value.trim();
+    const onServer = document.getElementById('folder_on_server').checked;
+    if (!name) return alert('Klasör adı gerekli');
+    const result = await window.api.folders.create(accountId, name, onServer);
+    if (result.ok) {
+      document.getElementById('modalNewFolder').classList.add('hidden');
+      setStatus(`✓ Klasör oluşturuldu: ${name}` + (result.onServer ? ' (sunucuda)' : ' (yerel)'));
+      await loadAccounts();
+    } else alert('Hata: ' + (result.error || 'bilinmeyen'));
+  };
+}
+
+function openNewFolder() {
+  if (!state.accounts.length) return alert('Önce bir hesap eklemelisiniz');
+  const accSel = document.getElementById('folder_account');
+  accSel.innerHTML = state.accounts.map(a =>
+    `<option value="${a.id}">${escapeHtml(a.display_name)} (${a.protocol.toUpperCase()})</option>`
+  ).join('');
+  if (state.selectedFolder) accSel.value = state.selectedFolder.accountId;
+  document.getElementById('folder_name').value = '';
+  document.getElementById('folder_on_server').checked = false;
+  accSel.dispatchEvent(new Event('change'));
+  document.getElementById('modalNewFolder').classList.remove('hidden');
+}
+
+// ============= Spam Kuralları =============
+function bindSpam() {
+  document.getElementById('btnAddSpamRule').onclick = async () => {
+    const accountId = document.getElementById('spam_account_filter').value;
+    const type = document.getElementById('spam_type').value;
+    const pattern = document.getElementById('spam_pattern').value.trim();
+    const action = document.getElementById('spam_action').value;
+    if (!pattern) return alert('Desen alanı boş olamaz');
+    await window.api.spam.add({
+      account_id: accountId === 'all' ? null : parseInt(accountId, 10),
+      type, pattern, action
+    });
+    document.getElementById('spam_pattern').value = '';
+    await renderSpamRules();
+  };
+}
+
+async function openSpamRules() {
+  const accSel = document.getElementById('spam_account_filter');
+  accSel.innerHTML = '<option value="all">Tüm hesaplar</option>' +
+    state.accounts.map(a => `<option value="${a.id}">${escapeHtml(a.email)}</option>`).join('');
+  await renderSpamRules();
+  document.getElementById('modalSpam').classList.remove('hidden');
+}
+
+async function renderSpamRules() {
+  const rules = await window.api.spam.list();
+  const list = document.getElementById('spamRulesList');
+  if (!rules.length) { list.innerHTML = '<div class="empty-state">Henüz kural yok</div>'; return; }
+  const typeLabels = { sender: 'Gönderici', domain: 'Domain', subject: 'Konu', body: 'İçerik' };
+  list.innerHTML = rules.map(r => {
+    const accLabel = r.account_id ? (state.accounts.find(a => a.id === r.account_id)?.email || '?') : 'Tüm hesaplar';
+    const actionClass = r.action === 'block' ? 'block' : 'allow';
+    const actionLabel = r.action === 'block' ? '🚫 ENGELLE' : '✓ GÜVENLİ';
+    return `
+      <div class="spam-rule-item ${actionClass}">
+        <div style="flex:1;">
+          <span class="rule-action">${actionLabel}</span>
+          <strong>${typeLabels[r.type] || r.type}</strong> içerir
+          <code>${escapeHtml(r.pattern)}</code>
+          <small style="color:var(--muted);display:block;">${escapeHtml(accLabel)}</small>
+        </div>
+        <button class="btn btn-ghost" data-rule-id="${r.id}">Sil</button>
+      </div>`;
+  }).join('');
+  list.querySelectorAll('[data-rule-id]').forEach(btn => {
+    btn.onclick = async () => {
+      await window.api.spam.delete(parseInt(btn.dataset.ruleId, 10));
+      await renderSpamRules();
+    };
+  });
+}
+
+// ============= Sağ Tık Menüsü =============
+function showContextMenu(e, items) {
+  const menu = document.getElementById('contextMenu');
+  menu.innerHTML = items.map((item, i) => {
+    if (item === '---') return '<div class="ctx-divider"></div>';
+    return `<div class="ctx-item ${item.danger ? 'ctx-danger' : ''}" data-i="${i}">${item.label}</div>`;
+  }).join('');
+  menu.classList.remove('hidden');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.querySelectorAll('.ctx-item').forEach(el => {
+    el.onclick = () => {
+      const item = items[parseInt(el.dataset.i, 10)];
+      hideContextMenu();
+      if (item && typeof item.action === 'function') item.action();
+    };
+  });
+}
+
+function hideContextMenu() { document.getElementById('contextMenu').classList.add('hidden'); }
+
+async function showMessageContextMenu(e, message) {
+  e.preventDefault(); e.stopPropagation();
+  const allFolders = [];
+  for (const acc of state.accounts) {
+    const folders = await window.api.folders.list(acc.id);
+    folders.forEach(f => allFolders.push(Object.assign({}, f, { accountName: acc.display_name })));
+  }
+  const moveItems = allFolders
+    .filter(f => f.id !== message.folder_id && f.account_id === message.account_id)
+    .map(f => ({
+      label: `📁 ${f.name}` + (f.is_local ? ' (yerel)' : ''),
+      action: async () => {
+        const r = await window.api.messages.move(message.id, f.id);
+        if (r.ok) {
+          setStatus(`Mesaj taşındı: ${f.name}`);
+          await loadAccounts(); await loadMessages();
+        } else alert('Taşıma hatası: ' + r.error);
+      }
+    }));
+  const items = [
+    { label: message.is_read ? '↩ Okunmadı işaretle' : '✓ Okundu işaretle', action: async () => {
+      await window.api.messages.markRead(message.id, !message.is_read);
+      await loadAccounts(); await loadMessages();
+    }},
+    '---',
+    ...moveItems,
+    '---',
+    { label: '🛡 Bu spam', action: async () => {
+      await window.api.messages.markSpam(message.id);
+      setStatus('Spam olarak işaretlendi');
+      state.selectedMessage = null;
+      document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+      await loadAccounts(); await loadMessages();
+    }},
+    { label: '✓ Spam değil', action: async () => {
+      await window.api.messages.markNotSpam(message.id);
+      setStatus('Spam değil olarak işaretlendi');
+      state.selectedMessage = null;
+      await loadAccounts(); await loadMessages();
+    }},
+    '---',
+    { label: '🗑 Sil', danger: true, action: async () => {
+      if (confirm('Mesajı silmek istediğinizden emin misiniz?')) {
+        await window.api.messages.delete(message.id);
+        state.selectedMessage = null;
+        document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+        await loadAccounts(); await loadMessages();
+      }
+    }}
+  ];
+  showContextMenu(e, items);
+}
+
+// ============= Hesap & Klasör Listesi =============
+async function loadAccounts() {
+  state.accounts = await window.api.accounts.list();
+  await renderAccounts();
+}
+
+async function renderAccounts() {
+  const container = document.getElementById('accountList');
+  if (!state.accounts.length) {
+    container.innerHTML = '<div class="empty-state">Henüz hesap eklenmemiş.<br><small>"+ Hesap" ile başlayın.</small></div>';
+    return;
+  }
+  container.innerHTML = '';
+  for (const acc of state.accounts) {
+    const item = document.createElement('div');
+    item.className = 'account-item';
+    const folders = await window.api.folders.list(acc.id);
+    item.innerHTML = `
+      <div class="account-header" data-acc-id="${acc.id}">
+        <span>📧 ${escapeHtml(acc.display_name)}</span>
+        <span class="protocol-badge">${acc.protocol.toUpperCase()}</span>
+      </div>
+      <div class="folder-list">
+        ${folders.map(f => `
+          <div class="folder-item ${state.selectedFolder?.id === f.id ? 'active' : ''}"
+               data-folder-id="${f.id}" data-account-id="${acc.id}"
+               data-is-local="${f.is_local ? 1 : 0}"
+               data-special="${f.special_use || ''}">
+            <span class="folder-icon">${folderIcon(f.special_use, f.is_local)}</span>
+            <span class="folder-name">${escapeHtml(f.name)}</span>
+            ${f.unread_count > 0 ? `<span class="unread-count">${f.unread_count}</span>` : ''}
+          </div>`).join('')}
+        ${folders.length === 0 ? '<div class="empty-state" style="padding:8px 24px;">Senkronize edilmemiş</div>' : ''}
+      </div>`;
+    container.appendChild(item);
+  }
+  container.querySelectorAll('.folder-item').forEach(el => {
+    el.onclick = () => {
+      const folderId = parseInt(el.dataset.folderId, 10);
+      const accountId = parseInt(el.dataset.accountId, 10);
+      selectFolder(folderId, accountId);
+    };
+    el.oncontextmenu = (e) => {
+      const isLocal = el.dataset.isLocal === '1';
+      const special = el.dataset.special;
+      const folderId = parseInt(el.dataset.folderId, 10);
+      if (!isLocal || special === '\\Inbox' || special === '\\Junk' || special === '\\Sent') return;
+      e.preventDefault(); e.stopPropagation();
+      const items = [
+        { label: '✏ Yeniden Adlandır', action: async () => {
+          const newName = prompt('Yeni klasör adı:');
+          if (newName && newName.trim()) {
+            await window.api.folders.rename(folderId, newName.trim());
+            await loadAccounts();
+          }
+        }},
+        { label: '🗑 Klasörü Sil', danger: true, action: async () => {
+          if (!confirm('Klasörü silmek istediğinizden emin misiniz?')) return;
+          const r = await window.api.folders.delete(folderId);
+          if (!r.ok) return alert(r.error);
+          await loadAccounts();
+        }}
+      ];
+      showContextMenu(e, items);
+    };
+  });
+  container.querySelectorAll('.account-header').forEach(el => {
+    el.oncontextmenu = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const accId = parseInt(el.dataset.accId, 10);
+      const items = [
+        { label: '↻ Senkronize Et', action: () => syncAccount(accId) },
+        { label: '✏ Hesabı Düzenle', action: () => openAccountModal(accId) },
+        { label: '+ Yeni Klasör', action: () => {
+          state.selectedFolder = { accountId: accId };
+          openNewFolder();
+        }},
+        '---',
+        { label: '🗑 Hesabı Sil', danger: true, action: async () => {
+          const acc = state.accounts.find(a => a.id === accId);
+          if (!confirm(`"${acc.email}" hesabını silmek istediğinizden emin misiniz?`)) return;
+          await window.api.accounts.delete(accId);
+          await loadAccounts();
+        }}
+      ];
+      showContextMenu(e, items);
+    };
+  });
+}
+
+function folderIcon(specialUse, isLocal) {
+  if (specialUse === '\\Inbox') return '📥';
+  if (specialUse === '\\Sent') return '📤';
+  if (specialUse === '\\Drafts') return '📝';
+  if (specialUse === '\\Trash') return '🗑';
+  if (specialUse === '\\Junk') return '🛡';
+  if (specialUse === '\\Archive') return '📦';
+  if (isLocal) return '📁';
+  return '📂';
+}
+
+// ============= Mesaj Listesi & Görüntüleme =============
+async function selectFolder(folderId, accountId) {
+  state.selectedFolder = { id: folderId, accountId };
+  state.selectedMessage = null;
+  document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.folder-item[data-folder-id="${folderId}"]`)?.classList.add('active');
+  const acc = state.accounts.find(a => a.id === accountId);
+  const folders = await window.api.folders.list(accountId);
+  const folder = folders.find(f => f.id === folderId);
+  if (folder) {
+    Object.assign(state.selectedFolder, folder);
+    document.getElementById('folderTitle').textContent =
+      `${acc?.display_name || ''} › ${folder.name} (${folder.total_count})`;
+  }
+  await loadMessages();
+}
+
+async function loadMessages() {
+  if (!state.selectedFolder) return;
+  state.messages = await window.api.messages.list(state.selectedFolder.id, {
+    search: state.searchQuery || undefined, limit: 300
+  });
+  renderMessageList();
+}
+
+function renderMessageList() {
+  const container = document.getElementById('messageList');
+  if (!state.messages.length) {
+    container.innerHTML = '<div class="empty-state">Bu klasörde mesaj yok</div>'; return;
+  }
+  container.innerHTML = state.messages.map(m => {
+    const date = m.date ? formatDate(m.date) : '';
+    const fromDisplay = m.from_name || m.from_addr || '(bilinmeyen)';
+    const spamBadge = m.is_spam ? '<span class="spam-badge">SPAM</span>' : '';
+    const scoreBadge = (m.spam_score >= 30 && m.spam_score < 50)
+      ? `<span class="warn-badge" title="Şüpheli puan: ${m.spam_score}">⚠</span>` : '';
+    return `
+      <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
+           data-id="${m.id}">
+        <div class="msg-line1">
+          <span class="msg-from">${escapeHtml(fromDisplay)}</span>
+          <span class="msg-date">${date}</span>
+        </div>
+        <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
+        <div class="msg-preview">
+          <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}</span>
+          ${escapeHtml((m.preview || '').replace(/\s+/g, ' ').slice(0, 100))}
+        </div>
+      </div>`;
+  }).join('');
+  container.querySelectorAll('.message-item').forEach(el => {
+    const id = parseInt(el.dataset.id, 10);
+    el.onclick = () => openMessage(id);
+    el.oncontextmenu = async (e) => {
+      const fullMsg = await window.api.messages.get(id);
+      if (fullMsg) showMessageContextMenu(e, fullMsg);
+    };
+  });
+}
+
+async function openMessage(id) {
+  const msg = await window.api.messages.get(id);
+  if (!msg) return;
+  state.selectedMessage = msg;
+  if (!msg.is_read) {
+    await window.api.messages.markRead(id, true);
+    await loadAccounts(); await loadMessages();
+  }
+  renderMessageView(msg);
+  document.querySelectorAll('.message-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.message-item[data-id="${id}"]`)?.classList.add('active');
+}
+
+function renderMessageView(msg) {
+  const view = document.getElementById('messageView');
+  const fromName = msg.from_name || '';
+  const fromAddr = msg.from_addr || '';
+  const fromDisplay = fromName ? `${escapeHtml(fromName)} &lt;${escapeHtml(fromAddr)}&gt;` : escapeHtml(fromAddr);
+  const toList = msg.to_addrs ? JSON.parse(msg.to_addrs) : [];
+  const toDisplay = toList.map(t => escapeHtml(t.address || '')).join(', ');
+  const ccList = msg.cc_addrs ? JSON.parse(msg.cc_addrs) : [];
+  const ccDisplay = ccList.length ? ccList.map(t => escapeHtml(t.address || '')).join(', ') : '';
+  const date = msg.date ? new Date(msg.date).toLocaleString('tr-TR') : '';
+
+  let bodyHtml = '';
+  if (msg.body_html) {
+    bodyHtml = `<iframe sandbox="allow-same-origin" srcdoc="${escapeHtmlAttr(msg.body_html)}" style="height:60vh;"></iframe>`;
+  } else if (msg.body_text) {
+    bodyHtml = `<pre>${escapeHtml(msg.body_text)}</pre>`;
+  } else {
+    bodyHtml = '<em style="color:var(--muted)">İçerik yok</em>';
+  }
+
+  let attachmentsHtml = '';
+  if (msg.attachments && msg.attachments.length) {
+    attachmentsHtml = `
+      <div class="msg-view-attachments">
+        <div style="margin-bottom:6px;font-size:11px;color:var(--muted);font-weight:600;">EKLER (${msg.attachments.length})</div>
+        ${msg.attachments.map(a => `
+          <span class="attachment-chip">📎 ${escapeHtml(a.filename || 'ek')}
+            <span style="color:var(--muted)">${formatSize(a.size || 0)}</span>
+          </span>`).join('')}
+      </div>`;
+  }
+
+  let spamBanner = '';
+  if (msg.is_spam) {
+    spamBanner = `<div class="spam-banner">🛡 Bu mesaj <strong>spam</strong> olarak işaretlendi (puan: ${msg.spam_score}).</div>`;
+  } else if (msg.spam_score >= 30) {
+    spamBanner = `<div class="spam-banner warn">⚠ Bu mesaj şüpheli görünüyor (puan: ${msg.spam_score}).</div>`;
+  }
+
+  view.innerHTML = `
+    <div class="msg-view-header">
+      <div class="msg-view-subject">${escapeHtml(msg.subject || '(Konu yok)')}</div>
+      <div class="msg-view-meta">
+        <strong>Gönderen:</strong><span>${fromDisplay}</span>
+        <strong>Alıcı:</strong><span>${toDisplay}</span>
+        ${ccDisplay ? `<strong>CC:</strong><span>${ccDisplay}</span>` : ''}
+        <strong>Tarih:</strong><span>${date}</span>
+      </div>
+    </div>
+    ${spamBanner}
+    <div class="msg-view-actions">
+      <button class="btn" id="btnReply">↩ Yanıtla</button>
+      <button class="btn" id="btnForward">↪ İlet</button>
+      ${msg.is_spam
+        ? '<button class="btn" id="btnNotSpam">✓ Spam Değil</button>'
+        : '<button class="btn" id="btnMarkSpam">🛡 Bu Spam</button>'}
+      <button class="btn btn-danger" id="btnDelete">🗑 Sil</button>
+    </div>
+    <div class="msg-view-body">${bodyHtml}</div>
+    ${attachmentsHtml}
+  `;
+
+  document.getElementById('btnReply').onclick = () => openCompose({ replyTo: msg });
+  document.getElementById('btnForward').onclick = () => openCompose({ forward: msg });
+  document.getElementById('btnDelete').onclick = deleteCurrentMessage;
+  if (msg.is_spam) {
+    document.getElementById('btnNotSpam').onclick = async () => {
+      await window.api.messages.markNotSpam(msg.id);
+      setStatus('Mesaj Inbox\'a taşındı');
+      state.selectedMessage = null;
+      document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+      await loadAccounts(); await loadMessages();
+    };
+  } else {
+    document.getElementById('btnMarkSpam').onclick = async () => {
+      await window.api.messages.markSpam(msg.id);
+      setStatus('Spam olarak işaretlendi');
+      state.selectedMessage = null;
+      document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+      await loadAccounts(); await loadMessages();
+    };
+  }
+}
+
+async function deleteCurrentMessage() {
+  if (!state.selectedMessage) return;
+  const id = state.selectedMessage.id;
+  setStatus('Mesaj siliniyor…');
+  try {
+    await window.api.messages.delete(id);
+    state.selectedMessage = null;
+    document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+    await loadAccounts(); await loadMessages();
+    setStatus('Mesaj silindi');
+  } catch (e) { setStatus('Silme hatası: ' + e.message, 'error'); }
+}
+
+// ============= Senkronizasyon =============
+async function syncAll() {
+  if (!state.accounts.length) return setStatus('Önce bir hesap ekleyin');
+  setStatus('Tüm hesaplar senkronize ediliyor…');
+  const results = await window.api.sync.all();
+  const total = results.reduce((acc, r) => acc + (r.newMessages || 0), 0);
+  const totalSpam = results.reduce((acc, r) => acc + (r.spamMessages || 0), 0);
+  const errors = results.filter(r => !r.ok);
+  let msg = `Senkronizasyon tamamlandı - ${total} yeni mesaj`;
+  if (totalSpam > 0) msg += `, ${totalSpam} spam`;
+  if (errors.length) msg += `, ${errors.length} hata`;
+  setStatus(msg);
+  await loadAccounts();
+  if (state.selectedFolder) await loadMessages();
+}
+
+async function syncAccount(accountId) {
+  setStatus('Senkronize ediliyor…');
+  const result = await window.api.sync.account(accountId);
+  if (result.ok) {
+    let msg = `${result.newMessages} yeni mesaj`;
+    if (result.spamMessages > 0) msg += `, ${result.spamMessages} spam`;
+    setStatus(msg);
+  } else setStatus(`Senkronizasyon hatası: ${result.error}`, 'error');
+  await loadAccounts();
+  if (state.selectedFolder) await loadMessages();
+}
+
+// ============= Yeni Mesaj =============
+function bindCompose() {
+  document.getElementById('btnSendMail').onclick = sendMail;
+}
+
+function openCompose(opts = {}) {
+  const fromSel = document.getElementById('compose_from');
+  fromSel.innerHTML = state.accounts.map(a =>
+    `<option value="${a.id}">${escapeHtml(a.display_name)} &lt;${escapeHtml(a.email)}&gt;</option>`
+  ).join('');
+  if (!state.accounts.length) return alert('Önce bir hesap eklemelisiniz');
+
+  let to = '', subject = '', body = '';
+  if (opts.replyTo) {
+    to = opts.replyTo.from_addr || '';
+    subject = (opts.replyTo.subject || '').startsWith('Re:') ? opts.replyTo.subject : 'Re: ' + (opts.replyTo.subject || '');
+    body = `\n\n--- ${opts.replyTo.from_name || opts.replyTo.from_addr} (${formatDate(opts.replyTo.date)}) yazdı ---\n${opts.replyTo.body_text || ''}`;
+    fromSel.value = opts.replyTo.account_id;
+  } else if (opts.forward) {
+    subject = (opts.forward.subject || '').startsWith('Fwd:') ? opts.forward.subject : 'Fwd: ' + (opts.forward.subject || '');
+    body = `\n\n--- İletilen mesaj ---\nGönderen: ${opts.forward.from_addr}\nKonu: ${opts.forward.subject}\n\n${opts.forward.body_text || ''}`;
+    fromSel.value = opts.forward.account_id;
+  }
+  document.getElementById('compose_to').value = to;
+  document.getElementById('compose_cc').value = '';
+  document.getElementById('compose_subject').value = subject;
+  document.getElementById('compose_body').value = body;
+  document.getElementById('modalCompose').classList.remove('hidden');
+}
+
+async function sendMail() {
+  const accountId = parseInt(document.getElementById('compose_from').value, 10);
+  const to = document.getElementById('compose_to').value.trim();
+  const cc = document.getElementById('compose_cc').value.trim();
+  const subject = document.getElementById('compose_subject').value.trim();
+  const text = document.getElementById('compose_body').value;
+  if (!to) return alert('Alıcı gerekli');
+  if (!subject && !confirm('Konu boş - yine de göndermek istiyor musunuz?')) return;
+  const acc = state.accounts.find(a => a.id === accountId);
+  let finalText = text;
+  if (acc?.signature) finalText = text + '\n\n' + acc.signature;
+  setStatus('Gönderiliyor…');
+  try {
+    await window.api.mail.send(accountId, {
+      to, cc: cc || undefined, subject,
+      text: finalText, html: finalText.replace(/\n/g, '<br>')
+    });
+    document.getElementById('modalCompose').classList.add('hidden');
+    setStatus('Mesaj gönderildi ✓');
+    await loadAccounts();
+    if (state.selectedFolder) await loadMessages();
+  } catch (e) {
+    setStatus('Gönderme hatası: ' + e.message, 'error');
+    alert('Gönderme hatası:\n' + e.message);
+  }
+}
+
+// ============= Arama =============
+function bindSearch() {
+  let timer;
+  document.getElementById('searchBox').oninput = (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      state.searchQuery = e.target.value.trim();
+      if (state.selectedFolder) loadMessages();
+    }, 300);
+  };
+}
+
+// ============= Yedekleme =============
+async function doBackup() {
+  setStatus('Yedek hazırlanıyor…');
+  const result = await window.api.backup.export();
+  if (result.canceled) return setStatus('Yedekleme iptal edildi');
+  if (result.ok) setStatus('✓ Yedek kaydedildi: ' + result.path);
+  else setStatus('Yedek hatası: ' + result.error, 'error');
+}
+
+async function doRestore() {
+  const result = await window.api.backup.import();
+  if (result.canceled) return;
+  if (result.ok) {
+    alert('Yedek yüklendi. Uygulamayı yeniden başlatın.');
+    location.reload();
+  } else alert('Geri yükleme hatası: ' + result.error);
+}
+
+async function updateStorageInfo() {
+  const path = await window.api.app.dataPath();
+  const el = document.getElementById('storageInfo');
+  el.textContent = '📁 ' + path;
+  el.title = path;
+}
+
+// ============= Yardımcılar =============
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+function escapeHtmlAttr(str) { return escapeHtml(str).replace(/\n/g, '&#10;'); }
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  if (d.getFullYear() === now.getFullYear())
+    return d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+  return d.toLocaleDateString('tr-TR');
+}
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+function setStatus(text, kind) {
+  const el = document.getElementById('statusText');
+  el.textContent = text;
+  el.style.color = kind === 'error' ? 'var(--danger)' : '';
+}

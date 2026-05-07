@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>CODEGA Mail</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">
+      <span class="brand-icon">✉</span>
+      <span class="brand-text">CODEGA Mail</span>
+    </div>
+    <div class="toolbar-actions">
+      <button id="btnCompose" class="btn btn-primary" title="Yeni mesaj (Ctrl+N)">
+        <span>✎</span> Yeni Mesaj
+      </button>
+      <button id="btnSyncAll" class="btn" title="Tüm hesapları senkronize et (F5)">
+        <span>↻</span> Senkronize Et
+      </button>
+      <button id="btnAddAccount" class="btn">+ Hesap</button>
+      <button id="btnNewFolder" class="btn">+ Klasör</button>
+      <div class="toolbar-spacer"></div>
+      <button id="btnSpamRules" class="btn btn-ghost" title="Spam kuralları">🛡 Spam</button>
+      <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
+      <button id="btnBackup" class="btn btn-ghost" title="Yedek al">⬇ Yedek</button>
+      <button id="btnRestore" class="btn btn-ghost" title="Yedekten yükle">⬆ Geri Yükle</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="pane pane-folders">
+      <div id="accountList" class="account-list">
+        <div class="empty-state">Henüz hesap eklenmemiş.<br><small>"+ Hesap" ile başlayın.</small></div>
+      </div>
+      <div class="storage-info" id="storageInfo"></div>
+    </aside>
+
+    <section class="pane pane-list">
+      <div class="list-header">
+        <input id="searchBox" type="text" placeholder="Konu, gönderen veya içerik ara…" />
+        <span id="folderTitle" class="folder-title"></span>
+      </div>
+      <div id="messageList" class="message-list">
+        <div class="empty-state">Bir klasör seçin</div>
+      </div>
+    </section>
+
+    <section class="pane pane-view">
+      <div id="messageView" class="message-view">
+        <div class="empty-state">Okumak için bir mesaj seçin</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <span id="statusText">Hazır</span>
+    <span id="syncProgress"></span>
+  </footer>
+
+  <div id="contextMenu" class="context-menu hidden"></div>
+
+  <!-- ===== İlk Çalıştırma ===== -->
+  <div id="modalFirstRun" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header"><h2>👋 CODEGA Mail'e Hoş Geldiniz</h2></div>
+      <div class="modal-body">
+        <p style="margin-bottom:14px;">Başlamadan önce <strong>maillerinizin nerede saklanacağını</strong> seçin.</p>
+        <div class="form-group">
+          <label>Veri Klasörü</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="firstRunPath" readonly style="flex:1;">
+            <button class="btn" id="firstRunBrowse">Gözat…</button>
+          </div>
+          <small>C: dışında bir konum seçerseniz sistem yeniden kurulduğunda verileriniz korunur.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="firstRunContinue">Devam Et</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Ayarlar ===== -->
+  <div id="modalSettings" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2>⚙ Ayarlar</h2>
+        <button class="modal-close" data-close="modalSettings">×</button>
+      </div>
+      <div class="modal-body">
+        <!-- Veri Konumu -->
+        <div class="form-section full">📂 Veri Konumu</div>
+        <div class="form-group">
+          <label>Mevcut Klasör</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="settingsPath" readonly style="flex:1;">
+            <button class="btn" id="settingsBrowsePath">Değiştir…</button>
+            <button class="btn btn-ghost" id="settingsOpenFolder" title="Gezginde aç">📁</button>
+          </div>
+        </div>
+
+        <!-- Bildirimler & Tepsi -->
+        <div class="form-section full" style="margin-top:18px;">🔔 Bildirimler & Tepsi</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_notifications">
+              <span>Yeni mail geldiğinde Windows bildirimi göster</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label>Otomatik Senkronizasyon</label>
+            <select id="settings_sync_interval">
+              <option value="0">Devre dışı</option>
+              <option value="1">Her 1 dakika</option>
+              <option value="3">Her 3 dakika</option>
+              <option value="5">Her 5 dakika</option>
+              <option value="10">Her 10 dakika</option>
+              <option value="15">Her 15 dakika</option>
+              <option value="30">Her 30 dakika</option>
+              <option value="60">Her 1 saat</option>
+            </select>
+            <small>Arka planda yeni mailleri kontrol etme sıklığı</small>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;">
+            <button class="btn" id="btnTestNotif">🔔 Test Bildirimi Gönder</button>
+          </div>
+
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_close_to_tray">
+              <span>"X" tıklayınca uygulamayı kapatma, tepside tut</span>
+            </label>
+            <small>Kapalı: X tıklayınca uygulama tamamen kapanır</small>
+          </div>
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_auto_start">
+              <span>Bilgisayar açılışında otomatik başlat</span>
+            </label>
+          </div>
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_start_minimized">
+              <span>Açılışta tepside başlat (pencere açma)</span>
+            </label>
+            <small>Otomatik başlatma ile birlikte kullanılır</small>
+          </div>
+        </div>
+
+        <!-- Hesaplar -->
+        <div class="form-section full" style="margin-top:18px;">📧 Hesap Yönetimi</div>
+        <div id="settingsAccountList" class="settings-account-list"></div>
+
+        <!-- Hakkında -->
+        <div class="form-section full" style="margin-top:18px;">ℹ Hakkında</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.6;">
+          <strong>CODEGA Mail</strong> v<span id="appVersion">1.2.0</span><br>
+          IMAP/POP3 destekli yerel masaüstü mail istemcisi
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close="modalSettings">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Hesap Wizard ===== -->
+  <div id="modalAccount" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2 id="accountModalTitle">Mail Hesabı Ekle</h2>
+        <button class="modal-close" data-close="modalAccount">×</button>
+      </div>
+
+      <div class="wizard-steps" id="wizardSteps">
+        <div class="wizard-step-indicator active" data-step="1">
+          <span class="step-num"><span>1</span></span>
+          <span class="step-label">Hesap Bilgileri</span>
+        </div>
+        <div class="wizard-arrow">→</div>
+        <div class="wizard-step-indicator" data-step="2">
+          <span class="step-num"><span>2</span></span>
+          <span class="step-label">Sunucu Ayarları</span>
+        </div>
+        <div class="wizard-arrow">→</div>
+        <div class="wizard-step-indicator" data-step="3">
+          <span class="step-num"><span>3</span></span>
+          <span class="step-label">Test & Kaydet</span>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <div class="wizard-page" data-step="1">
+          <div style="font-size:12px;color:var(--text-2);margin-bottom:16px;">
+            E-posta adresinizi girin — sağlayıcınız otomatik tespit edilecek (Gmail, Outlook, Yandex, iCloud, Yahoo vs.)
+          </div>
+          <div class="form-group">
+            <label>Görünen Ad</label>
+            <input type="text" id="acc_display_name" placeholder="Yunus Aksoy">
+          </div>
+          <div class="form-group">
+            <label>E-posta Adresi</label>
+            <input type="email" id="acc_email" placeholder="ornek@gmail.com" autocomplete="off">
+            <div id="providerHint" class="provider-hint"></div>
+          </div>
+          <div class="form-group">
+            <label>Şifre <span style="font-weight:normal;text-transform:none;font-size:10px;color:var(--muted);">veya Uygulama Şifresi</span></label>
+            <input type="password" id="acc_in_password">
+            <small id="acc_pw_hint"></small>
+          </div>
+        </div>
+
+        <div class="wizard-page hidden" data-step="2">
+          <div id="providerCard" class="provider-card"></div>
+          <div id="autoConfigSummary" class="auto-config-summary"></div>
+          <details class="advanced-toggle" id="advancedToggle">
+            <summary>⚙ Sunucu ayarlarını düzenle (gelişmiş)</summary>
+            <div class="form-grid" style="margin-top:14px;">
+              <div class="form-group">
+                <label>Protokol</label>
+                <select id="acc_protocol">
+                  <option value="imap">IMAP (önerilen)</option>
+                  <option value="pop3">POP3</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Kullanıcı Adı</label>
+                <input type="text" id="acc_in_username">
+              </div>
+              <div class="form-section full">Gelen Sunucu</div>
+              <div class="form-group"><label>Sunucu</label><input type="text" id="acc_in_host"></div>
+              <div class="form-group"><label>Port</label><input type="number" id="acc_in_port"></div>
+              <div class="form-group">
+                <label>Güvenlik</label>
+                <select id="acc_in_secure">
+                  <option value="1">SSL/TLS</option>
+                  <option value="0">Yok / STARTTLS</option>
+                </select>
+              </div>
+              <div class="form-group" id="pop3OptionsWrap" style="display:none;">
+                <label>POP3 Davranışı</label>
+                <label style="font-weight:normal;text-transform:none;letter-spacing:normal;font-size:12px;">
+                  <input type="checkbox" id="acc_pop3_leave" checked> Sunucuda bırak
+                </label>
+              </div>
+              <div class="form-section full">Giden Sunucu (SMTP)</div>
+              <div class="form-group"><label>Sunucu</label><input type="text" id="acc_smtp_host"></div>
+              <div class="form-group"><label>Port</label><input type="number" id="acc_smtp_port"></div>
+              <div class="form-group">
+                <label>Güvenlik</label>
+                <select id="acc_smtp_secure">
+                  <option value="1">SSL/TLS (465)</option>
+                  <option value="0">STARTTLS (587)</option>
+                </select>
+              </div>
+              <div class="form-group full">
+                <label>SMTP Kullanıcı (boşsa gelen ile aynı)</label>
+                <input type="text" id="acc_smtp_username">
+              </div>
+              <div class="form-group full">
+                <label>SMTP Şifre <span id="acc_smtp_pw_hint" style="font-weight:normal;text-transform:none;font-size:10px;color:var(--muted);">(boşsa gelen ile aynı)</span></label>
+                <input type="password" id="acc_smtp_password">
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="wizard-page hidden" data-step="3">
+          <div class="form-section full">Spam Filtresi</div>
+          <div class="form-grid" style="margin-bottom:14px;">
+            <div class="form-group">
+              <label>Filtre Durumu</label>
+              <select id="acc_spam_enabled">
+                <option value="1">Aktif</option>
+                <option value="0">Devre Dışı</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Eşik Puanı (0-100)</label>
+              <input type="number" id="acc_spam_threshold" value="50" min="0" max="100">
+            </div>
+          </div>
+          <div class="form-section full">İmza</div>
+          <div class="form-group">
+            <textarea id="acc_signature" rows="3" placeholder="-- &#10;Yunus&#10;CODEGA"></textarea>
+          </div>
+          <div id="testResult" class="test-result"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalAccount">İptal</button>
+        <div style="flex:1;"></div>
+        <button class="btn" id="btnWizardBack" style="display:none;">← Geri</button>
+        <button class="btn" id="btnWizardNext">İleri →</button>
+        <button class="btn" id="btnTestAccount" style="display:none;">🔌 Bağlantıyı Test Et</button>
+        <button class="btn btn-primary" id="btnSaveAccount" style="display:none;">✓ Kaydet</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Yeni Klasör ===== -->
+  <div id="modalNewFolder" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header"><h2>+ Yeni Klasör</h2><button class="modal-close" data-close="modalNewFolder">×</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Hesap</label><select id="folder_account"></select></div>
+        <div class="form-group"><label>Klasör Adı</label><input type="text" id="folder_name" placeholder="Örn: Müşteriler"></div>
+        <div class="form-group" id="folder_server_option">
+          <label><input type="checkbox" id="folder_on_server"> Sunucuda da oluştur (IMAP)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalNewFolder">İptal</button>
+        <button class="btn btn-primary" id="btnCreateFolder">Oluştur</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Spam Kuralları ===== -->
+  <div id="modalSpam" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header"><h2>🛡 Spam Kuralları</h2><button class="modal-close" data-close="modalSpam">×</button></div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;">
+          Mesajda <strong>"Bu spam"</strong> dediğinizde gönderici otomatik engellilere eklenir.
+        </div>
+        <div class="form-section full">Yeni Kural Ekle</div>
+        <div class="form-grid" style="grid-template-columns:140px 140px 1fr 110px;align-items:end;">
+          <div class="form-group"><label>Hesap</label><select id="spam_account_filter"></select></div>
+          <div class="form-group">
+            <label>Tip</label>
+            <select id="spam_type">
+              <option value="sender">Gönderici</option>
+              <option value="domain">Domain</option>
+              <option value="subject">Konu içerir</option>
+              <option value="body">İçerik içerir</option>
+            </select>
+          </div>
+          <div class="form-group"><label>Desen</label><input type="text" id="spam_pattern" placeholder="spam@example.com"></div>
+          <div class="form-group">
+            <label>Aksiyon</label>
+            <select id="spam_action">
+              <option value="block">🚫 Engelle</option>
+              <option value="allow">✓ Güvenli</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+          <button class="btn btn-primary" id="btnAddSpamRule">Kural Ekle</button>
+        </div>
+        <div class="form-section full">Mevcut Kurallar</div>
+        <div id="spamRulesList" class="spam-rules-list"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" data-close="modalSpam">Kapat</button></div>
+    </div>
+  </div>
+
+  <!-- ===== Yeni Mesaj ===== -->
+  <div id="modalCompose" class="modal hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header"><h2>Yeni Mesaj</h2><button class="modal-close" data-close="modalCompose">×</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Gönderen Hesap</label><select id="compose_from"></select></div>
+        <div class="form-group"><label>Kime</label><input type="text" id="compose_to" placeholder="ornek@adres.com"></div>
+        <div class="form-group"><label>CC</label><input type="text" id="compose_cc"></div>
+        <div class="form-group"><label>Konu</label><input type="text" id="compose_subject"></div>
+        <div class="form-group"><label>Mesaj</label><textarea id="compose_body" rows="14"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-close="modalCompose">İptal</button>
+        <button id="btnSendMail" class="btn btn-primary">Gönder</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

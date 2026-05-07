@@ -1,0 +1,667 @@
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, Tray, Menu, Notification, nativeImage } = require('electron');
+const path = require('path');
+const fs = require('fs');
+
+const Database = require('./db/database');
+const MailService = require('./services/mail');
+const BackupService = require('./services/backup');
+const Crypto = require('./services/crypto');
+const Config = require('./services/config');
+
+let mainWindow;
+let tray;
+let db;
+let crypto;
+let mailService;
+let backupService;
+let appConfig;
+let isQuitting = false;
+let backgroundSyncTimer = null;
+let isBackgroundSyncing = false;
+
+// Windows'ta bildirimlerin uygulama adıyla gruplanması için zorunlu
+app.setAppUserModelId('tr.com.codega.mail');
+
+// Tek instance kuralı - ikinci başlatma mevcut pencereyi açar
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    showWindow();
+  });
+}
+
+// Komut satırı argümanları
+const startedHidden = process.argv.includes('--hidden');
+
+// =====================================================================
+// Hata logu
+// =====================================================================
+function logError(stage, err) {
+  try {
+    const logDir = app.getPath('userData');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, 'error.log');
+    const line = `[${new Date().toISOString()}] [${stage}] ${err.stack || err.message || err}\n`;
+    fs.appendFileSync(logPath, line, 'utf8');
+    return logPath;
+  } catch (_) { return null; }
+}
+
+process.on('uncaughtException', (err) => {
+  const logPath = logError('uncaughtException', err);
+  try {
+    dialog.showErrorBox('CODEGA Mail - Beklenmeyen Hata',
+      `${err.message}\n\nDetaylar log'a yazıldı:\n${logPath || '(log yazılamadı)'}`);
+  } catch (_) {}
+});
+
+process.on('unhandledRejection', (err) => logError('unhandledRejection', err));
+
+// =====================================================================
+// Pencere
+// =====================================================================
+function getIconPath() {
+  const candidates = [
+    path.join(__dirname, 'ui', 'icon.png'),
+    path.join(__dirname, 'ui', 'icon.ico')
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function createWindow() {
+  const iconPath = getIconPath();
+
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    minWidth: 960,
+    minHeight: 600,
+    title: 'CODEGA Mail',
+    backgroundColor: '#1e1e2e',
+    icon: iconPath || undefined,
+    show: !startedHidden && !appConfig.get('startMinimized'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  mainWindow.setMenuBarVisibility(false);
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_, details) => {
+    logError('render-process-gone', new Error(JSON.stringify(details)));
+  });
+
+  // Kapat tuşuna basıldığında: tepsiye küçült (config açıksa)
+  mainWindow.on('close', (e) => {
+    if (!isQuitting && appConfig.get('closeToTray') !== false) {
+      e.preventDefault();
+      mainWindow.hide();
+      // İlk kapatmada hatırlatma toast'u
+      if (!appConfig.get('trayHintShown')) {
+        showNotification(
+          'CODEGA Mail tepside çalışmaya devam ediyor',
+          'Yeni mailler için arka planda kontrol edilecek. Çıkmak için tepsi simgesine sağ tıklayın.',
+          null, true
+        );
+        appConfig.set('trayHintShown', true);
+      }
+    }
+  });
+}
+
+function showWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+}
+
+// =====================================================================
+// DB
+// =====================================================================
+async function initializeDatabase() {
+  const dataPath = appConfig.getDataPath();
+  const dbPath = path.join(dataPath, 'codega-mail.db');
+  db = await Database.open(dbPath);
+  backupService = new BackupService(dbPath);
+  if (mailService) {
+    mailService.setDb(db);
+  } else {
+    mailService = new MailService(db, crypto);
+  }
+}
+
+// =====================================================================
+// Sistem Tepsisi
+// =====================================================================
+function createTray() {
+  const iconPath = getIconPath();
+  if (!iconPath) {
+    console.warn('Tepsi simgesi bulunamadı, tepsi devre dışı');
+    return;
+  }
+
+  // Windows tepsi 16x16/24x24 ister, Electron otomatik küçültür ama kalitesi için elimle
+  let img = nativeImage.createFromPath(iconPath);
+  if (process.platform === 'win32' && !img.isEmpty()) {
+    img = img.resize({ width: 16, height: 16 });
+  } else if (process.platform === 'darwin' && !img.isEmpty()) {
+    img = img.resize({ width: 18, height: 18 });
+    // macOS'te menü çubuğu için template image (otomatik renk değişimi)
+    img.setTemplateImage(true);
+  }
+
+  tray = new Tray(img);
+  tray.setToolTip('CODEGA Mail');
+
+  // Çift tık veya tek tık → pencereyi aç/gizle
+  tray.on('click', () => {
+    if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused()) {
+      mainWindow.hide();
+    } else {
+      showWindow();
+    }
+  });
+  tray.on('double-click', () => showWindow());
+
+  rebuildTrayMenu();
+}
+
+function rebuildTrayMenu(unread = 0) {
+  if (!tray) return;
+  const menu = Menu.buildFromTemplate([
+    { label: '✉ CODEGA Mail', enabled: false },
+    { label: unread > 0 ? `📬 ${unread} okunmamış mesaj` : '✓ Tüm mesajlar okundu', enabled: false },
+    { type: 'separator' },
+    { label: 'Pencereyi Göster', click: showWindow },
+    { label: '↻ Tümünü Senkronize Et', click: () => runBackgroundSync(true) },
+    { label: '✎ Yeni Mesaj', click: () => {
+      showWindow();
+      if (mainWindow) mainWindow.webContents.send('open-compose');
+    }},
+    { label: '⚙ Ayarlar', click: () => {
+      showWindow();
+      if (mainWindow) mainWindow.webContents.send('open-settings');
+    }},
+    { type: 'separator' },
+    { label: '🚪 Çıkış', click: () => {
+      isQuitting = true;
+      app.quit();
+    }}
+  ]);
+  tray.setContextMenu(menu);
+  tray.setToolTip(`CODEGA Mail${unread > 0 ? ' · ' + unread + ' okunmamış' : ''}`);
+}
+
+function updateTray() {
+  if (!tray || !db) return;
+  try {
+    // Spam olmayan + okunmamış inbox mesajları
+    const row = db.prepare(`
+      SELECT COUNT(*) AS c FROM messages m
+      JOIN folders f ON m.folder_id = f.id
+      WHERE m.is_read = 0 AND m.is_spam = 0
+        AND (f.special_use = '\\Inbox' OR f.special_use IS NULL OR f.special_use = '')
+    `).get();
+    const unread = (row && row.c) || 0;
+    rebuildTrayMenu(unread);
+  } catch (e) {
+    console.warn('Tepsi güncellenemedi:', e.message);
+  }
+}
+
+// =====================================================================
+// Bildirimler
+// =====================================================================
+function showNotification(title, body, messageId = null, silent = false) {
+  if (!Notification.isSupported()) return;
+  if (appConfig.get('notificationsEnabled') === false) return;
+
+  const iconPath = getIconPath();
+  const n = new Notification({
+    title,
+    body,
+    icon: iconPath || undefined,
+    silent: !!silent
+  });
+
+  n.on('click', () => {
+    showWindow();
+    if (messageId && mainWindow) {
+      mainWindow.webContents.send('open-message', messageId);
+    }
+  });
+
+  n.show();
+}
+
+// =====================================================================
+// Arka Plan Senkronizasyonu
+// =====================================================================
+function setupBackgroundSync() {
+  if (backgroundSyncTimer) {
+    clearInterval(backgroundSyncTimer);
+    backgroundSyncTimer = null;
+  }
+  const minutes = parseInt(appConfig.get('backgroundSyncMinutes'), 10);
+  if (!minutes || minutes <= 0) return;
+  backgroundSyncTimer = setInterval(() => runBackgroundSync(false), minutes * 60 * 1000);
+}
+
+async function runBackgroundSync(forceUiRefresh = false) {
+  if (isBackgroundSyncing) return;
+  if (!db || !mailService) return;
+
+  isBackgroundSyncing = true;
+  const allNew = [];
+
+  try {
+    const accounts = db.listAccounts();
+    for (const acc of accounts) {
+      // Sync öncesi en yüksek mesaj id'sini al
+      let beforeMax = 0;
+      try {
+        const r = db.prepare('SELECT MAX(id) AS m FROM messages WHERE account_id = ?').get(acc.id);
+        beforeMax = (r && r.m) || 0;
+      } catch (_) {}
+
+      try {
+        await mailService.syncAccount(acc.id);
+      } catch (e) {
+        logError('background-sync:' + acc.id, e);
+        continue;
+      }
+
+      // Yeni gelenleri al (spam değil)
+      try {
+        const newMsgs = db.prepare(`
+          SELECT id, from_addr, from_name, subject, account_id
+          FROM messages
+          WHERE account_id = ? AND id > ? AND is_spam = 0
+          ORDER BY id DESC LIMIT 5
+        `).all(acc.id, beforeMax);
+
+        for (const m of newMsgs) {
+          allNew.push(Object.assign({}, m, { accountName: acc.display_name }));
+        }
+      } catch (e) {
+        console.warn('Yeni mesajlar sorgulanamadı:', e.message);
+      }
+    }
+
+    db.save();
+  } finally {
+    isBackgroundSyncing = false;
+  }
+
+  // Bildirim göster (1 mesaj → tek bildirim, çoklu → toplu)
+  if (allNew.length === 1) {
+    const m = allNew[0];
+    showNotification(
+      `${m.accountName} - Yeni Mesaj`,
+      `${m.from_name || m.from_addr || ''}${m.from_name || m.from_addr ? ': ' : ''}${m.subject || '(Konu yok)'}`,
+      m.id
+    );
+  } else if (allNew.length > 1) {
+    const previewLines = allNew.slice(0, 3).map(m =>
+      `· ${m.from_name || m.from_addr || '?'}: ${(m.subject || '').slice(0, 50)}`
+    );
+    if (allNew.length > 3) previewLines.push(`... ve ${allNew.length - 3} mesaj daha`);
+    showNotification(
+      `📬 ${allNew.length} yeni mesaj`,
+      previewLines.join('\n'),
+      null
+    );
+  }
+
+  updateTray();
+
+  // Pencere görünürse renderer'a haber ver
+  if (mainWindow && !mainWindow.isDestroyed() &&
+      (forceUiRefresh || mainWindow.isVisible())) {
+    mainWindow.webContents.send('background-sync-done', { newCount: allNew.length });
+  }
+}
+
+// =====================================================================
+// Otomatik başlatma (Windows Run anahtarı / macOS LaunchAgent)
+// =====================================================================
+function applyAutoStart() {
+  if (process.platform === 'linux') return; // Linux farklı, atla
+  try {
+    const enabled = !!appConfig.get('autoStart');
+    app.setLoginItemSettings({
+      openAtLogin: enabled,
+      openAsHidden: !!appConfig.get('startMinimized'),
+      args: appConfig.get('startMinimized') ? ['--hidden'] : []
+    });
+  } catch (e) {
+    console.warn('Otomatik başlatma ayarlanamadı:', e.message);
+  }
+}
+
+// =====================================================================
+// Uygulama yaşam döngüsü
+// =====================================================================
+app.whenReady().then(async () => {
+  try {
+    crypto = new Crypto(safeStorage);
+    appConfig = new Config(app.getPath('userData'));
+    await initializeDatabase();
+    createWindow();
+    createTray();
+    updateTray();
+    setupBackgroundSync();
+    applyAutoStart();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      else showWindow();
+    });
+  } catch (err) {
+    const logPath = logError('startup', err);
+    dialog.showErrorBox('CODEGA Mail Başlatılamadı',
+      `Hata: ${err.message}\n\nLog: ${logPath || '(yazılamadı)'}\n\n${(err.stack || '').split('\n').slice(0, 6).join('\n')}`);
+    app.quit();
+  }
+});
+
+app.on('window-all-closed', () => {
+  // Tepsi varsa çıkma - tepside çalışmaya devam et
+  if (process.platform !== 'darwin' && !tray) {
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  isQuitting = true;
+  if (backgroundSyncTimer) clearInterval(backgroundSyncTimer);
+  try { db?.save(); } catch (e) { console.warn('DB save hatası:', e.message); }
+});
+
+// =====================================================================
+// IPC: Yapılandırma
+// =====================================================================
+ipcMain.handle('config:get', () => ({
+  dataPath: appConfig.getDataPath(),
+  defaultDataPath: app.getPath('userData'),
+  firstRun: appConfig.get('firstRun'),
+  version: appConfig.get('version'),
+  notificationsEnabled: appConfig.get('notificationsEnabled') !== false,
+  backgroundSyncMinutes: appConfig.get('backgroundSyncMinutes') || 0,
+  closeToTray: appConfig.get('closeToTray') !== false,
+  startMinimized: !!appConfig.get('startMinimized'),
+  autoStart: !!appConfig.get('autoStart')
+}));
+
+ipcMain.handle('config:setFirstRunDone', () => {
+  appConfig.set('firstRun', false);
+  return { ok: true };
+});
+
+ipcMain.handle('config:chooseDataPath', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Veri Klasörünü Seç',
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath: appConfig.getDataPath()
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+  return { ok: true, path: result.filePaths[0] };
+});
+
+ipcMain.handle('config:setDataPath', async (_, newPath) => {
+  try {
+    db?.close();
+    appConfig.changeDataPath(newPath);
+    await initializeDatabase();
+    return { ok: true, path: newPath };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('config:updatePrefs', (_, prefs) => {
+  // Tek seferde birden çok ayarı güncelle ve etkilerini uygula
+  appConfig.setMany(prefs);
+  if ('backgroundSyncMinutes' in prefs) setupBackgroundSync();
+  if ('autoStart' in prefs || 'startMinimized' in prefs) applyAutoStart();
+  return { ok: true };
+});
+
+ipcMain.handle('config:testNotification', () => {
+  showNotification('🔔 Test Bildirimi', 'CODEGA Mail bildirimleri çalışıyor.');
+  return { ok: true };
+});
+
+// =====================================================================
+// IPC: Hesaplar
+// =====================================================================
+ipcMain.handle('accounts:list', () => db.listAccounts());
+
+ipcMain.handle('accounts:get', (_, id) => {
+  const acc = db.getAccount(id);
+  if (!acc) return null;
+  return {
+    ...acc,
+    in_password: undefined,
+    smtp_password: undefined,
+    has_in_password: !!acc.in_password,
+    has_smtp_password: !!acc.smtp_password
+  };
+});
+
+ipcMain.handle('accounts:add', async (_, accountData) => {
+  const inPwEnc = crypto.encrypt(accountData.in_password);
+  const smtpPwEnc = accountData.smtp_password
+    ? crypto.encrypt(accountData.smtp_password) : inPwEnc;
+  const id = db.addAccount({ ...accountData, in_password: inPwEnc, smtp_password: smtpPwEnc });
+  return { id };
+});
+
+ipcMain.handle('accounts:test', async (_, accountData) => {
+  return await mailService.testConnection(accountData);
+});
+
+ipcMain.handle('accounts:delete', (_, accountId) => {
+  db.deleteAccount(accountId);
+  updateTray();
+  return { ok: true };
+});
+
+ipcMain.handle('accounts:update', async (_, accountId, accountData) => {
+  const updates = { ...accountData };
+  if (updates.in_password) updates.in_password = crypto.encrypt(updates.in_password);
+  else delete updates.in_password;
+  if (updates.smtp_password) updates.smtp_password = crypto.encrypt(updates.smtp_password);
+  else delete updates.smtp_password;
+  db.updateAccount(accountId, updates);
+  return { ok: true };
+});
+
+ipcMain.handle('accounts:reorder', (_, orderedIds) => {
+  orderedIds.forEach((id, idx) => db.updateAccount(id, { sort_order: idx }));
+  return { ok: true };
+});
+
+// =====================================================================
+// IPC: Klasörler
+// =====================================================================
+ipcMain.handle('folders:list', (_, accountId) => db.listFolders(accountId));
+ipcMain.handle('folders:create', async (_, accountId, name, onServer) => {
+  try { return await mailService.createFolder(accountId, name, !!onServer); }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+ipcMain.handle('folders:rename', (_, folderId, newName) => {
+  db.renameFolder(folderId, newName);
+  return { ok: true };
+});
+ipcMain.handle('folders:delete', (_, folderId) => {
+  try { db.deleteFolder(folderId); return { ok: true }; }
+  catch (err) { return { ok: false, error: err.message }; }
+});
+
+// =====================================================================
+// IPC: Mesajlar
+// =====================================================================
+ipcMain.handle('messages:list', (_, folderId, opts = {}) => db.listMessages(folderId, opts));
+ipcMain.handle('messages:get', (_, messageId) => db.getMessage(messageId));
+
+ipcMain.handle('messages:markRead', async (_, messageId, isRead) => {
+  db.markMessageRead(messageId, isRead);
+  try { await mailService.setFlag(messageId, '\\Seen', isRead); }
+  catch (e) { console.warn('Sunucu flag hatası:', e.message); }
+  updateTray();
+  return { ok: true };
+});
+
+ipcMain.handle('messages:delete', async (_, messageId) => {
+  await mailService.deleteMessage(messageId);
+  updateTray();
+  return { ok: true };
+});
+
+ipcMain.handle('messages:move', async (_, messageId, targetFolderId) => {
+  try {
+    const r = await mailService.moveMessage(messageId, targetFolderId);
+    updateTray();
+    return r;
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('messages:markSpam', async (_, messageId) => {
+  const r = await mailService.markAsSpam(messageId);
+  updateTray();
+  return r;
+});
+
+ipcMain.handle('messages:markNotSpam', async (_, messageId) => {
+  const r = await mailService.markAsNotSpam(messageId);
+  updateTray();
+  return r;
+});
+
+// =====================================================================
+// IPC: Spam Kuralları
+// =====================================================================
+ipcMain.handle('spam:list', (_, accountId) => db.listSpamRules(accountId));
+ipcMain.handle('spam:add', (_, rule) => ({ ok: true, id: db.addSpamRule(rule) }));
+ipcMain.handle('spam:delete', (_, ruleId) => {
+  db.deleteSpamRule(ruleId);
+  return { ok: true };
+});
+
+// =====================================================================
+// IPC: Senkronizasyon
+// =====================================================================
+ipcMain.handle('sync:account', async (_, accountId) => {
+  const sender = (event, data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('sync:progress', { accountId, ...data });
+    }
+  };
+  try {
+    const result = await mailService.syncAccount(accountId, sender);
+    db.save();
+    updateTray();
+    return { ok: true, ...result };
+  } catch (err) {
+    logError('sync:account', err);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('sync:all', async () => {
+  const accounts = db.listAccounts();
+  const results = [];
+  for (const acc of accounts) {
+    try {
+      const r = await mailService.syncAccount(acc.id, (event, data) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('sync:progress', { accountId: acc.id, ...data });
+        }
+      });
+      results.push({ accountId: acc.id, ok: true, ...r });
+    } catch (err) {
+      logError('sync:' + acc.id, err);
+      results.push({ accountId: acc.id, ok: false, error: err.message });
+    }
+  }
+  db.save();
+  updateTray();
+  return results;
+});
+
+// =====================================================================
+// IPC: Mail Gönderme
+// =====================================================================
+ipcMain.handle('mail:send', async (_, accountId, mailData) => {
+  return await mailService.sendMail(accountId, mailData);
+});
+
+// =====================================================================
+// IPC: Yedekleme
+// =====================================================================
+ipcMain.handle('backup:export', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Mail Yedeği Kaydet',
+    defaultPath: `codega-mail-yedek-${new Date().toISOString().slice(0, 10)}.mailbackup`,
+    filters: [{ name: 'CODEGA Mail Yedeği', extensions: ['mailbackup'] }]
+  });
+  if (result.canceled) return { canceled: true };
+  try {
+    db.save();
+    await backupService.exportTo(result.filePath);
+    return { ok: true, path: result.filePath };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+ipcMain.handle('backup:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Yedekten Geri Yükle',
+    filters: [{ name: 'CODEGA Mail Yedeği', extensions: ['mailbackup'] }],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+  const confirm = await dialog.showMessageBox(mainWindow, {
+    type: 'warning', buttons: ['İptal', 'Devam Et'],
+    defaultId: 0, cancelId: 0,
+    title: 'Yedekten Geri Yükleme',
+    message: 'Mevcut tüm verileriniz silinip yedek dosyasındaki veriler yüklenecek. Devam edilsin mi?'
+  });
+  if (confirm.response !== 1) return { canceled: true };
+
+  try {
+    db.close();
+    await backupService.importFrom(result.filePaths[0]);
+    await initializeDatabase();
+    updateTray();
+    return { ok: true, requiresRestart: true };
+  } catch (err) { return { ok: false, error: err.message }; }
+});
+
+// =====================================================================
+// IPC: Yardımcılar
+// =====================================================================
+ipcMain.handle('app:openExternal', (_, url) => shell.openExternal(url));
+ipcMain.handle('app:dataPath', () => appConfig.getDataPath());
+ipcMain.handle('app:openDataFolder', () => shell.openPath(appConfig.getDataPath()));
+ipcMain.handle('app:openLogFolder', () => shell.openPath(app.getPath('userData')));
+ipcMain.handle('app:quit', () => { isQuitting = true; app.quit(); });
