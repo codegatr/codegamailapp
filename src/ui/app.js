@@ -491,28 +491,24 @@ function bindSettings() {
   document.getElementById('btnTestNotif').onclick = async () => {
     const r = await window.api.config.testNotification();
     if (r && r.ok) {
-      const layer = r.viaLayer || 'bilinmiyor';
-      let layerName = layer;
-      if (layer === 'node-notifier') layerName = 'SnoreToast (Windows native)';
-      else if (layer === 'electron') layerName = 'Electron Notification API';
-      else if (layer === 'tray_balloon') layerName = 'Sistem Tepsisi Balonu';
-      setStatus(`✓ Test bildirimi gönderildi (${layerName}) - sağ alt köşeyi kontrol edin`);
-      // 5 saniye sonra hâlâ göremedim deyip sorulduğunda yardımcı olmak için
+      const layers = (r.layers || []).map(l => {
+        if (l === 'snoretoast') return 'SnoreToast';
+        if (l === 'electron') return 'Electron';
+        if (l === 'tray_balloon') return 'Tray Balon';
+        if (l === 'inapp_banner') return 'In-app Banner';
+        return l;
+      }).join(', ');
+      setStatus(`✓ Test bildirimi gönderildi - paralel: ${layers}`);
+      // In-app banner zaten görünmeli (sağ üstte). 2 sn sonra konfirm
       setTimeout(() => {
-        const yes = confirm(`Bildirim göründü mü?\n\nGönderildiği katman: ${layerName}\n\nGörmediyseniz "İptal" tıklayın, Windows kontrol checklist'i göstereyim.`);
-        if (!yes) showNotificationTroubleshoot(r);
-      }, 3000);
+        const seen = confirm(`Test bildirimi gönderildi.\n\nÇalışan katmanlar: ${layers}\n\nNeresini gördün?\n• Sağ üstte mavi BANNER (in-app, garantili)\n• Windows toast (sağ alt köşe)\n• Tepside balon\n\nHerhangi birini gördüysen "Tamam".\nHiçbirini görmediysen "İptal" - kontrol listesi.`);
+        if (!seen) showNotificationTroubleshoot(r);
+      }, 2500);
     } else {
       let msg = 'Bildirim gönderilemedi.\n\n';
       if (!r) msg += 'Sebep: IPC dönmedi';
       else if (!r.enabled) msg += 'Sebep: Bildirimler config\'de kapalı';
-      else if (r.reason) msg += `Sebep: ${r.reason}` + (r.error ? '\nHata: ' + r.error : '');
-      else msg += 'Bilinmeyen hata';
-      msg += '\n\nWindows kontrol et:\n';
-      msg += '1. Ayarlar > Sistem > Bildirimler > AÇIK olmalı\n';
-      msg += '2. Aynı yerde "CODEGA Mail" listesi (varsa) > AÇIK\n';
-      msg += '3. "Odaklanma Yardımı" (Focus Assist) > KAPALI\n';
-      msg += '4. Başlat menüsünde "CODEGA Mail" kısayolu var mı';
+      else msg += 'Tüm 4 katman da başarısız';
       alert(msg);
       setStatus('Test bildirimi başarısız', 'error');
     }
@@ -520,21 +516,19 @@ function bindSettings() {
 }
 
 function showNotificationTroubleshoot(result) {
-  let msg = 'Windows bildirim sorunu giderme:\n\n';
-  msg += `Test sonucu: Katman ${result.viaLayer || '?'} kullanıldı, ok=${result.ok}\n\n`;
-  msg += '🔍 KONTROL ET:\n';
-  msg += '1. Görev çubuğunda saat yanındaki BİLDİRİM MERKEZİ ikonuna tıkla, gelen bildirimler orada birikmiş olabilir\n';
+  let msg = 'Bildirim sorunu giderme:\n\n';
+  msg += `Çalıştırılan katmanlar: ${(result.layers || []).join(', ') || 'hiçbiri'}\n\n`;
+  msg += '🔍 ÖNERİLER:\n';
+  msg += '1. Sağ üstte küçük mavi banner çıktı mı? (In-app, her zaman çalışmalı)\n';
+  msg += '   Çıkmadıysa pencere DOM render olmuyor, restart gerek\n';
   msg += '2. Windows Ayarlar > Sistem > Bildirimler:\n';
-  msg += '   • "Bildirimleri al" AÇIK olmalı\n';
-  msg += '   • Aşağı kaydır, "CODEGA Mail" varsa AÇIK\n';
-  msg += '3. Windows Ayarlar > Sistem > "Odaklanma" (Focus assist):\n';
-  msg += '   • "Kapalı" olmalı (öncelik veya yalnızca alarm DEĞİL)\n';
-  msg += '4. Ses kontrolü: Bildirim sesi mute mı?\n';
-  msg += '5. Sistem tepsisinde CODEGA Mail simgesine sağ tıklayıp dene\n\n';
-  msg += '📋 Eğer bildirimler hâlâ gelmiyorsa:\n';
-  msg += '• Uygulamayı tepsiden kapat, tekrar aç\n';
-  msg += '• Bilgisayarı yeniden başlat\n';
-  msg += '• CODEGA Mail\'i Başlat menüsüne sabitle (sağ tık > Sabitle)';
+  msg += '   • "Bildirimleri al" AÇIK\n';
+  msg += '   • "CODEGA Mail" varsa AÇIK\n';
+  msg += '3. Windows Ayarlar > Sistem > "Odaklanma" → Kapalı\n';
+  msg += '4. Bildirim Merkezi (saat yanı) içinde birikmiş mi kontrol et\n';
+  msg += '5. Tray icon (sistem tepsisi) görünüyor mu? Görünmüyorsa balloon da çalışmaz\n';
+  msg += '6. Uygulamayı tepsiden kapat, yeniden başlat\n';
+  msg += '7. CODEGA Mail\'i Başlat menüsüne sabitle (sağ tık > Sabitle)';
   alert(msg);
 }
 
@@ -2954,4 +2948,52 @@ function debounce(fn, wait) {
     clearTimeout(t);
     t = setTimeout(() => fn.apply(this, args), wait);
   };
+}
+
+// ============= v1.11.1: In-app banner (bildirim garantisi) =============
+function showInAppNotification(data) {
+  const container = document.getElementById('inAppNotifContainer');
+  if (!container) return;
+  const banner = document.createElement('div');
+  banner.className = 'in-app-notif';
+  banner.innerHTML = `
+    <div class="in-app-notif-icon">📨</div>
+    <div class="in-app-notif-body">
+      <div class="in-app-notif-title">${escapeHtml(data.title || 'Bildirim')}</div>
+      <div class="in-app-notif-text">${escapeHtml((data.body || '').slice(0, 200))}</div>
+    </div>
+    <button class="in-app-notif-close" title="Kapat">×</button>
+  `;
+  container.appendChild(banner);
+  // Animasyonu tetikle
+  setTimeout(() => banner.classList.add('show'), 10);
+
+  const closeBtn = banner.querySelector('.in-app-notif-close');
+  closeBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    removeBanner();
+  };
+
+  banner.onclick = () => {
+    if (data.messageId) {
+      // Mesajı aç
+      openMessage(data.messageId).catch(() => {});
+    }
+    removeBanner();
+  };
+
+  function removeBanner() {
+    banner.classList.remove('show');
+    setTimeout(() => banner.remove(), 300);
+  }
+
+  // 6 saniye sonra otomatik kapat
+  setTimeout(removeBanner, 6000);
+}
+
+// IPC handler bağla (init dışında, doğrudan sayfa yüklenirken)
+if (window.api && window.api.on) {
+  window.api.on('inapp-notification', (data) => {
+    showInAppNotification(data);
+  });
 }

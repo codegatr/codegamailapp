@@ -116,7 +116,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);
