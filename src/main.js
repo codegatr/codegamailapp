@@ -629,6 +629,14 @@ ipcMain.handle('sync:all', async () => {
 // IPC: Mail Gönderme
 // =====================================================================
 ipcMain.handle('mail:send', async (_, accountId, mailData) => {
+  // Eklerin Buffer'a dönüştürülmesi (IPC üzerinden array gelir)
+  if (mailData && Array.isArray(mailData.attachments)) {
+    mailData.attachments = mailData.attachments.map(a => ({
+      filename: a.filename,
+      content: Buffer.from(a.content || []),
+      contentType: a.contentType || 'application/octet-stream'
+    }));
+  }
   return await mailService.sendMail(accountId, mailData);
 });
 

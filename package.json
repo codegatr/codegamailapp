@@ -1,7 +1,7 @@
 {
   "name": "codega-mail",
-  "version": "1.3.0",
-  "description": "CODEGA Mail - Yerel masaüstü mail istemcisi (IMAP/POP3, sistem tepsisi, otomatik güncelleme)",
+  "version": "1.4.0",
+  "description": "CODEGA Mail - Yerel masaüstü mail istemcisi (IMAP/POP3, sistem tepsisi, otomatik güncelleme, ek dosya)",
   "main": "src/main.js",
   "author": "CODEGA",
   "license": "UNLICENSED",

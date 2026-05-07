@@ -120,7 +120,8 @@ const state = {
   searchQuery: '',
   editingAccountId: null,
   wizardStep: 1,
-  lastConfiguredEmail: ''
+  lastConfiguredEmail: '',
+  composeAttachments: []  // v1.4: yeni mesaj ekleri
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -1234,6 +1235,146 @@ async function syncAccount(accountId) {
 // ============= Yeni Mesaj =============
 function bindCompose() {
   document.getElementById('btnSendMail').onclick = sendMail;
+
+  // v1.4: Drag-drop ek dosya
+  const dropZone = document.getElementById('attachmentDropZone');
+  const fileInput = document.getElementById('attachmentInput');
+  const browseLink = document.getElementById('attachmentBrowse');
+
+  if (dropZone && fileInput) {
+    // Drag eventleri
+    ['dragenter', 'dragover'].forEach(ev => {
+      dropZone.addEventListener(ev, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dropZone.classList.add('drag-over');
+      });
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+      dropZone.addEventListener(ev, (e) => {
+        e.preventDefault(); e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+      });
+    });
+    dropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const files = Array.from(e.dataTransfer.files);
+      await addAttachments(files);
+    });
+
+    // Click → file picker
+    dropZone.addEventListener('click', (e) => {
+      // Sadece "tıklayıp seçin" linkine tıklarsa veya boş alana
+      if (e.target.id === 'attachmentBrowse' || e.target === dropZone ||
+          e.target.classList.contains('drop-zone-text') ||
+          e.target.classList.contains('drop-zone-icon') ||
+          e.target.classList.contains('drop-zone-hint')) {
+        fileInput.click();
+      }
+    });
+    fileInput.addEventListener('change', async (e) => {
+      await addAttachments(Array.from(e.target.files));
+      e.target.value = '';
+    });
+
+    // Pencere genelinde sürükleme - kullanıcı dropzone dışına bırakırsa sayfa açılmasın
+    document.addEventListener('dragover', (e) => {
+      const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
+      if (composeOpen) e.preventDefault();
+    });
+    document.addEventListener('drop', (e) => {
+      const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
+      if (composeOpen) e.preventDefault();
+    });
+
+    // Paste - panodaki dosyayı/görüntüyü ek olarak al
+    const composeBody = document.getElementById('compose_body');
+    composeBody.addEventListener('paste', async (e) => {
+      const items = Array.from(e.clipboardData?.items || []);
+      const fileItems = items.filter(i => i.kind === 'file');
+      if (fileItems.length > 0) {
+        e.preventDefault();
+        const files = fileItems.map(i => i.getAsFile()).filter(Boolean);
+        await addAttachments(files);
+      }
+    });
+  }
+}
+
+async function addAttachments(files) {
+  if (!files || !files.length) return;
+  for (const f of files) {
+    if (f.size > 30 * 1024 * 1024) {
+      alert(`"${f.name}" 30MB üstünde, eklenmedi. SMTP sağlayıcılarının çoğu zaten 25MB üstüne izin vermez.`);
+      continue;
+    }
+    try {
+      const buf = await f.arrayBuffer();
+      // Pasted dosyalarda name boş olabilir
+      const name = f.name || `pasted-${Date.now()}.${(f.type || '').split('/')[1] || 'bin'}`;
+      state.composeAttachments.push({
+        name,
+        size: f.size,
+        type: f.type || 'application/octet-stream',
+        bytes: Array.from(new Uint8Array(buf))   // IPC için serileştirilebilir
+      });
+    } catch (e) {
+      alert(`"${f.name}" okunamadı: ${e.message}`);
+    }
+  }
+  renderAttachmentList();
+}
+
+function renderAttachmentList() {
+  const list = document.getElementById('attachmentList');
+  const counter = document.getElementById('composeAttCount');
+  if (!list) return;
+  if (!state.composeAttachments.length) {
+    list.innerHTML = '';
+    if (counter) counter.textContent = '';
+    return;
+  }
+  const total = state.composeAttachments.reduce((s, a) => s + a.size, 0);
+  const totalMB = (total / 1024 / 1024).toFixed(1);
+  const overLimit = total > 25 * 1024 * 1024;
+
+  list.innerHTML = state.composeAttachments.map((a, i) => {
+    const icon = getFileIcon(a.name, a.type);
+    return `
+      <div class="att-chip-compose">
+        <span class="att-chip-icon">${icon}</span>
+        <span class="att-chip-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
+        <span class="att-chip-size">${formatSize(a.size)}</span>
+        <button class="att-chip-remove" data-i="${i}" title="Kaldır">×</button>
+      </div>`;
+  }).join('') + `
+    <div class="att-total ${overLimit ? 'warn' : ''}">
+      ${state.composeAttachments.length} dosya · Toplam: ${totalMB} MB
+      ${overLimit ? ' ⚠ 25 MB üstü - sağlayıcı reddedebilir' : ''}
+    </div>`;
+
+  if (counter) counter.textContent = `📎 ${state.composeAttachments.length} ek (${totalMB} MB)`;
+
+  list.querySelectorAll('.att-chip-remove').forEach(btn => {
+    btn.onclick = () => {
+      state.composeAttachments.splice(parseInt(btn.dataset.i, 10), 1);
+      renderAttachmentList();
+    };
+  });
+}
+
+function getFileIcon(name, type) {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (type?.startsWith('image/')) return '🖼';
+  if (type?.startsWith('video/')) return '🎬';
+  if (type?.startsWith('audio/')) return '🎵';
+  if (['pdf'].includes(ext)) return '📕';
+  if (['doc','docx'].includes(ext)) return '📘';
+  if (['xls','xlsx','csv'].includes(ext)) return '📗';
+  if (['ppt','pptx'].includes(ext)) return '📙';
+  if (['zip','rar','7z','tar','gz'].includes(ext)) return '🗜';
+  if (['txt','md','log'].includes(ext)) return '📄';
+  if (['js','ts','php','py','html','css','json','sql'].includes(ext)) return '💻';
+  return '📎';
 }
 
 function openCompose(opts = {}) {
@@ -1242,6 +1383,10 @@ function openCompose(opts = {}) {
     `<option value="${a.id}">${escapeHtml(a.display_name)} &lt;${escapeHtml(a.email)}&gt;</option>`
   ).join('');
   if (!state.accounts.length) return alert('Önce bir hesap eklemelisiniz');
+
+  // v1.4: ek listesini her açılışta sıfırla
+  state.composeAttachments = [];
+  renderAttachmentList();
 
   let to = '', subject = '', body = '';
   if (opts.replyTo) {
@@ -1269,17 +1414,35 @@ async function sendMail() {
   const text = document.getElementById('compose_body').value;
   if (!to) return alert('Alıcı gerekli');
   if (!subject && !confirm('Konu boş - yine de göndermek istiyor musunuz?')) return;
+
+  // v1.4: ek dosya boyut uyarısı
+  const totalAttSize = state.composeAttachments.reduce((s, a) => s + a.size, 0);
+  if (totalAttSize > 25 * 1024 * 1024) {
+    if (!confirm(`Toplam ek boyutu ${(totalAttSize/1024/1024).toFixed(1)} MB - SMTP sağlayıcısı reddedebilir. Yine de göndermek istiyor musunuz?`)) return;
+  }
+
   const acc = state.accounts.find(a => a.id === accountId);
   let finalText = text;
   if (acc?.signature) finalText = text + '\n\n' + acc.signature;
-  setStatus('Gönderiliyor…');
+
+  // Attachments → nodemailer formatına çevir
+  const attachments = state.composeAttachments.map(a => ({
+    filename: a.name,
+    content: a.bytes,
+    contentType: a.type
+  }));
+
+  setStatus('Gönderiliyor…' + (attachments.length ? ` (${attachments.length} ek)` : ''));
   try {
     await window.api.mail.send(accountId, {
       to, cc: cc || undefined, subject,
-      text: finalText, html: finalText.replace(/\n/g, '<br>')
+      text: finalText, html: finalText.replace(/\n/g, '<br>'),
+      attachments: attachments.length ? attachments : undefined
     });
     document.getElementById('modalCompose').classList.add('hidden');
-    setStatus('Mesaj gönderildi ✓');
+    setStatus('Mesaj gönderildi ✓' + (attachments.length ? ` (${attachments.length} ek)` : ''));
+    state.composeAttachments = [];
+    renderAttachmentList();
     await loadAccounts();
     if (state.selectedFolder) await loadMessages();
   } catch (e) {

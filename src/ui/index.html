@@ -395,10 +395,22 @@
         <div class="form-group"><label>Kime</label><input type="text" id="compose_to" placeholder="ornek@adres.com"></div>
         <div class="form-group"><label>CC</label><input type="text" id="compose_cc"></div>
         <div class="form-group"><label>Konu</label><input type="text" id="compose_subject"></div>
-        <div class="form-group"><label>Mesaj</label><textarea id="compose_body" rows="14"></textarea></div>
+        <div class="form-group">
+          <label>Ekler (Drag-Drop / Tıkla / Yapıştır)</label>
+          <div id="attachmentDropZone" class="drop-zone">
+            <input type="file" id="attachmentInput" multiple style="display:none;">
+            <div class="drop-zone-icon">📎</div>
+            <div class="drop-zone-text">Dosyaları sürükleyip bırakın veya <a id="attachmentBrowse">tıklayıp seçin</a></div>
+            <div class="drop-zone-hint">Maksimum 25 MB toplam (sağlayıcı limitleri farklı olabilir)</div>
+          </div>
+          <div id="attachmentList" class="attachment-list"></div>
+        </div>
+        <div class="form-group"><label>Mesaj</label><textarea id="compose_body" rows="12"></textarea></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" data-close="modalCompose">İptal</button>
+        <div style="flex:1;"></div>
+        <span id="composeAttCount" style="font-size:11px;color:var(--muted);"></span>
         <button id="btnSendMail" class="btn btn-primary">Gönder</button>
       </div>
     </div>
