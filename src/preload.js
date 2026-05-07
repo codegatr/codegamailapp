@@ -60,9 +60,16 @@ contextBridge.exposeInMainWorld('api', {
     openDataFolder: () => ipcRenderer.invoke('app:openDataFolder'),
     quit: () => ipcRenderer.invoke('app:quit')
   },
-  // Tepsiden gelen olaylara abone olma
+  updater: {
+    status: () => ipcRenderer.invoke('updater:status'),
+    check: () => ipcRenderer.invoke('updater:check'),
+    download: () => ipcRenderer.invoke('updater:download'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    appVersion: () => ipcRenderer.invoke('updater:appVersion')
+  },
+  // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

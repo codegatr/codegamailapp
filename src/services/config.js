@@ -8,13 +8,15 @@ class Config {
     this.data = {
       dataPath: defaultDir,
       firstRun: true,
-      version: '1.2.0',
+      version: '1.3.0',
       // v1.2 yeni ayarlar
       notificationsEnabled: true,
       backgroundSyncMinutes: 5,    // 0 = devre dışı
       closeToTray: true,
       startMinimized: false,
-      autoStart: false             // bilgisayar açılışında başlat
+      autoStart: false,            // bilgisayar açılışında başlat
+      // v1.3 yeni ayarlar
+      autoUpdateCheck: true        // GitHub'dan otomatik güncelleme kontrolü
     };
     this.load();
   }

@@ -420,3 +420,75 @@ body { display: flex; flex-direction: column; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--surface-hi); }
+
+/* ============= v1.3: Güncelleyici ============= */
+.btn-update {
+  background: linear-gradient(135deg, var(--success), var(--primary));
+  color: var(--primary-text);
+  font-weight: 600;
+  border: none;
+  animation: pulse-update 2s ease-in-out infinite;
+}
+.btn-update:hover { opacity: 0.9; }
+.btn.hidden { display: none !important; }
+@keyframes pulse-update {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(166, 227, 161, 0); }
+}
+
+.updater-card {
+  padding: 14px;
+  background: var(--surface);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.updater-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.updater-status {
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 4px 10px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.updater-status.success { color: var(--success); background: rgba(166, 227, 161, 0.1); }
+.updater-status.error { color: var(--danger); background: rgba(243, 139, 168, 0.1); }
+.updater-status.info { color: var(--primary); background: rgba(137, 180, 250, 0.1); }
+
+.updater-details {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-3);
+  border-radius: 6px;
+  border-left: 3px solid var(--primary);
+  font-size: 12px;
+}
+.updater-details.hidden { display: none; }
+.release-notes {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-2);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.updater-progress { margin-top: 12px; }
+.updater-progress.hidden { display: none; }
+.progress-bar {
+  height: 8px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--success));
+  transition: width 0.2s ease-out;
+}

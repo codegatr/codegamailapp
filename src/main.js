@@ -1,12 +1,21 @@
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, Tray, Menu, Notification, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { autoUpdater } = require('electron-updater');
+const log = require('electron-log');
 
 const Database = require('./db/database');
 const MailService = require('./services/mail');
 const BackupService = require('./services/backup');
 const Crypto = require('./services/crypto');
 const Config = require('./services/config');
+
+// ============= Otomatik Güncelleme - autoUpdater config =============
+log.transports.file.level = 'info';
+autoUpdater.logger = log;
+autoUpdater.autoDownload = false;          // kullanıcı onaylasın
+autoUpdater.autoInstallOnAppQuit = true;
+let updateState = { stage: 'idle', version: null, percent: 0, error: null, releaseNotes: null };
 
 let mainWindow;
 let tray;
@@ -212,6 +221,11 @@ function rebuildTrayMenu(unread = 0) {
 
 function updateTray() {
   if (!tray || !db) return;
+  // Güncelleme bekliyorsa güncelleme-farkındalı menüyü kullan
+  if (updateState && (updateState.stage === 'available' || updateState.stage === 'downloaded')) {
+    rebuildTrayMenuWithUpdate();
+    return;
+  }
   try {
     // Spam olmayan + okunmamış inbox mesajları
     const row = db.prepare(`
@@ -370,6 +384,8 @@ app.whenReady().then(async () => {
     updateTray();
     setupBackgroundSync();
     applyAutoStart();
+    setupAutoUpdater();
+    scheduleAutoUpdateCheck();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -408,7 +424,8 @@ ipcMain.handle('config:get', () => ({
   backgroundSyncMinutes: appConfig.get('backgroundSyncMinutes') || 0,
   closeToTray: appConfig.get('closeToTray') !== false,
   startMinimized: !!appConfig.get('startMinimized'),
-  autoStart: !!appConfig.get('autoStart')
+  autoStart: !!appConfig.get('autoStart'),
+  autoUpdateCheck: appConfig.get('autoUpdateCheck') !== false
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
@@ -665,3 +682,165 @@ ipcMain.handle('app:dataPath', () => appConfig.getDataPath());
 ipcMain.handle('app:openDataFolder', () => shell.openPath(appConfig.getDataPath()));
 ipcMain.handle('app:openLogFolder', () => shell.openPath(app.getPath('userData')));
 ipcMain.handle('app:quit', () => { isQuitting = true; app.quit(); });
+
+// =====================================================================
+// Otomatik Güncelleme (electron-updater)
+// =====================================================================
+function broadcastUpdateState() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', updateState);
+  }
+  // Tepsi menüsünü güncelle
+  if (tray && updateState.stage === 'available') {
+    rebuildTrayMenuWithUpdate();
+  }
+}
+
+function rebuildTrayMenuWithUpdate() {
+  if (!tray || !db) return;
+  let unread = 0;
+  try {
+    const row = db.prepare(`
+      SELECT COUNT(*) AS c FROM messages m
+      JOIN folders f ON m.folder_id = f.id
+      WHERE m.is_read = 0 AND m.is_spam = 0
+        AND (f.special_use = '\\Inbox' OR f.special_use IS NULL OR f.special_use = '')
+    `).get();
+    unread = (row && row.c) || 0;
+  } catch (_) {}
+
+  const items = [
+    { label: '✉ CODEGA Mail', enabled: false },
+    { label: unread > 0 ? `📬 ${unread} okunmamış mesaj` : '✓ Tüm mesajlar okundu', enabled: false }
+  ];
+  if (updateState.stage === 'available' || updateState.stage === 'downloaded') {
+    items.push({ type: 'separator' });
+    if (updateState.stage === 'downloaded') {
+      items.push({ label: `🎉 v${updateState.version} hazır - Yeniden başlat`, click: () => {
+        autoUpdater.quitAndInstall();
+      }});
+    } else {
+      items.push({ label: `⬇ v${updateState.version} mevcut - Pencereyi aç`, click: showWindow });
+    }
+  }
+  items.push({ type: 'separator' });
+  items.push({ label: 'Pencereyi Göster', click: showWindow });
+  items.push({ label: '↻ Tümünü Senkronize Et', click: () => runBackgroundSync(true) });
+  items.push({ label: '✎ Yeni Mesaj', click: () => {
+    showWindow();
+    if (mainWindow) mainWindow.webContents.send('open-compose');
+  }});
+  items.push({ label: '⚙ Ayarlar', click: () => {
+    showWindow();
+    if (mainWindow) mainWindow.webContents.send('open-settings');
+  }});
+  items.push({ type: 'separator' });
+  items.push({ label: '🚪 Çıkış', click: () => { isQuitting = true; app.quit(); }});
+
+  tray.setContextMenu(Menu.buildFromTemplate(items));
+  tray.setToolTip(`CODEGA Mail${unread > 0 ? ' · ' + unread + ' okunmamış' : ''}${updateState.stage === 'available' ? ' · Güncelleme mevcut' : ''}`);
+}
+
+function setupAutoUpdater() {
+  autoUpdater.on('checking-for-update', () => {
+    updateState = { ...updateState, stage: 'checking', error: null };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    updateState = {
+      stage: 'available',
+      version: info.version,
+      percent: 0,
+      error: null,
+      releaseNotes: typeof info.releaseNotes === 'string'
+        ? info.releaseNotes
+        : (Array.isArray(info.releaseNotes) ? info.releaseNotes.map(n => n.note || '').join('\n') : '')
+    };
+    broadcastUpdateState();
+    // Bildirim göster
+    showNotification(
+      `🚀 Yeni sürüm mevcut: v${info.version}`,
+      'CODEGA Mail için güncelleme hazır. Ayarlardan indirebilirsiniz.',
+      null
+    );
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    updateState = { stage: 'not-available', version: info.version, percent: 0, error: null, releaseNotes: null };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('error', (err) => {
+    updateState = { ...updateState, stage: 'error', error: err.message };
+    broadcastUpdateState();
+    log.error('AutoUpdater error:', err);
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    updateState = { ...updateState, stage: 'downloading', percent: Math.round(progress.percent || 0) };
+    broadcastUpdateState();
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    updateState = { stage: 'downloaded', version: info.version, percent: 100, error: null, releaseNotes: null };
+    broadcastUpdateState();
+    showNotification(
+      `✓ v${info.version} indirildi`,
+      'Uygulamayı yeniden başlattığınızda yeni sürüm aktif olacak.',
+      null
+    );
+  });
+}
+
+// İlk açılışta otomatik kontrol (config'e göre)
+function scheduleAutoUpdateCheck() {
+  if (!app.isPackaged) {
+    log.info('Dev mode - auto-update check atlandı');
+    return;
+  }
+  if (appConfig.get('autoUpdateCheck') === false) {
+    log.info('Auto-update kullanıcı tarafından kapatılmış');
+    return;
+  }
+  // 5 sn bekle - app yüklensin önce
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(e => log.warn('Update check error:', e.message));
+  }, 5000);
+  // Sonra her 4 saatte bir kontrol et
+  setInterval(() => {
+    if (appConfig.get('autoUpdateCheck') !== false) {
+      autoUpdater.checkForUpdates().catch(e => log.warn('Update periodic check error:', e.message));
+    }
+  }, 4 * 60 * 60 * 1000);
+}
+
+ipcMain.handle('updater:status', () => updateState);
+
+ipcMain.handle('updater:check', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: 'Geliştirme modunda güncelleme kontrolü yapılamaz. Build edilmiş sürümde çalışır.' };
+  }
+  try {
+    const r = await autoUpdater.checkForUpdates();
+    return { ok: true, version: r?.updateInfo?.version };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('updater:download', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('updater:install', () => {
+  isQuitting = true;
+  autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('updater:appVersion', () => app.getVersion());

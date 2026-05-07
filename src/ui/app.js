@@ -137,6 +137,7 @@ async function init() {
   bindNewFolder();
   bindSpam();
   bindTrayEvents();
+  bindUpdater();
 
   window.api.sync.onProgress((data) => {
     if (data.stage === 'fetching') setStatus(`Yeni mesajlar indiriliyor: ${data.folder} (${data.count})`);
@@ -179,6 +180,159 @@ function bindTrayEvents() {
       setStatus(`📬 ${data.newCount} yeni mesaj geldi`);
     }
   });
+
+  // Güncelleme durumu değişti
+  window.api.on('update-status', (status) => {
+    renderUpdateStatus(status);
+  });
+}
+
+// ============= GÜNCELLEYİCİ (auto-updater UI) =============
+function bindUpdater() {
+  const badge = document.getElementById('btnUpdateBadge');
+  badge.onclick = () => openSettings();
+
+  document.getElementById('btnCheckUpdate').onclick = async () => {
+    setUpdaterStatus('Kontrol ediliyor…', 'info');
+    const r = await window.api.updater.check();
+    if (!r.ok) {
+      setUpdaterStatus('Kontrol başarısız: ' + r.error, 'error');
+    }
+  };
+
+  // settings_auto_update toggle
+  const autoEl = document.getElementById('settings_auto_update');
+  if (autoEl) {
+    autoEl.addEventListener('change', async () => {
+      await window.api.config.updatePrefs({ autoUpdateCheck: autoEl.checked });
+      setStatus('Otomatik güncelleme ' + (autoEl.checked ? 'açıldı' : 'kapatıldı'));
+    });
+  }
+
+  // Repo linki
+  const repoLink = document.getElementById('linkRepo');
+  if (repoLink) {
+    repoLink.onclick = (e) => {
+      e.preventDefault();
+      window.api.app.openExternal('https://github.com/codegatr/codegamailapp');
+    };
+  }
+
+  // Açılışta mevcut durumu çek
+  setTimeout(async () => {
+    const status = await window.api.updater.status();
+    if (status) renderUpdateStatus(status);
+    const v = await window.api.updater.appVersion();
+    document.getElementById('appVersion').textContent = v;
+    document.getElementById('updaterCurrentVersion').textContent = v;
+  }, 500);
+}
+
+function setUpdaterStatus(text, kind) {
+  const el = document.getElementById('updaterStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'updater-status ' + (kind || '');
+}
+
+function renderUpdateStatus(status) {
+  const badge = document.getElementById('btnUpdateBadge');
+  const details = document.getElementById('updaterDetails');
+  const progress = document.getElementById('updaterProgress');
+  const checkBtn = document.getElementById('btnCheckUpdate');
+  if (!badge) return;
+
+  // Toolbar rozeti
+  if (status.stage === 'available' || status.stage === 'downloading' || status.stage === 'downloaded') {
+    badge.classList.remove('hidden');
+    if (status.stage === 'downloaded') {
+      badge.textContent = `🎉 v${status.version} - Yeniden Başlat`;
+    } else if (status.stage === 'downloading') {
+      badge.textContent = `⬇ İndiriliyor %${status.percent}`;
+    } else {
+      badge.textContent = `🚀 v${status.version} mevcut`;
+    }
+  } else {
+    badge.classList.add('hidden');
+  }
+
+  // Ayarlar paneli (Ayarlar açıksa)
+  if (!details || !progress) return;
+
+  switch (status.stage) {
+    case 'idle':
+      setUpdaterStatus('Hazır', '');
+      details.classList.add('hidden');
+      progress.classList.add('hidden');
+      checkBtn.disabled = false;
+      checkBtn.textContent = 'Şimdi Kontrol Et';
+      break;
+    case 'checking':
+      setUpdaterStatus('Kontrol ediliyor…', 'info');
+      details.classList.add('hidden');
+      progress.classList.add('hidden');
+      checkBtn.disabled = true;
+      break;
+    case 'not-available':
+      setUpdaterStatus('✓ Güncel sürüm', 'success');
+      details.classList.add('hidden');
+      progress.classList.add('hidden');
+      checkBtn.disabled = false;
+      break;
+    case 'available':
+      setUpdaterStatus(`🚀 v${status.version} mevcut`, 'success');
+      details.classList.remove('hidden');
+      progress.classList.add('hidden');
+      checkBtn.disabled = true;
+      details.innerHTML = `
+        <div style="margin-bottom:10px;">
+          <strong>Yeni sürüm:</strong> v${escapeHtml(status.version)}<br>
+          ${status.releaseNotes ? `<div class="release-notes">${escapeHtml(status.releaseNotes).replace(/\n/g, '<br>')}</div>` : ''}
+        </div>
+        <button class="btn btn-primary" id="btnDownloadUpdate">⬇ Şimdi İndir</button>
+        <button class="btn btn-ghost" id="btnDeferUpdate">Sonra</button>
+      `;
+      document.getElementById('btnDownloadUpdate').onclick = async () => {
+        const r = await window.api.updater.download();
+        if (!r.ok) setUpdaterStatus('İndirme hatası: ' + r.error, 'error');
+      };
+      document.getElementById('btnDeferUpdate').onclick = () => {
+        details.classList.add('hidden');
+      };
+      break;
+    case 'downloading':
+      setUpdaterStatus(`İndiriliyor… %${status.percent}`, 'info');
+      details.classList.add('hidden');
+      progress.classList.remove('hidden');
+      document.getElementById('progressFill').style.width = status.percent + '%';
+      document.getElementById('progressText').textContent = `%${status.percent}`;
+      checkBtn.disabled = true;
+      break;
+    case 'downloaded':
+      setUpdaterStatus(`✓ v${status.version} indirildi`, 'success');
+      details.classList.remove('hidden');
+      progress.classList.add('hidden');
+      checkBtn.disabled = true;
+      details.innerHTML = `
+        <div style="margin-bottom:10px;">
+          <strong>v${escapeHtml(status.version)}</strong> indirildi ve kuruluma hazır.
+        </div>
+        <button class="btn btn-primary" id="btnInstallUpdate">⟲ Şimdi Yeniden Başlat</button>
+        <button class="btn btn-ghost" id="btnDeferInstall">Sonraki açılışta uygula</button>
+      `;
+      document.getElementById('btnInstallUpdate').onclick = () => window.api.updater.install();
+      document.getElementById('btnDeferInstall').onclick = () => {
+        details.classList.add('hidden');
+        setStatus('Güncelleme bir sonraki çıkışta uygulanacak');
+      };
+      break;
+    case 'error':
+      setUpdaterStatus('Hata: ' + (status.error || 'bilinmeyen'), 'error');
+      details.classList.add('hidden');
+      progress.classList.add('hidden');
+      checkBtn.disabled = false;
+      break;
+  }
 }
 
 // ============= Toolbar =============
@@ -282,6 +436,9 @@ async function openSettings() {
   document.getElementById('settings_close_to_tray').checked = cfg.closeToTray !== false;
   document.getElementById('settings_auto_start').checked = !!cfg.autoStart;
   document.getElementById('settings_start_minimized').checked = !!cfg.startMinimized;
+  // v1.3: Güncelleme tercihi
+  const autoUpdEl = document.getElementById('settings_auto_update');
+  if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
 
   await renderSettingsAccountList();
   document.getElementById('modalSettings').classList.remove('hidden');

@@ -12,7 +12,7 @@ Yerel masaüstü mail istemcisi - IMAP/POP3 destekli, SQLite tabanlı, OS-level 
 - ⏱ Arka plan otomatik senkronizasyon
 - 💾 Yedekle / Geri Yükle (.mailbackup formatı)
 - 🚀 Bilgisayar açılışında otomatik başlatma
-- 🔄 Otomatik güncelleme (v1.3.0+)
+- 🔄 **Otomatik güncelleme (electron-updater + GitHub Releases)**
 
 ## Kurulum
 
@@ -21,11 +21,28 @@ git clone https://github.com/codegatr/codegamailapp.git
 cd codegamailapp
 npm install
 npm start            # geliştirme modu
-npm run build:win    # Windows installer üret
+npm run build:win    # Windows installer üret (dist/CODEGA Mail Setup x.y.z.exe)
 ```
+
+## Yeni Sürüm Yayınlama (geliştirici için)
+
+`package.json` versiyonunu güncelle, sonra:
+
+```powershell
+$env:GH_TOKEN="ghp_..."   # GitHub token (codegatr repo'ya yazma yetkili)
+npm run release:win
+```
+
+`release:win` komutu:
+1. Windows installer (.exe) üretir
+2. `latest.yml` (electron-updater manifesti) üretir
+3. GitHub Releases'a yeni tag + binary'leri otomatik yükler
+
+Mevcut kullanıcılar 5 saniye içinde toast bildirimi alır, "İndir" → "Yeniden Başlat".
 
 ## Sürüm Geçmişi
 
+- **v1.3.0** - Otomatik güncelleme (electron-updater), GitHub Releases üzerinden
 - **v1.2.0** - Sistem tepsisi, Windows bildirim, arka plan sync, autostart
 - **v1.1.x** - Auto-config wizard, spam filtresi, klasör yönetimi
 - **v1.0.x** - İlk sürüm, IMAP/POP3 temel desteği
