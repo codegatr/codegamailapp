@@ -6,3 +6,4 @@ out/
 .env
 .electron-builder.yml.bak
 package-lock.json
+.github/
