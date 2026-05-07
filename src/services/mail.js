@@ -184,6 +184,14 @@ class MailService {
       case 'markAsSpam':
         this.db.prepare('UPDATE messages SET is_spam = 1, spam_score = 100 WHERE id = ?').run(msg.id);
         break;
+      case 'addcategory':
+      case 'addCategory': {
+        const catId = parseInt(action.value, 10);
+        if (catId) {
+          this.db.addMessageCategory(msg.id, catId);
+        }
+        break;
+      }
     }
   }
 

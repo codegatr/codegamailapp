@@ -1062,3 +1062,92 @@ body { display: flex; flex-direction: column; }
 
 /* Modal large variant */
 .modal-lg { max-width: 720px; width: 90vw; }
+
+/* ============= v1.8: Kategoriler ============= */
+.categories-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.cat-item {
+  display: grid;
+  grid-template-columns: 40px 1fr auto 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.cat-color-edit {
+  width: 36px;
+  height: 28px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.cat-name-edit {
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 13px;
+  border-radius: 4px;
+}
+.cat-name-edit:hover, .cat-name-edit:focus {
+  background: var(--bg-3);
+  border-color: var(--border);
+  outline: none;
+}
+.cat-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cat-delete {
+  padding: 2px 8px !important;
+  font-size: 16px;
+}
+
+/* Mesaj listesinde kategori chip'leri */
+.msg-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+.msg-cat-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+.msg-cat-chip-lg {
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+}
+
+/* Mesaj detay panelinde kategoriler */
+.msg-view-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+/* Context menu - kategori submenu için renkli */
+.context-menu-item.has-color::before {
+  content: '●';
+  margin-right: 6px;
+  color: var(--ctx-color, currentColor);
+}

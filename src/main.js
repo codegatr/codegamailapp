@@ -688,6 +688,35 @@ ipcMain.handle('messages:markImportant', (_, messageId, isImportant) => {
 });
 
 // =====================================================================
+// v1.8 IPC: Kategoriler
+// =====================================================================
+ipcMain.handle('categories:list', () => db.listCategories());
+ipcMain.handle('categories:get', (_, id) => db.getCategory(id));
+ipcMain.handle('categories:add', (_, cat) => ({ ok: true, id: db.addCategory(cat) }));
+ipcMain.handle('categories:update', (_, id, updates) => {
+  db.updateCategory(id, updates);
+  return { ok: true };
+});
+ipcMain.handle('categories:delete', (_, id) => {
+  db.deleteCategory(id);
+  return { ok: true };
+});
+
+ipcMain.handle('messages:getCategories', (_, messageId) => db.getMessageCategories(messageId));
+ipcMain.handle('messages:addCategory', (_, messageId, categoryId) => {
+  db.addMessageCategory(messageId, categoryId);
+  return { ok: true };
+});
+ipcMain.handle('messages:removeCategory', (_, messageId, categoryId) => {
+  db.removeMessageCategory(messageId, categoryId);
+  return { ok: true };
+});
+ipcMain.handle('messages:setCategories', (_, messageId, categoryIds) => {
+  db.setMessageCategories(messageId, categoryIds);
+  return { ok: true };
+});
+
+// =====================================================================
 // IPC: Senkronizasyon
 // =====================================================================
 ipcMain.handle('sync:account', async (_, accountId) => {

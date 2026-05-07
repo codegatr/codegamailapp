@@ -189,6 +189,26 @@ class Database {
       );
 
       CREATE INDEX IF NOT EXISTS idx_rules_acc ON rules(account_id, enabled, priority);
+
+      CREATE TABLE IF NOT EXISTS categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT NOT NULL,
+        shortcut TEXT,
+        sort_order INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS message_categories (
+        message_id INTEGER NOT NULL,
+        category_id INTEGER NOT NULL,
+        PRIMARY KEY (message_id, category_id),
+        FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_msg_cat_msg ON message_categories(message_id);
+      CREATE INDEX IF NOT EXISTS idx_msg_cat_cat ON message_categories(category_id);
     `);
 
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_enabled INTEGER DEFAULT 1');
@@ -199,6 +219,29 @@ class Database {
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_spam INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN spam_score INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_important INTEGER DEFAULT 0');
+
+    // v1.8: Default kategoriler (sadece kategori tablosu boşsa)
+    this._seedDefaultCategories();
+  }
+
+  _seedDefaultCategories() {
+    try {
+      const r = this.prepare('SELECT COUNT(*) AS c FROM categories').get();
+      if ((r && r.c) > 0) return;
+      const defaults = [
+        { name: 'Acil',      color: '#e74c3c', sort_order: 1 },
+        { name: 'Önemli',    color: '#f39c12', sort_order: 2 },
+        { name: 'İş',        color: '#3498db', sort_order: 3 },
+        { name: 'Kişisel',   color: '#27ae60', sort_order: 4 },
+        { name: 'Müşteri',   color: '#9b59b6', sort_order: 5 },
+        { name: 'Fatura',    color: '#e67e22', sort_order: 6 },
+        { name: 'Takip',     color: '#1abc9c', sort_order: 7 }
+      ];
+      const stmt = this.prepare('INSERT INTO categories (name, color, sort_order) VALUES (?, ?, ?)');
+      for (const c of defaults) stmt.run(c.name, c.color, c.sort_order);
+    } catch (e) {
+      console.warn('Default kategoriler eklenemedi:', e.message);
+    }
   }
 
   // ====== Hesaplar ======
@@ -343,21 +386,24 @@ class Database {
   listMessages(folderId, opts = {}) {
     const limit = opts.limit || 200;
     const offset = opts.offset || 0;
-    let where = 'folder_id = ?';
+    let where = 'm.folder_id = ?';
     const params = [folderId];
 
     if (opts.search) {
-      where += ' AND (subject LIKE ? OR from_addr LIKE ? OR from_name LIKE ? OR body_text LIKE ?)';
+      where += ' AND (m.subject LIKE ? OR m.from_addr LIKE ? OR m.from_name LIKE ? OR m.body_text LIKE ?)';
       const q = `%${opts.search}%`;
       params.push(q, q, q, q);
     }
 
     return this.prepare(`
-      SELECT id, uid, uidl, from_addr, from_name, to_addrs, subject, date,
-             is_read, is_flagged, is_spam, is_important, spam_score, has_attachments, size,
-             SUBSTR(body_text, 1, 200) AS preview
-      FROM messages WHERE ${where}
-      ORDER BY date DESC LIMIT ? OFFSET ?
+      SELECT m.id, m.uid, m.uidl, m.from_addr, m.from_name, m.to_addrs, m.subject, m.date,
+             m.is_read, m.is_flagged, m.is_spam, m.is_important, m.spam_score, m.has_attachments, m.size,
+             SUBSTR(m.body_text, 1, 200) AS preview,
+             (SELECT GROUP_CONCAT(c.id || char(31) || c.name || char(31) || c.color, char(30))
+              FROM message_categories mc JOIN categories c ON c.id = mc.category_id
+              WHERE mc.message_id = m.id) AS categories
+      FROM messages m WHERE ${where}
+      ORDER BY m.date DESC LIMIT ? OFFSET ?
     `).all(...params, limit, offset);
   }
 
@@ -367,6 +413,7 @@ class Database {
     msg.attachments = this.prepare(
       'SELECT id, filename, content_type, size, content_id FROM attachments WHERE message_id = ?'
     ).all(id);
+    msg.categories = this.getMessageCategories(id);
     return msg;
   }
 
@@ -546,6 +593,69 @@ class Database {
   // ====== v1.7: Önemli işaretleme ======
   markMessageImportant(id, isImportant) {
     this.prepare('UPDATE messages SET is_important = ? WHERE id = ?').run(isImportant ? 1 : 0, id);
+  }
+
+  // ====== v1.8: Kategoriler ======
+  listCategories() {
+    return this.prepare('SELECT * FROM categories ORDER BY sort_order ASC, name ASC').all();
+  }
+
+  getCategory(id) {
+    return this.prepare('SELECT * FROM categories WHERE id = ?').get(id);
+  }
+
+  addCategory(cat) {
+    const r = this.prepare(`
+      INSERT INTO categories (name, color, shortcut, sort_order)
+      VALUES (?, ?, ?, ?)
+    `).run(cat.name, cat.color || '#888888', cat.shortcut || null, cat.sort_order || 0);
+    return r.lastInsertRowid;
+  }
+
+  updateCategory(id, updates) {
+    const allowed = ['name', 'color', 'shortcut', 'sort_order'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ');
+    const vals = fields.map(f => updates[f]);
+    this.prepare(`UPDATE categories SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteCategory(id) {
+    // ON DELETE CASCADE message_categories'i de temizler
+    this.prepare('DELETE FROM categories WHERE id = ?').run(id);
+  }
+
+  // ====== v1.8: Mesaj-kategori ilişkisi ======
+  getMessageCategories(messageId) {
+    return this.prepare(`
+      SELECT c.id, c.name, c.color, c.shortcut
+      FROM categories c JOIN message_categories mc ON mc.category_id = c.id
+      WHERE mc.message_id = ?
+      ORDER BY c.sort_order ASC, c.name ASC
+    `).all(messageId);
+  }
+
+  addMessageCategory(messageId, categoryId) {
+    try {
+      this.prepare(`
+        INSERT OR IGNORE INTO message_categories (message_id, category_id) VALUES (?, ?)
+      `).run(messageId, categoryId);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  removeMessageCategory(messageId, categoryId) {
+    this.prepare('DELETE FROM message_categories WHERE message_id = ? AND category_id = ?')
+      .run(messageId, categoryId);
+  }
+
+  setMessageCategories(messageId, categoryIds) {
+    this.prepare('DELETE FROM message_categories WHERE message_id = ?').run(messageId);
+    const stmt = this.prepare('INSERT INTO message_categories (message_id, category_id) VALUES (?, ?)');
+    for (const cid of (categoryIds || [])) {
+      try { stmt.run(messageId, cid); } catch (_) {}
+    }
   }
 }
 

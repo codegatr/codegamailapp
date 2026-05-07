@@ -34,7 +34,18 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('messages:delete', id),
     move: (id, folderId) => ipcRenderer.invoke('messages:move', id, folderId),
     markSpam: (id) => ipcRenderer.invoke('messages:markSpam', id),
-    markNotSpam: (id) => ipcRenderer.invoke('messages:markNotSpam', id)
+    markNotSpam: (id) => ipcRenderer.invoke('messages:markNotSpam', id),
+    getCategories: (id) => ipcRenderer.invoke('messages:getCategories', id),
+    addCategory: (id, catId) => ipcRenderer.invoke('messages:addCategory', id, catId),
+    removeCategory: (id, catId) => ipcRenderer.invoke('messages:removeCategory', id, catId),
+    setCategories: (id, catIds) => ipcRenderer.invoke('messages:setCategories', id, catIds)
+  },
+  categories: {
+    list: () => ipcRenderer.invoke('categories:list'),
+    get: (id) => ipcRenderer.invoke('categories:get', id),
+    add: (cat) => ipcRenderer.invoke('categories:add', cat),
+    update: (id, updates) => ipcRenderer.invoke('categories:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('categories:delete', id)
   },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),

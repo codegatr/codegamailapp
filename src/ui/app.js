@@ -399,6 +399,7 @@ function bindToolbar() {
   document.getElementById('btnNewFolder').onclick = openNewFolder;
   document.getElementById('btnAbout').onclick = openAbout;
   document.getElementById('btnRules').onclick = openRules;
+  document.getElementById('btnCategories').onclick = openCategories;
 }
 
 function bindModals() {
@@ -976,6 +977,12 @@ async function showMessageContextMenu(e, message) {
       setStatus(message.is_important ? 'Önemli işareti kaldırıldı' : 'Önemli olarak işaretlendi');
       await loadMessages();
     }},
+    { label: '🏷 Kategoriler...', action: async () => {
+      const currentCats = await window.api.messages.getCategories(message.id);
+      const currentIds = currentCats.map(c => c.id);
+      // Menüyü yeniden, biraz gecikmeli aç
+      setTimeout(() => showCategorizeMenu(message.id, currentIds, e), 50);
+    }},
     '---',
     ...moveItems,
     '---',
@@ -1201,6 +1208,13 @@ function renderMessageList() {
     const importantStar = m.is_important
       ? `<span class="msg-important" title="Önemli (kaldır)" data-toggle-important="${m.id}">⭐</span>`
       : `<span class="msg-important-empty" title="Önemli işaretle" data-toggle-important="${m.id}">☆</span>`;
+    // v1.8: kategoriler (renkli noktalar/chip)
+    const cats = parseCategoriesField(m.categories);
+    const catDots = cats.length
+      ? '<span class="msg-cats">' + cats.map(c =>
+          `<span class="msg-cat-chip" style="background:${c.color}25;color:${c.color};border:1px solid ${c.color};" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>`
+        ).join('') + '</span>'
+      : '';
     return `
       <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${m.is_important ? 'is-important' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
            data-id="${m.id}">
@@ -1209,6 +1223,7 @@ function renderMessageList() {
           <span class="msg-date">${date}</span>
         </div>
         <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
+        ${catDots}
         <div class="msg-preview">
           <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}</span>
           ${escapeHtml((m.preview || '').replace(/\s+/g, ' ').slice(0, 100))}
@@ -1290,9 +1305,18 @@ function renderMessageView(msg) {
     spamBanner = `<div class="spam-banner warn">⚠ Bu mesaj şüpheli görünüyor (puan: ${msg.spam_score}).</div>`;
   }
 
+  // v1.8: Kategoriler chip
+  const cats = msg.categories || [];
+  const categoriesHtml = cats.length
+    ? `<div class="msg-view-cats">
+        ${cats.map(c => `<span class="msg-cat-chip msg-cat-chip-lg" style="background:${c.color}25;color:${c.color};border:1px solid ${c.color};">🏷 ${escapeHtml(c.name)}</span>`).join('')}
+       </div>`
+    : '';
+
   view.innerHTML = `
     <div class="msg-view-header">
       <div class="msg-view-subject">${escapeHtml(msg.subject || '(Konu yok)')}</div>
+      ${categoriesHtml}
       <div class="msg-view-meta">
         <strong>Gönderen:</strong><span>${fromDisplay}</span>
         <strong>Alıcı:</strong><span>${toDisplay}</span>
@@ -1901,6 +1925,7 @@ function addActionRow(act = { type: 'markAsRead' }) {
   row.innerHTML = `
     <select class="act-type">
       <option value="moveToFolder"${act.type==='moveToFolder'?' selected':''}>Klasöre taşı</option>
+      <option value="addCategory"${act.type==='addCategory'?' selected':''}>Kategori ekle</option>
       <option value="markAsRead"${act.type==='markAsRead'?' selected':''}>Okundu işaretle</option>
       <option value="markAsImportant"${act.type==='markAsImportant'?' selected':''}>Önemli işaretle</option>
       <option value="markAsSpam"${act.type==='markAsSpam'?' selected':''}>Spam işaretle</option>
@@ -1914,7 +1939,6 @@ function addActionRow(act = { type: 'markAsRead' }) {
 
   const updateValue = async () => {
     if (typeSel.value === 'moveToFolder') {
-      // Tüm hesapların klasörlerini doldur
       let html = '';
       for (const acc of state.accounts) {
         const folders = await window.api.folders.list(acc.id);
@@ -1924,6 +1948,13 @@ function addActionRow(act = { type: 'markAsRead' }) {
         }
       }
       valueSel.innerHTML = html;
+      valueSel.style.display = '';
+    } else if (typeSel.value === 'addCategory') {
+      const cats = await window.api.categories.list();
+      valueSel.innerHTML = cats.map(c => {
+        const sel = String(c.id) === String(act.value) ? ' selected' : '';
+        return `<option value="${c.id}"${sel}>${escapeHtml(c.name)}</option>`;
+      }).join('');
       valueSel.style.display = '';
     } else {
       valueSel.style.display = 'none';
@@ -1989,4 +2020,124 @@ async function saveRule() {
 async function toggleMessageImportant(messageId, currentValue) {
   await window.api.messages.markImportant(messageId, !currentValue);
   if (state.selectedFolder) await loadMessages();
+}
+
+// ============= v1.8: KATEGORİLER =============
+const CAT_SEP_OUTER = String.fromCharCode(30); // record separator
+const CAT_SEP_INNER = String.fromCharCode(31); // unit separator
+
+function parseCategoriesField(str) {
+  // listMessages SQL'inden gelen "id\x1Fname\x1Fcolor\x1E..." formatını parse eder
+  if (!str) return [];
+  return String(str).split(CAT_SEP_OUTER).filter(Boolean).map(part => {
+    const [id, name, color] = part.split(CAT_SEP_INNER);
+    return { id: parseInt(id, 10), name: name || '', color: color || '#888' };
+  });
+}
+
+let categoriesUIBound = false;
+async function openCategories() {
+  await renderCategoriesList();
+  if (!categoriesUIBound) {
+    categoriesUIBound = true;
+    document.getElementById('btnAddCategory').onclick = async () => {
+      const name = document.getElementById('cat_name').value.trim();
+      const color = document.getElementById('cat_color').value;
+      if (!name) return alert('Kategori adı gerekli');
+      try {
+        await window.api.categories.add({ name, color });
+        document.getElementById('cat_name').value = '';
+        document.getElementById('cat_color').value = '#3498db';
+        await renderCategoriesList();
+      } catch (e) {
+        alert('Hata: ' + e.message + '\n(Aynı isimde kategori olabilir)');
+      }
+    };
+  }
+  document.getElementById('modalCategories').classList.remove('hidden');
+}
+
+async function renderCategoriesList() {
+  const list = document.getElementById('categoriesList');
+  const cats = await window.api.categories.list();
+  if (!cats.length) {
+    list.innerHTML = '<div class="empty-state">Henüz kategori yok.</div>';
+    return;
+  }
+  list.innerHTML = cats.map(c => `
+    <div class="cat-item" data-id="${c.id}">
+      <input type="color" class="cat-color-edit" value="${c.color}" data-id="${c.id}" title="Rengi değiştir">
+      <input type="text" class="cat-name-edit" value="${escapeHtml(c.name)}" data-id="${c.id}" title="Adı değiştir">
+      <span class="cat-chip" style="background:${c.color}20;color:${c.color};border:1px solid ${c.color};">
+        ${escapeHtml(c.name)}
+      </span>
+      <button class="btn btn-ghost cat-delete" data-id="${c.id}" title="Kategoriyi sil" style="color:var(--danger);">×</button>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.cat-color-edit').forEach(el => {
+    el.onchange = async () => {
+      await window.api.categories.update(parseInt(el.dataset.id, 10), { color: el.value });
+      await renderCategoriesList();
+    };
+  });
+  list.querySelectorAll('.cat-name-edit').forEach(el => {
+    el.onchange = async () => {
+      const newName = el.value.trim();
+      if (!newName) return;
+      try {
+        await window.api.categories.update(parseInt(el.dataset.id, 10), { name: newName });
+        await renderCategoriesList();
+      } catch (e) {
+        alert('Hata: ' + e.message);
+        await renderCategoriesList();
+      }
+    };
+  });
+  list.querySelectorAll('.cat-delete').forEach(el => {
+    el.onclick = async () => {
+      const id = parseInt(el.dataset.id, 10);
+      const cat = (await window.api.categories.list()).find(c => c.id === id);
+      if (!confirm(`"${cat?.name}" kategorisini sil? Bu kategori atanmış mesajlardan da kaldırılacak.`)) return;
+      await window.api.categories.delete(id);
+      await renderCategoriesList();
+      if (state.selectedFolder) await loadMessages();
+    };
+  });
+}
+
+// Mesaja kategori ata/kaldır - sağ tık menü submenüsü için
+async function showCategorizeMenu(messageId, currentCategoryIds, anchorEvent) {
+  hideContextMenu();
+  const cats = await window.api.categories.list();
+  if (!cats.length) {
+    alert('Henüz kategori yok. Önce toolbar > Kategoriler menüsünden ekleyin.');
+    return;
+  }
+  const items = cats.map(c => ({
+    label: `${currentCategoryIds.includes(c.id) ? '✓' : '  '} ● ${c.name}`,
+    color: c.color,
+    action: async () => {
+      if (currentCategoryIds.includes(c.id)) {
+        await window.api.messages.removeCategory(messageId, c.id);
+        setStatus(`Kategori kaldırıldı: ${c.name}`);
+      } else {
+        await window.api.messages.addCategory(messageId, c.id);
+        setStatus(`Kategori eklendi: ${c.name}`);
+      }
+      await loadMessages();
+    }
+  }));
+  // Ayrıca tümünü temizle
+  if (currentCategoryIds.length > 0) {
+    items.push('---');
+    items.push({ label: '✗ Tüm Kategorileri Kaldır', action: async () => {
+      await window.api.messages.setCategories(messageId, []);
+      setStatus('Tüm kategoriler kaldırıldı');
+      await loadMessages();
+    }});
+  }
+  items.push('---');
+  items.push({ label: '+ Yeni Kategori Yönet...', action: () => openCategories() });
+  showContextMenu(anchorEvent, items);
 }
