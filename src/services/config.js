@@ -8,7 +8,7 @@ class Config {
     this.data = {
       dataPath: defaultDir,
       firstRun: true,
-      version: '1.6.0',
+      version: '1.6.1',
       // v1.2 yeni ayarlar
       notificationsEnabled: true,
       backgroundSyncMinutes: 5,    // 0 = devre dışı

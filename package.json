@@ -1,7 +1,7 @@
 {
   "name": "codega-mail",
-  "version": "1.6.0",
-  "description": "CODEGA Mail - Yerel masaüstü mail istemcisi (IMAP/POP3, sistem tepsisi, otomatik güncelleme, ek dosya, birleşik gelen kutusu)",
+  "version": "1.6.1",
+  "description": "CODEGA Mail - Yerel masaüstü mail istemcisi (IMAP/POP3, sistem tepsisi, otomatik güncelleme, ek dosya, birleşik gelen kutusu, zengin metin editörü)",
   "main": "src/main.js",
   "author": "CODEGA",
   "license": "UNLICENSED",
@@ -56,7 +56,7 @@
         { "target": "nsis", "arch": ["x64"] }
       ],
       "icon": "src/ui/icon.ico",
-      "publisherName": "CODEGA"
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,
