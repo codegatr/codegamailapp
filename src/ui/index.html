@@ -28,6 +28,7 @@
       <button id="btnTemplates" class="btn btn-ghost" title="Mesaj şablonları">📝 Şablonlar</button>
       <button id="btnScheduled" class="btn btn-ghost" title="Zamanlanmış mesajlar">⏰ Zamanlanmış</button>
       <button id="btnNotes" class="btn btn-ghost" title="Notlar (Lotus Notes benzeri)">📓 Notlar</button>
+      <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
       <button id="btnAbout" class="btn btn-ghost" title="Hakkında">ℹ Hakkında</button>
       <button id="btnBackup" class="btn btn-ghost" title="Yedek al">⬇ Yedek</button>
@@ -601,6 +602,30 @@
       </div>
     </div>
   </div>
+  <!-- ===== Güvenilir Göndericiler ===== -->
+  <div id="modalTrustedSenders" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>🛡 Güvenilir Göndericiler</h2>
+        <button class="modal-close" data-close="modalTrustedSenders">×</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.6;">
+          Bu kişilerden gelen ekler için güvenlik uyarıları gevşetilir. Uygulama mail aldığınız kişileri otomatik olarak listeye ekler. Manuel ekleme/çıkarma da yapabilirsiniz.
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:12px;">
+          <input type="email" id="ts_email" placeholder="email@adres.com" style="flex:1;">
+          <input type="text" id="ts_name" placeholder="İsim (opsiyonel)" style="flex:1;">
+          <button class="btn btn-primary" id="btnAddTrustedSender">+ Ekle</button>
+        </div>
+        <div id="trustedSendersList" style="max-height:50vh;overflow-y:auto;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="modalTrustedSenders">Kapat</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalAbout" class="modal hidden">
     <div class="modal-content modal-lg">
       <div class="modal-header">

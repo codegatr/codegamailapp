@@ -72,6 +72,17 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('notes:delete', id),
     listCategories: () => ipcRenderer.invoke('notes:listCategories')
   },
+  security: {
+    analyzeAttachment: (filename, senderEmail) => ipcRenderer.invoke('security:analyzeAttachment', filename, senderEmail),
+    isTrustedSender: (email) => ipcRenderer.invoke('security:isTrustedSender', email),
+    listTrustedSenders: () => ipcRenderer.invoke('security:listTrustedSenders'),
+    addTrustedSender: (email, name) => ipcRenderer.invoke('security:addTrustedSender', email, name),
+    removeTrustedSender: (email) => ipcRenderer.invoke('security:removeTrustedSender', email)
+  },
+  attachments: {
+    save: (id) => ipcRenderer.invoke('attachments:save', id),
+    open: (id) => ipcRenderer.invoke('attachments:open', id)
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

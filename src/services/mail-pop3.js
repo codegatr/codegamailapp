@@ -1,6 +1,7 @@
 const Pop3Command = require('node-pop3');
 const { simpleParser } = require('mailparser');
 const SpamFilter = require('./spam');
+const EmailSecurity = require('./email-security');
 
 class Pop3Service {
   static _buildClient(account, password) {
@@ -106,6 +107,21 @@ class Pop3Service {
           }
 
           const messageId = db.insertMessage(messageData);
+
+          // v1.12: Email security analizi
+          try {
+            const headerObj = parsed.headers || (parsed.headerLines
+              ? Object.fromEntries(parsed.headerLines.map(h => [h.key, h.line]))
+              : null);
+            const sec = EmailSecurity.analyzeMessage(messageData, headerObj);
+            db.setMessageSecurity(messageId, {
+              dkim: sec.auth.dkim, spf: sec.auth.spf, dmarc: sec.auth.dmarc,
+              flags: { level: sec.level, score: sec.totalScore, ...sec.flags, reasons: sec.reasons.slice(0, 5) }
+            });
+          } catch (_) {}
+          if (!messageData.is_spam && messageData.from_addr) {
+            try { db.recordSenderInteraction(messageData.from_addr, messageData.from_name); } catch (_) {}
+          }
 
           if (parsed.attachments && parsed.attachments.length) {
             for (const att of parsed.attachments) {

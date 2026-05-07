@@ -1547,3 +1547,145 @@ body { display: flex; flex-direction: column; }
   flex-shrink: 0;
 }
 .in-app-notif-close:hover { color: #fff; }
+
+/* ============= v1.12: Güvenlik Banner ============= */
+.sec-banner {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sec-banner-head {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.sec-banner-high {
+  background: linear-gradient(135deg, rgba(231,76,60,0.18), rgba(192,57,43,0.12));
+  border: 1px solid var(--danger);
+  color: #ffcdd2;
+}
+.sec-banner-medium {
+  background: linear-gradient(135deg, rgba(243,156,18,0.18), rgba(211,84,0,0.12));
+  border: 1px solid #f39c12;
+  color: #ffe5b3;
+}
+.sec-banner-info {
+  background: rgba(52,152,219,0.08);
+  border: 1px solid rgba(52,152,219,0.3);
+  padding: 6px 12px;
+}
+.sec-reasons {
+  margin: 6px 0 6px 18px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.sec-reasons li { margin-bottom: 2px; }
+.sec-banner-tip {
+  margin-top: 6px;
+  font-size: 11px;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+/* DKIM/SPF/DMARC badges */
+.auth-badges {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.auth-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.auth-pass { background: rgba(46,204,113,0.18); color: #2ecc71; border: 1px solid rgba(46,204,113,0.4); }
+.auth-fail { background: rgba(231,76,60,0.18); color: #e74c3c; border: 1px solid rgba(231,76,60,0.4); }
+.auth-none { background: rgba(149,165,166,0.18); color: var(--muted); border: 1px solid rgba(149,165,166,0.3); }
+.auth-other { background: rgba(243,156,18,0.18); color: #f39c12; border: 1px solid rgba(243,156,18,0.3); }
+
+/* ============= v1.12: Risk-Renkli Attachment Chip ============= */
+.attachment-chip {
+  cursor: pointer;
+  transition: all 0.15s;
+  user-select: none;
+}
+.attachment-chip:hover { transform: translateY(-1px); }
+.att-pending { opacity: 0.6; }
+
+.att-risk-safe {
+  border: 1px solid rgba(46,204,113,0.3);
+  background: rgba(46,204,113,0.06);
+}
+.att-risk-low {
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+}
+.att-risk-medium {
+  border: 1px solid #f39c12;
+  background: rgba(243,156,18,0.1);
+  color: #ffe5b3;
+}
+.att-risk-high {
+  border: 1.5px solid #e67e22;
+  background: rgba(230,126,34,0.15);
+  color: #ffd2a8;
+  font-weight: 600;
+}
+.att-risk-critical {
+  border: 2px solid var(--danger);
+  background: linear-gradient(135deg, rgba(231,76,60,0.2), rgba(192,57,43,0.15));
+  color: #ffcdd2;
+  font-weight: 700;
+  animation: critical-pulse 2s ease-in-out infinite;
+}
+@keyframes critical-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.5); }
+  50%      { box-shadow: 0 0 0 4px rgba(231,76,60,0); }
+}
+
+/* ============= v1.12: Trusted Senders List ============= */
+.trusted-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  background: var(--bg-3);
+}
+.trusted-info { flex: 1; min-width: 0; }
+.trusted-email {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 13px;
+}
+.trusted-name {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.trusted-meta {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.badge-manual {
+  display: inline-block;
+  font-size: 9px;
+  padding: 1px 6px;
+  background: var(--accent);
+  color: white;
+  border-radius: 8px;
+  margin-left: 6px;
+  font-weight: 500;
+}
+.btn-sm {
+  font-size: 11px;
+  padding: 3px 10px;
+}

@@ -271,18 +271,40 @@ class Database {
     this._safeAlter('ALTER TABLE messages ADD COLUMN spam_score INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_important INTEGER DEFAULT 0');
 
-    // v1.9: Threading kolonları
+    // v1.9: Threading
     this._safeAlter('ALTER TABLE messages ADD COLUMN in_reply_to TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN msg_references TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN thread_id TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN subject_normalized TEXT');
+
+    // v1.12: Güvenlik kolonları
+    this._safeAlter('ALTER TABLE messages ADD COLUMN auth_dkim TEXT');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN auth_spf TEXT');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN auth_dmarc TEXT');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN security_flags TEXT');
+
+    // v1.12: Güvenilir göndericiler tablosu
+    try {
+      this.exec(`
+        CREATE TABLE IF NOT EXISTS trusted_senders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT,
+          message_count INTEGER DEFAULT 1,
+          first_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+          last_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+          manually_added INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_trusted_email ON trusted_senders(email);
+      `);
+    } catch (_) {}
+
     try {
       this.exec('CREATE INDEX IF NOT EXISTS idx_msg_thread ON messages(account_id, thread_id)');
       this.exec('CREATE INDEX IF NOT EXISTS idx_msg_subj_norm ON messages(account_id, subject_normalized)');
       this.exec('CREATE INDEX IF NOT EXISTS idx_msg_messageid ON messages(account_id, message_id)');
     } catch (_) {}
 
-    // v1.8: Default kategoriler (sadece kategori tablosu boşsa)
     this._seedDefaultCategories();
   }
 
@@ -672,6 +694,14 @@ class Database {
     );
   }
 
+  // v1.12: Attachment binary verisi getir (kaydetme/açma için)
+  getAttachmentData(attachmentId) {
+    return this.prepare(`
+      SELECT id, message_id, filename, content_type, size, data
+      FROM attachments WHERE id = ?
+    `).get(attachmentId);
+  }
+
   markMessageRead(id, isRead) {
     const msg = this.prepare('SELECT folder_id FROM messages WHERE id = ?').get(id);
     if (!msg) return;
@@ -1018,6 +1048,65 @@ class Database {
       WHERE category IS NOT NULL AND category != ''
       ORDER BY category ASC
     `).all().map(r => r.category);
+  }
+
+  // ====== v1.12: Güvenilir Göndericiler ======
+  isTrustedSender(email) {
+    if (!email) return false;
+    const r = this.prepare('SELECT id FROM trusted_senders WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email.trim());
+    return !!r;
+  }
+
+  recordSenderInteraction(email, name) {
+    if (!email) return;
+    const e = email.trim().toLowerCase();
+    const now = new Date().toISOString();
+    try {
+      const existing = this.prepare('SELECT id FROM trusted_senders WHERE email = ? LIMIT 1').get(e);
+      if (existing) {
+        this.prepare('UPDATE trusted_senders SET message_count = message_count + 1, last_seen = ? WHERE id = ?').run(now, existing.id);
+      } else {
+        this.prepare('INSERT INTO trusted_senders (email, name, last_seen) VALUES (?, ?, ?)').run(e, name || null, now);
+      }
+    } catch (_) {}
+  }
+
+  listTrustedSenders() {
+    return this.prepare(`
+      SELECT * FROM trusted_senders ORDER BY message_count DESC, last_seen DESC LIMIT 500
+    `).all();
+  }
+
+  addTrustedSender(email, name) {
+    if (!email) return false;
+    const e = String(email).trim().toLowerCase();
+    try {
+      this.prepare(`
+        INSERT INTO trusted_senders (email, name, manually_added)
+        VALUES (?, ?, 1)
+        ON CONFLICT(email) DO UPDATE SET manually_added = 1
+      `).run(e, name || null);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  removeTrustedSender(email) {
+    if (!email) return;
+    this.prepare('DELETE FROM trusted_senders WHERE LOWER(email) = LOWER(?)').run(String(email).trim());
+  }
+
+  // v1.12: Güvenlik bilgilerini güncelle (insertMessage sonrası)
+  setMessageSecurity(messageId, security) {
+    this.prepare(`
+      UPDATE messages SET auth_dkim = ?, auth_spf = ?, auth_dmarc = ?, security_flags = ?
+      WHERE id = ?
+    `).run(
+      security.dkim || null,
+      security.spf || null,
+      security.dmarc || null,
+      typeof security.flags === 'string' ? security.flags : JSON.stringify(security.flags || {}),
+      messageId
+    );
   }
 }
 

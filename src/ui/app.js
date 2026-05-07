@@ -414,6 +414,7 @@ function bindToolbar() {
   document.getElementById('btnTemplates').onclick = openTemplatesManager;
   document.getElementById('btnScheduled').onclick = openScheduledManager;
   document.getElementById('btnNotes').onclick = openNotes;
+  document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
 
 function bindModals() {
@@ -1446,10 +1447,13 @@ function renderMessageView(msg) {
     attachmentsHtml = `
       <div class="msg-view-attachments">
         <div style="margin-bottom:6px;font-size:11px;color:var(--muted);font-weight:600;">EKLER (${msg.attachments.length})</div>
-        ${msg.attachments.map(a => `
-          <span class="attachment-chip">📎 ${escapeHtml(a.filename || 'ek')}
-            <span style="color:var(--muted)">${formatSize(a.size || 0)}</span>
-          </span>`).join('')}
+        <div id="attachmentChipsContainer">
+          ${msg.attachments.map(a => `
+            <span class="attachment-chip att-pending" data-att-id="${a.id}" data-filename="${escapeHtml(a.filename || 'ek')}">
+              ⏳ ${escapeHtml(a.filename || 'ek')}
+              <span style="color:var(--muted)">${formatSize(a.size || 0)}</span>
+            </span>`).join('')}
+        </div>
       </div>`;
   }
 
@@ -1458,6 +1462,45 @@ function renderMessageView(msg) {
     spamBanner = `<div class="spam-banner">🛡 Bu mesaj <strong>spam</strong> olarak işaretlendi (puan: ${msg.spam_score}).</div>`;
   } else if (msg.spam_score >= 30) {
     spamBanner = `<div class="spam-banner warn">⚠ Bu mesaj şüpheli görünüyor (puan: ${msg.spam_score}).</div>`;
+  }
+
+  // v1.12: Güvenlik durumu banner'ı (DKIM/SPF/DMARC + phishing)
+  let securityBanner = '';
+  let securityFlags = null;
+  try {
+    if (msg.security_flags) securityFlags = JSON.parse(msg.security_flags);
+  } catch (_) {}
+
+  const authBadges = [];
+  const renderBadge = (label, val) => {
+    if (!val) return `<span class="auth-badge auth-none">${label}: yok</span>`;
+    if (val === 'pass') return `<span class="auth-badge auth-pass">${label}: ✓</span>`;
+    if (val === 'fail') return `<span class="auth-badge auth-fail">${label}: ✗</span>`;
+    return `<span class="auth-badge auth-other">${label}: ${val}</span>`;
+  };
+  if (msg.auth_dkim || msg.auth_spf || msg.auth_dmarc) {
+    authBadges.push(renderBadge('DKIM', msg.auth_dkim));
+    authBadges.push(renderBadge('SPF', msg.auth_spf));
+    authBadges.push(renderBadge('DMARC', msg.auth_dmarc));
+  }
+
+  const secLevel = securityFlags?.level || 'safe';
+  const phishingReasons = securityFlags?.reasons || [];
+
+  if (secLevel === 'high' || secLevel === 'medium' || (authBadges.length > 0 && (msg.auth_dkim === 'fail' || msg.auth_spf === 'fail' || msg.auth_dmarc === 'fail'))) {
+    const cls = secLevel === 'high' ? 'sec-banner-high' : 'sec-banner-medium';
+    const icon = secLevel === 'high' ? '🚨' : '⚠️';
+    const title = secLevel === 'high' ? 'YÜKSEK RİSKLİ MESAJ' : 'Şüpheli mesaj';
+    securityBanner = `
+      <div class="sec-banner ${cls}">
+        <div class="sec-banner-head">${icon} ${title}</div>
+        ${phishingReasons.length ? `<ul class="sec-reasons">${phishingReasons.map(r => `<li>${escapeHtml(r)}</li>`).join('')}</ul>` : ''}
+        ${authBadges.length ? `<div class="auth-badges">${authBadges.join('')}</div>` : ''}
+        <div class="sec-banner-tip">⚠ Bağlantılara tıklamayın, ek dosyaları açmayın, bilgilerinizi vermeyin.</div>
+      </div>`;
+  } else if (authBadges.length > 0) {
+    // Auth bilgisi var ama sorunsuz - kompakt durum gösterimi
+    securityBanner = `<div class="sec-banner sec-banner-info"><div class="auth-badges">${authBadges.join('')}</div></div>`;
   }
 
   // v1.8: Kategoriler chip
@@ -1480,6 +1523,7 @@ function renderMessageView(msg) {
       </div>
     </div>
     ${spamBanner}
+    ${securityBanner}
     <div class="msg-view-actions">
       <button class="btn" id="btnReply">↩ Yanıtla</button>
       <button class="btn" id="btnForward">↪ İlet</button>
@@ -1491,6 +1535,11 @@ function renderMessageView(msg) {
     <div class="msg-view-body">${bodyHtml}</div>
     ${attachmentsHtml}
   `;
+
+  // v1.12: Attachment chip'leri risk-renklendir + tıklama onayı
+  if (msg.attachments && msg.attachments.length) {
+    setupAttachmentChips(msg);
+  }
 
   document.getElementById('btnReply').onclick = () => openCompose({ replyTo: msg });
   document.getElementById('btnForward').onclick = () => openCompose({ forward: msg });
@@ -2996,4 +3045,194 @@ if (window.api && window.api.on) {
   window.api.on('inapp-notification', (data) => {
     showInAppNotification(data);
   });
+}
+
+// ============= v1.12: Attachment Security UI =============
+async function setupAttachmentChips(msg) {
+  const senderEmail = msg.from_addr || '';
+  const chips = document.querySelectorAll('#attachmentChipsContainer .attachment-chip');
+  for (const chip of chips) {
+    const attId = parseInt(chip.dataset.attId, 10);
+    const filename = chip.dataset.filename;
+    const analysis = await window.api.security.analyzeAttachment(filename, senderEmail);
+    const senderTrusted = senderEmail ? await window.api.security.isTrustedSender(senderEmail) : false;
+
+    chip.classList.remove('att-pending');
+    chip.classList.add(`att-risk-${analysis.risk}`);
+    chip.dataset.risk = analysis.risk;
+    chip.dataset.warning = analysis.warning || '';
+    chip.dataset.canOpen = analysis.canOpen ? '1' : '0';
+    chip.dataset.requireConfirm = analysis.requireConfirmation ? '1' : '0';
+    chip.dataset.senderTrusted = senderTrusted ? '1' : '0';
+    chip.dataset.category = analysis.category;
+
+    // İkon değiştir
+    let icon = '📎';
+    if (analysis.risk === 'critical') icon = '🚫';
+    else if (analysis.risk === 'high') icon = '⚠️';
+    else if (analysis.risk === 'medium') icon = '⚠';
+    else if (analysis.risk === 'low') icon = '📎';
+    else icon = '📎';
+
+    // Title (tooltip)
+    chip.title = analysis.warning || `Risk: ${analysis.risk}`;
+
+    chip.innerHTML = `
+      ${icon} ${escapeHtml(filename)}
+      <span style="color:var(--muted);margin-left:6px;">${chip.querySelector('span')?.textContent || ''}</span>
+    `;
+
+    chip.onclick = (e) => {
+      e.stopPropagation();
+      handleAttachmentClick(attId, filename, analysis, senderTrusted, senderEmail);
+    };
+
+    // Sağ tık menü - Kaydet seçeneği
+    chip.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showAttachmentContextMenu(e, attId, filename, analysis, senderTrusted, senderEmail);
+    };
+  }
+}
+
+async function handleAttachmentClick(attId, filename, analysis, senderTrusted, senderEmail) {
+  // Kritik tehdit (executable, çift uzantı, script) - kesinlikle açma
+  if (analysis.risk === 'critical') {
+    const ok = confirm(
+      `🚫 BU EK ÇOK TEHLİKELİ — VARSAYILAN OLARAK AÇILMAYACAK\n\n` +
+      `Dosya: ${filename}\n` +
+      `Gönderici: ${senderEmail || 'bilinmiyor'} ${senderTrusted ? '(güvenilir listede)' : '(TANIMIYOR)'}\n\n` +
+      `${analysis.warning}\n\n` +
+      `Yine de yalnızca DOSYAYI DİSKE KAYDETMEK ister misiniz? (açmak için ayrıca tıklamanız gerekecek)\n\n` +
+      `İptal etmenizi şiddetle öneririm.`
+    );
+    if (ok) {
+      // Sadece kaydet, açma!
+      const r = await window.api.attachments.save(attId);
+      if (r && r.ok) {
+        setStatus(`Ek diske kaydedildi: ${r.path} - LÜTFEN ANTİVİRÜS İLE TARAYIN!`);
+      } else if (!r?.canceled) {
+        setStatus('Kaydetme başarısız: ' + (r?.error || 'bilinmeyen hata'), 'error');
+      }
+    }
+    return;
+  }
+
+  // Yüksek/orta risk - dolgun uyarılı onay
+  if (analysis.requireConfirmation) {
+    let prompt = `⚠️ EK DOSYA UYARISI\n\n`;
+    prompt += `Dosya: ${filename}\n`;
+    prompt += `Risk: ${analysis.risk.toUpperCase()}\n`;
+    prompt += `Gönderici: ${senderEmail || 'bilinmiyor'}\n`;
+    prompt += `Güvenilir liste: ${senderTrusted ? '✓ EVET' : '✗ HAYIR (TANIMIYOR)'}\n\n`;
+    if (analysis.warning) prompt += `${analysis.warning}\n\n`;
+
+    if (!senderTrusted) {
+      prompt += `❗ Bu kişiden daha önce mail almadınız. Tanımadığınız kişilerden gelen ek dosyaları açmamanız önerilir.\n\n`;
+    }
+
+    prompt += `Açmak istediğinize emin misiniz?\n\n`;
+    prompt += `[Tamam] = Aç (varsayılan uygulama ile)\n`;
+    prompt += `[İptal] = Açma`;
+
+    if (!confirm(prompt)) return;
+  }
+
+  // Açma
+  const r = await window.api.attachments.open(attId);
+  if (r && r.ok) {
+    setStatus(`Ek açıldı: ${filename}`);
+  } else {
+    setStatus('Ek açılamadı: ' + (r?.error || 'bilinmeyen hata'), 'error');
+  }
+}
+
+function showAttachmentContextMenu(e, attId, filename, analysis, senderTrusted, senderEmail) {
+  const items = [
+    {
+      label: '💾 Diske Kaydet',
+      action: async () => {
+        const r = await window.api.attachments.save(attId);
+        if (r?.ok) setStatus(`Kaydedildi: ${r.path}`);
+        else if (!r?.canceled) setStatus('Hata: ' + (r?.error || ''), 'error');
+      }
+    }
+  ];
+  if (analysis.canOpen || analysis.risk !== 'critical') {
+    items.unshift({
+      label: '📂 Aç (varsayılan uygulama)',
+      action: () => handleAttachmentClick(attId, filename, analysis, senderTrusted, senderEmail)
+    });
+  }
+  // Generic context menu kullan
+  const menu = document.getElementById('contextMenu');
+  if (!menu) return;
+  menu.innerHTML = items.map((it, i) =>
+    `<div class="ctx-item" data-i="${i}">${escapeHtml(it.label)}</div>`
+  ).join('');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.remove('hidden');
+  menu.querySelectorAll('.ctx-item').forEach((el, i) => {
+    el.onclick = (ev) => {
+      ev.stopPropagation();
+      menu.classList.add('hidden');
+      items[i].action();
+    };
+  });
+  setTimeout(() => {
+    document.addEventListener('click', () => menu.classList.add('hidden'), { once: true });
+  }, 50);
+}
+
+// ============= v1.12: Güvenilir Göndericiler =============
+async function openTrustedSenders() {
+  document.getElementById('modalTrustedSenders').classList.remove('hidden');
+  document.getElementById('btnAddTrustedSender').onclick = addTrustedSenderManual;
+  await renderTrustedSendersList();
+}
+
+async function renderTrustedSendersList() {
+  const list = await window.api.security.listTrustedSenders();
+  const el = document.getElementById('trustedSendersList');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:20px;">Henüz güvenilir gönderici yok. Mail aldıkça otomatik eklenir.</div>';
+    return;
+  }
+  el.innerHTML = list.map(s => `
+    <div class="trusted-row">
+      <div class="trusted-info">
+        <div class="trusted-email">${escapeHtml(s.email)} ${s.manually_added ? '<span class="badge-manual">manuel</span>' : ''}</div>
+        ${s.name ? `<div class="trusted-name">${escapeHtml(s.name)}</div>` : ''}
+        <div class="trusted-meta">
+          ${s.message_count} mesaj · İlk: ${new Date(s.first_seen).toLocaleDateString('tr-TR')} · Son: ${new Date(s.last_seen).toLocaleDateString('tr-TR')}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-email="${escapeHtml(s.email)}">Çıkar</button>
+    </div>
+  `).join('');
+  el.querySelectorAll('button[data-email]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm(`"${btn.dataset.email}" güvenilir listeden çıkarılsın mı?`)) return;
+      await window.api.security.removeTrustedSender(btn.dataset.email);
+      await renderTrustedSendersList();
+    };
+  });
+}
+
+async function addTrustedSenderManual() {
+  const email = document.getElementById('ts_email').value.trim();
+  const name = document.getElementById('ts_name').value.trim();
+  if (!email || !email.includes('@')) {
+    alert('Geçerli bir email adresi girin');
+    return;
+  }
+  const r = await window.api.security.addTrustedSender(email, name || null);
+  if (r.ok) {
+    document.getElementById('ts_email').value = '';
+    document.getElementById('ts_name').value = '';
+    await renderTrustedSendersList();
+    setStatus(`✓ "${email}" güvenilir listeye eklendi`);
+  }
 }

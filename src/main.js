@@ -931,6 +931,77 @@ ipcMain.handle('notes:delete', (_, id) => {
 ipcMain.handle('notes:listCategories', () => db.listNoteCategories());
 
 // =====================================================================
+// v1.12 IPC: Güvenlik (DKIM/SPF/DMARC + Trusted senders + Attachment scan)
+// =====================================================================
+const AttachmentSecurity = require('./services/attachment-security');
+
+ipcMain.handle('security:analyzeAttachment', (_, filename, senderEmail) => {
+  const trusted = senderEmail ? db.isTrustedSender(senderEmail) : false;
+  return AttachmentSecurity.analyze(filename, trusted);
+});
+
+ipcMain.handle('security:isTrustedSender', (_, email) => db.isTrustedSender(email));
+ipcMain.handle('security:listTrustedSenders', () => db.listTrustedSenders());
+ipcMain.handle('security:addTrustedSender', (_, email, name) => {
+  const ok = db.addTrustedSender(email, name);
+  db.save();
+  return { ok };
+});
+ipcMain.handle('security:removeTrustedSender', (_, email) => {
+  db.removeTrustedSender(email);
+  db.save();
+  return { ok: true };
+});
+
+// v1.12: Attachment Save / Open
+ipcMain.handle('attachments:save', async (_, attachmentId) => {
+  const att = db.getAttachmentData(attachmentId);
+  if (!att) return { ok: false, error: 'Ek bulunamadı' };
+
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Eki Kaydet',
+    defaultPath: att.filename || 'ek',
+    buttonLabel: 'Kaydet'
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+
+  try {
+    const fs = require('fs');
+    let buf = att.data;
+    if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
+    fs.writeFileSync(result.filePath, buf);
+    return { ok: true, path: result.filePath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('attachments:open', async (_, attachmentId) => {
+  // Geçici dizine yazıp Windows shell ile aç (kullanıcı varsayılan uygulama ile açar)
+  const att = db.getAttachmentData(attachmentId);
+  if (!att) return { ok: false, error: 'Ek bulunamadı' };
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const tmpDir = path.join(os.tmpdir(), 'codega-mail-attachments');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    // Güvenlik: ASCII filename - Türkçe karakterler tehlikeli olmasın
+    const safeName = (att.filename || 'ek').replace(/[^\w.\-]/g, '_');
+    const filePath = path.join(tmpDir, `${attachmentId}_${safeName}`);
+    let buf = att.data;
+    if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
+    fs.writeFileSync(filePath, buf);
+    const { shell } = require('electron');
+    await shell.openPath(filePath);
+    return { ok: true, path: filePath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// =====================================================================
 // IPC: Senkronizasyon
 // =====================================================================
 ipcMain.handle('sync:account', async (_, accountId) => {
