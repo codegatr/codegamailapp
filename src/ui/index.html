@@ -27,6 +27,7 @@
       <button id="btnConversationView" class="btn btn-ghost" title="Konuşma görünümü (Re: zincirleri grupla)">💬 Konuşma</button>
       <button id="btnTemplates" class="btn btn-ghost" title="Mesaj şablonları">📝 Şablonlar</button>
       <button id="btnScheduled" class="btn btn-ghost" title="Zamanlanmış mesajlar">⏰ Zamanlanmış</button>
+      <button id="btnNotes" class="btn btn-ghost" title="Notlar (Lotus Notes benzeri)">📓 Notlar</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
       <button id="btnAbout" class="btn btn-ghost" title="Hakkında">ℹ Hakkında</button>
       <button id="btnBackup" class="btn btn-ghost" title="Yedek al">⬇ Yedek</button>
@@ -404,7 +405,7 @@
 
   <!-- ===== Yeni Mesaj ===== -->
   <div id="modalCompose" class="modal hidden">
-    <div class="modal-content modal-lg">
+    <div class="modal-content modal-lg" id="composeModalContent">
       <div class="modal-header">
         <h2>Yeni Mesaj</h2>
         <div style="flex:1;"></div>
@@ -412,6 +413,7 @@
           <option value="">📝 Şablon Yükle...</option>
         </select>
         <button id="btnSaveAsTemplate" class="btn btn-ghost" title="Bu mesajı şablon olarak kaydet" style="font-size:11px;margin-right:6px;">💾 Şablon Kaydet</button>
+        <button id="btnComposeFullscreen" class="btn btn-ghost" title="Tam ekran" style="font-size:14px;margin-right:4px;">⛶</button>
         <button class="modal-close" data-close="modalCompose">×</button>
       </div>
       <div class="modal-body">
@@ -546,7 +548,58 @@
     </div>
   </div>
 
-  <!-- ===== Hakkında ===== -->
+  <!-- ===== Notlar (Lotus Notes benzeri) ===== -->
+  <div id="modalNotes" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>📓 Notlar</h2>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary" id="btnNewNote">+ Yeni Not</button>
+        <button class="modal-close" data-close="modalNotes" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;display:flex;height:calc(90vh - 110px);overflow:hidden;">
+        <!-- Sol: arama + liste -->
+        <div class="notes-sidebar">
+          <div class="notes-search">
+            <input type="text" id="notesSearchInput" placeholder="🔍 Not ara...">
+          </div>
+          <div class="notes-filter">
+            <select id="notesCategoryFilter">
+              <option value="">Tüm Kategoriler</option>
+            </select>
+            <label style="font-size:11px;color:var(--text-2);">
+              <input type="checkbox" id="notesShowArchived"> Arşivlenenleri göster
+            </label>
+          </div>
+          <div id="notesList" class="notes-list"></div>
+        </div>
+        <!-- Sağ: editör -->
+        <div class="notes-editor-pane" id="notesEditorPane">
+          <div id="notesEmpty" class="empty-state" style="margin:auto;padding:40px;">
+            Bir not seçin veya "+ Yeni Not" oluşturun
+          </div>
+          <div id="notesEditor" class="hidden">
+            <div class="notes-editor-toolbar">
+              <input type="text" id="note_title" placeholder="Başlık..." class="note-title-input">
+              <input type="color" id="note_color" value="#3498db" title="Renk">
+              <button class="btn btn-ghost" id="btnPinNote" title="Sabitle">📌</button>
+              <button class="btn btn-ghost" id="btnArchiveNote" title="Arşivle">📁</button>
+              <button class="btn btn-ghost" id="btnDeleteNote" title="Sil" style="color:var(--danger);">🗑</button>
+            </div>
+            <div style="display:flex;gap:8px;padding:6px 14px;border-bottom:1px solid var(--border);background:var(--bg-3);">
+              <input type="text" id="note_category" placeholder="Kategori (örn: İş, Kişisel)" style="flex:1;font-size:12px;padding:4px 8px;">
+              <input type="text" id="note_tags" placeholder="Etiketler: virgülle ayır" style="flex:2;font-size:12px;padding:4px 8px;">
+            </div>
+            <div id="note_content_editor" style="flex:1;overflow:hidden;display:flex;flex-direction:column;"></div>
+            <div class="notes-footer">
+              <span id="note_status_meta">—</span>
+              <button class="btn btn-primary" id="btnSaveNote">💾 Kaydet</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="modalAbout" class="modal hidden">
     <div class="modal-content modal-lg">
       <div class="modal-header">

@@ -64,6 +64,14 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('scheduled:delete', id),
     onSent: (cb) => ipcRenderer.on('scheduled:sent', (_, data) => cb(data))
   },
+  notes: {
+    list: (opts) => ipcRenderer.invoke('notes:list', opts),
+    get: (id) => ipcRenderer.invoke('notes:get', id),
+    add: (note) => ipcRenderer.invoke('notes:add', note),
+    update: (id, updates) => ipcRenderer.invoke('notes:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('notes:delete', id),
+    listCategories: () => ipcRenderer.invoke('notes:listCategories')
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

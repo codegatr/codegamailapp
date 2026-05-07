@@ -1272,3 +1272,213 @@ body { display: flex; flex-direction: column; }
   font-family: Consolas, monospace;
   letter-spacing: 0.3px;
 }
+
+/* ============= v1.11: Compose Tam Ekran ============= */
+.compose-fullscreen {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  margin: 0 !important;
+}
+.compose-fullscreen .modal-body {
+  max-height: calc(100vh - 130px) !important;
+  height: calc(100vh - 130px) !important;
+}
+.compose-fullscreen .rte-content {
+  min-height: 50vh;
+  max-height: 60vh;
+}
+
+/* ============= v1.11: Notlar (Lotus Notes benzeri) ============= */
+.modal-fullscreen {
+  width: 95vw !important;
+  max-width: 95vw !important;
+  height: 90vh !important;
+  max-height: 90vh !important;
+}
+
+.notes-sidebar {
+  width: 320px;
+  min-width: 280px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+
+.notes-search {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.notes-search input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.notes-filter {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.notes-filter select {
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.notes-filter label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notes-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.note-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.note-item:hover { background: var(--surface-hi); }
+.note-item.active { background: var(--bg-3); border-right: 3px solid var(--primary); }
+.note-item.pinned { background: linear-gradient(90deg, transparent, var(--bg-3) 100%); }
+.note-item.archived { opacity: 0.6; }
+
+.note-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+.note-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-archived-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  background: var(--muted);
+  color: white;
+  border-radius: 8px;
+}
+.note-item-cat {
+  font-size: 10px;
+  color: var(--accent);
+  margin-bottom: 3px;
+}
+.note-item-preview {
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.4;
+  max-height: 36px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.note-item-date {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.notes-editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+#notesEditor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+#notesEditor.hidden { display: none; }
+
+.notes-editor-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-3);
+}
+.note-title-input {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  border-radius: 4px;
+}
+.note-title-input:hover, .note-title-input:focus {
+  background: var(--surface);
+  border-color: var(--border);
+  outline: none;
+}
+.notes-editor-toolbar input[type="color"] {
+  width: 32px;
+  height: 30px;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--surface);
+}
+
+#note_content_editor {
+  flex: 1;
+  padding: 0;
+  overflow: hidden;
+}
+#note_content_editor .rich-editor {
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+#note_content_editor .rte-content {
+  flex: 1;
+  min-height: auto;
+  max-height: none;
+}
+
+.notes-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-3);
+}
+#note_status_meta {
+  font-size: 11px;
+  color: var(--muted);
+}

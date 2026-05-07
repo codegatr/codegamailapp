@@ -920,6 +920,28 @@ function startSchedulerLoop() {
 }
 
 // =====================================================================
+// v1.11 IPC: Notlar
+// =====================================================================
+ipcMain.handle('notes:list', (_, opts) => db.listNotes(opts));
+ipcMain.handle('notes:get', (_, id) => db.getNote(id));
+ipcMain.handle('notes:add', (_, note) => {
+  const id = db.addNote(note);
+  db.save();
+  return { ok: true, id };
+});
+ipcMain.handle('notes:update', (_, id, updates) => {
+  db.updateNote(id, updates);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('notes:delete', (_, id) => {
+  db.deleteNote(id);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('notes:listCategories', () => db.listNoteCategories());
+
+// =====================================================================
 // IPC: Senkronizasyon
 // =====================================================================
 ipcMain.handle('sync:account', async (_, accountId) => {

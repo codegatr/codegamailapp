@@ -241,6 +241,25 @@ class Database {
         FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_sched_status ON scheduled_messages(status, scheduled_for);
+
+      CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content_html TEXT,
+        content_text TEXT,
+        category TEXT,
+        tags TEXT,
+        color TEXT DEFAULT '#3498db',
+        is_pinned INTEGER DEFAULT 0,
+        is_archived INTEGER DEFAULT 0,
+        related_message_id INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT,
+        FOREIGN KEY (related_message_id) REFERENCES messages(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notes_category ON notes(category);
+      CREATE INDEX IF NOT EXISTS idx_notes_pinned ON notes(is_pinned, is_archived);
+      CREATE INDEX IF NOT EXISTS idx_notes_msg ON notes(related_message_id);
     `);
 
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_enabled INTEGER DEFAULT 1');
@@ -927,6 +946,78 @@ class Database {
       WHERE status = 'pending' AND scheduled_for <= ?
       ORDER BY scheduled_for ASC LIMIT 10
     `).all(now);
+  }
+
+  // ====== v1.11: Notlar (Lotus Notes benzeri) ======
+  listNotes(opts = {}) {
+    let where = '1=1';
+    const params = [];
+    if (opts.archived !== undefined) {
+      where += ' AND is_archived = ?';
+      params.push(opts.archived ? 1 : 0);
+    }
+    if (opts.category) {
+      where += ' AND category = ?';
+      params.push(opts.category);
+    }
+    if (opts.search) {
+      where += ' AND (title LIKE ? OR content_text LIKE ? OR tags LIKE ?)';
+      const q = `%${opts.search}%`;
+      params.push(q, q, q);
+    }
+    return this.prepare(`
+      SELECT id, title, category, tags, color, is_pinned, is_archived, related_message_id,
+             SUBSTR(content_text, 1, 200) AS preview,
+             created_at, updated_at
+      FROM notes WHERE ${where}
+      ORDER BY is_pinned DESC, COALESCE(updated_at, created_at) DESC
+    `).all(...params);
+  }
+
+  getNote(id) {
+    return this.prepare('SELECT * FROM notes WHERE id = ?').get(id);
+  }
+
+  addNote(note) {
+    const r = this.prepare(`
+      INSERT INTO notes (title, content_html, content_text, category, tags, color, is_pinned, related_message_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      note.title || 'Başlıksız',
+      note.content_html || '', note.content_text || '',
+      note.category || null,
+      note.tags || null,
+      note.color || '#3498db',
+      note.is_pinned ? 1 : 0,
+      note.related_message_id || null
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateNote(id, updates) {
+    const allowed = ['title', 'content_html', 'content_text', 'category', 'tags', 'color', 'is_pinned', 'is_archived'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (typeof v === 'boolean') v = v ? 1 : 0;
+      return v;
+    });
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE notes SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteNote(id) {
+    this.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  }
+
+  listNoteCategories() {
+    return this.prepare(`
+      SELECT DISTINCT category FROM notes
+      WHERE category IS NOT NULL AND category != ''
+      ORDER BY category ASC
+    `).all().map(r => r.category);
   }
 }
 

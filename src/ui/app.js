@@ -413,6 +413,7 @@ function bindToolbar() {
   document.getElementById('btnConversationView').onclick = toggleConversationView;
   document.getElementById('btnTemplates').onclick = openTemplatesManager;
   document.getElementById('btnScheduled').onclick = openScheduledManager;
+  document.getElementById('btnNotes').onclick = openNotes;
 }
 
 function bindModals() {
@@ -1046,6 +1047,7 @@ async function showMessageContextMenu(e, message) {
       // Menüyü yeniden, biraz gecikmeli aç
       setTimeout(() => showCategorizeMenu(message.id, currentIds, e), 50);
     }},
+    { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
     '---',
     ...moveItems,
     '---',
@@ -1612,6 +1614,17 @@ function bindCompose() {
   const schedBtn = document.getElementById('btnScheduleMail');
   if (schedBtn) {
     schedBtn.onclick = openSchedulePicker;
+  }
+
+  // v1.11: Tam ekran toggle
+  const fsBtn = document.getElementById('btnComposeFullscreen');
+  if (fsBtn) {
+    fsBtn.onclick = () => {
+      const content = document.getElementById('composeModalContent');
+      content.classList.toggle('compose-fullscreen');
+      fsBtn.textContent = content.classList.contains('compose-fullscreen') ? '⛶' : '⛶';
+      fsBtn.title = content.classList.contains('compose-fullscreen') ? 'Pencere boyutuna küçült' : 'Tam ekran';
+    };
   }
 
   // v1.4: Drag-drop ek dosya
@@ -2704,4 +2717,241 @@ if (window.api.scheduled && window.api.scheduled.onSent) {
   window.api.scheduled.onSent((data) => {
     setStatus(`✓ Zamanlanmış mesaj gönderildi: "${data.subject || '(konusuz)'}" → ${data.to}`);
   });
+}
+
+// ============= v1.11: NOTLAR (Lotus Notes benzeri) =============
+let currentNoteId = null;
+let notesEditor = null;
+let notesUIBound = false;
+let notesDirty = false;
+
+async function openNotes() {
+  document.getElementById('modalNotes').classList.remove('hidden');
+  if (!notesUIBound) {
+    notesUIBound = true;
+    bindNotesUI();
+  }
+  await refreshNotesCategories();
+  await renderNotesList();
+}
+
+function bindNotesUI() {
+  document.getElementById('btnNewNote').onclick = createNewNote;
+  document.getElementById('notesSearchInput').oninput = debounce(renderNotesList, 200);
+  document.getElementById('notesCategoryFilter').onchange = renderNotesList;
+  document.getElementById('notesShowArchived').onchange = renderNotesList;
+
+  // Editor controls
+  document.getElementById('btnSaveNote').onclick = saveCurrentNote;
+  document.getElementById('btnDeleteNote').onclick = deleteCurrentNote;
+  document.getElementById('btnPinNote').onclick = togglePinCurrentNote;
+  document.getElementById('btnArchiveNote').onclick = toggleArchiveCurrentNote;
+
+  // Dirty tracking
+  ['note_title', 'note_category', 'note_tags', 'note_color'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { notesDirty = true; });
+  });
+}
+
+async function refreshNotesCategories() {
+  const sel = document.getElementById('notesCategoryFilter');
+  const cats = await window.api.notes.listCategories();
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Tüm Kategoriler</option>' +
+    cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  sel.value = current || '';
+}
+
+async function renderNotesList() {
+  const search = document.getElementById('notesSearchInput').value.trim();
+  const category = document.getElementById('notesCategoryFilter').value || undefined;
+  const showArchived = document.getElementById('notesShowArchived').checked;
+  const opts = { archived: showArchived ? undefined : false };
+  if (search) opts.search = search;
+  if (category) opts.category = category;
+  const notes = await window.api.notes.list(opts);
+  const list = document.getElementById('notesList');
+  if (!notes.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:30px;">Not bulunamadı</div>';
+    return;
+  }
+  list.innerHTML = notes.map(n => {
+    const updated = n.updated_at ? new Date(n.updated_at).toLocaleString('tr-TR') :
+                    n.created_at ? new Date(n.created_at).toLocaleString('tr-TR') : '';
+    return `
+      <div class="note-item ${n.is_pinned ? 'pinned' : ''} ${n.is_archived ? 'archived' : ''} ${currentNoteId === n.id ? 'active' : ''}"
+           data-id="${n.id}" style="border-left:4px solid ${n.color || '#3498db'};">
+        <div class="note-item-header">
+          <span class="note-item-title">${n.is_pinned ? '📌 ' : ''}${escapeHtml(n.title)}</span>
+          ${n.is_archived ? '<span class="note-archived-badge">Arşivli</span>' : ''}
+        </div>
+        ${n.category ? `<div class="note-item-cat">🏷 ${escapeHtml(n.category)}</div>` : ''}
+        <div class="note-item-preview">${escapeHtml((n.preview || '').replace(/\s+/g, ' ').slice(0, 100))}</div>
+        <div class="note-item-date">${updated}</div>
+      </div>
+    `;
+  }).join('');
+
+  list.querySelectorAll('.note-item').forEach(el => {
+    el.onclick = () => loadNoteIntoEditor(parseInt(el.dataset.id, 10));
+  });
+}
+
+async function loadNoteIntoEditor(id) {
+  if (notesDirty && !confirm('Kayıtsız değişiklikler var. Yine de geçilsin mi?')) return;
+  const note = await window.api.notes.get(id);
+  if (!note) return;
+  currentNoteId = id;
+  document.getElementById('notesEmpty').classList.add('hidden');
+  document.getElementById('notesEditor').classList.remove('hidden');
+
+  document.getElementById('note_title').value = note.title || '';
+  document.getElementById('note_category').value = note.category || '';
+  document.getElementById('note_tags').value = note.tags || '';
+  document.getElementById('note_color').value = note.color || '#3498db';
+
+  if (!notesEditor && typeof RichEditor !== 'undefined') {
+    notesEditor = new RichEditor('note_content_editor', {
+      placeholder: 'Notunuzu buraya yazın...'
+    });
+    // Dirty tracking - editor içeriği için
+    const contentEl = document.querySelector('#note_content_editor .rte-content');
+    if (contentEl) contentEl.addEventListener('input', () => { notesDirty = true; });
+  }
+  if (notesEditor) notesEditor.setHTML(note.content_html || '');
+
+  // Pin/Archive durumu butonlara yansıt
+  document.getElementById('btnPinNote').classList.toggle('btn-primary', !!note.is_pinned);
+  document.getElementById('btnPinNote').classList.toggle('btn-ghost', !note.is_pinned);
+  document.getElementById('btnArchiveNote').classList.toggle('btn-primary', !!note.is_archived);
+  document.getElementById('btnArchiveNote').classList.toggle('btn-ghost', !note.is_archived);
+
+  const meta = note.updated_at
+    ? `Güncellendi: ${new Date(note.updated_at).toLocaleString('tr-TR')}`
+    : `Oluşturuldu: ${new Date(note.created_at).toLocaleString('tr-TR')}`;
+  document.getElementById('note_status_meta').textContent = meta;
+  notesDirty = false;
+
+  // Aktif item'ı vurgula
+  document.querySelectorAll('.note-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.note-item[data-id="${id}"]`)?.classList.add('active');
+}
+
+async function createNewNote() {
+  if (notesDirty && !confirm('Kayıtsız değişiklikler var. Yine de yeni not açılsın mı?')) return;
+  const r = await window.api.notes.add({
+    title: 'Yeni Not',
+    content_html: '',
+    color: '#3498db'
+  });
+  if (r.ok) {
+    await refreshNotesCategories();
+    await renderNotesList();
+    await loadNoteIntoEditor(r.id);
+    setTimeout(() => {
+      const titleInput = document.getElementById('note_title');
+      titleInput.focus();
+      titleInput.select();
+    }, 100);
+  }
+}
+
+async function saveCurrentNote() {
+  if (!currentNoteId) return;
+  const title = document.getElementById('note_title').value.trim() || 'Başlıksız';
+  const category = document.getElementById('note_category').value.trim() || null;
+  const tags = document.getElementById('note_tags').value.trim() || null;
+  const color = document.getElementById('note_color').value;
+  const content_html = notesEditor ? notesEditor.getHTML() : '';
+  const content_text = notesEditor ? notesEditor.getText() : '';
+  await window.api.notes.update(currentNoteId, {
+    title, category, tags, color, content_html, content_text
+  });
+  notesDirty = false;
+  await refreshNotesCategories();
+  await renderNotesList();
+  setStatus('✓ Not kaydedildi');
+  document.getElementById('note_status_meta').textContent =
+    `Güncellendi: ${new Date().toLocaleString('tr-TR')}`;
+}
+
+async function deleteCurrentNote() {
+  if (!currentNoteId) return;
+  if (!confirm('Bu notu silmek istediğinizden emin misiniz?')) return;
+  await window.api.notes.delete(currentNoteId);
+  currentNoteId = null;
+  notesDirty = false;
+  document.getElementById('notesEditor').classList.add('hidden');
+  document.getElementById('notesEmpty').classList.remove('hidden');
+  await refreshNotesCategories();
+  await renderNotesList();
+  setStatus('Not silindi');
+}
+
+async function togglePinCurrentNote() {
+  if (!currentNoteId) return;
+  const note = await window.api.notes.get(currentNoteId);
+  if (!note) return;
+  await window.api.notes.update(currentNoteId, { is_pinned: !note.is_pinned });
+  await loadNoteIntoEditor(currentNoteId);
+  await renderNotesList();
+}
+
+async function toggleArchiveCurrentNote() {
+  if (!currentNoteId) return;
+  const note = await window.api.notes.get(currentNoteId);
+  if (!note) return;
+  await window.api.notes.update(currentNoteId, { is_archived: !note.is_archived });
+  await loadNoteIntoEditor(currentNoteId);
+  await renderNotesList();
+}
+
+// v1.11: Mesajdan Not Oluştur (sağ tık menüden)
+async function createNoteFromMessage(msg) {
+  if (!msg) return;
+  const fromName = msg.from_name || msg.from_addr || '?';
+  const date = msg.date ? new Date(msg.date).toLocaleString('tr-TR') : '';
+  const title = msg.subject || '(Konusuz)';
+
+  // Mesaj içeriğinden HTML oluştur
+  const bodyHtml = msg.body_html || (msg.body_text
+    ? `<pre style="white-space:pre-wrap;">${escapeHtml(msg.body_text)}</pre>`
+    : '<em>İçerik yok</em>');
+
+  const noteHtml = `
+    <div style="border-left:3px solid var(--primary);padding:8px 12px;background:#0001;border-radius:4px;margin-bottom:12px;">
+      <div><strong>📧 Gönderen:</strong> ${escapeHtml(fromName)}</div>
+      <div><strong>📅 Tarih:</strong> ${escapeHtml(date)}</div>
+      <div><strong>📌 Konu:</strong> ${escapeHtml(title)}</div>
+    </div>
+    ${bodyHtml}
+    <p><br></p>
+    <p><em>Notlarınızı buraya ekleyebilirsiniz...</em></p>
+  `;
+  const noteText = `Gönderen: ${fromName}\nTarih: ${date}\nKonu: ${title}\n\n${msg.body_text || ''}`;
+
+  const r = await window.api.notes.add({
+    title: '📧 ' + title.slice(0, 80),
+    content_html: noteHtml,
+    content_text: noteText,
+    category: 'Maillerden',
+    color: '#9b59b6',
+    related_message_id: msg.id
+  });
+  if (r.ok) {
+    setStatus('✓ Not oluşturuldu - Notlar penceresinde görünür');
+    // Notes modal'ını aç ve bu notu seçili yap
+    await openNotes();
+    setTimeout(() => loadNoteIntoEditor(r.id), 200);
+  }
+}
+
+// debounce helper (eğer yoksa)
+function debounce(fn, wait) {
+  let t;
+  return function(...args) {
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), wait);
+  };
 }
