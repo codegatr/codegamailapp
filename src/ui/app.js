@@ -160,6 +160,13 @@ async function init() {
   await loadAccounts();
   await updateStorageInfo();
   await loadConversationViewState();
+
+  // v1.10.1: Footer'da kalıcı version göstergesi
+  try {
+    const v = await window.api.updater.appVersion();
+    const fv = document.getElementById('footerVersion');
+    if (fv && v) fv.textContent = 'v' + v;
+  } catch (_) {}
 }
 
 // ============= TEPSİDEN GELEN OLAYLAR =============
@@ -1891,9 +1898,20 @@ function setStatus(text, kind) {
 // ============= v1.7: HAKKINDA =============
 async function openAbout() {
   const cfg = await window.api.config.get();
-  const v = await window.api.updater.appVersion();
-  document.getElementById('aboutVersion').textContent = v;
-  document.getElementById('aboutDataPath').textContent = cfg.dataPath;
+  // v1.10.1: Sağlam version yükleme - 3 kaynak fallback
+  let appVer = '?';
+  try {
+    appVer = await window.api.updater.appVersion();
+  } catch (e) { console.warn('appVersion IPC hatası:', e); }
+  if (!appVer || appVer === '?') {
+    // Fallback: config'den
+    appVer = cfg.version || 'bilinmiyor';
+  }
+  const aboutVerEl = document.getElementById('aboutVersion');
+  if (aboutVerEl) aboutVerEl.textContent = appVer;
+
+  const aboutDataPathEl = document.getElementById('aboutDataPath');
+  if (aboutDataPathEl) aboutDataPathEl.textContent = cfg.dataPath || '?';
 
   // İstatistikler
   try {
