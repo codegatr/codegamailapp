@@ -139,6 +139,7 @@ async function init() {
   bindSpam();
   bindTrayEvents();
   bindUpdater();
+  bindUnifiedInbox();
 
   window.api.sync.onProgress((data) => {
     if (data.stage === 'fetching') setStatus(`Yeni mesajlar indiriliyor: ${data.folder} (${data.count})`);
@@ -234,6 +235,54 @@ function setUpdaterStatus(text, kind) {
   if (!el) return;
   el.textContent = text;
   el.className = 'updater-status ' + (kind || '');
+}
+
+// ============= v1.5: BİRLEŞİK GELEN KUTUSU =============
+function bindUnifiedInbox() {
+  const el = document.getElementById('unifiedInbox');
+  if (!el) return;
+  el.onclick = () => selectUnifiedInbox();
+}
+
+async function selectUnifiedInbox() {
+  state.selectedFolder = { unified: true };
+  state.selectedMessage = null;
+
+  // Görsel: tüm folder-item'lerden active'i kaldır, unified'e ekle
+  document.querySelectorAll('.folder-item.active').forEach(el => el.classList.remove('active'));
+  document.getElementById('unifiedInbox').classList.add('active');
+
+  document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+  await loadMessages();
+}
+
+async function updateUnifiedSummary() {
+  const sub = document.getElementById('unifiedSub');
+  const badge = document.getElementById('unifiedBadge');
+  if (!sub || !badge) return;
+
+  if (!state.accounts.length) {
+    sub.textContent = 'Henüz hesap yok';
+    badge.classList.add('hidden');
+    return;
+  }
+
+  // Quick query - sadece toplam okunmamış sayısını al
+  try {
+    const r = await window.api.messages.listUnified({ limit: 1 });
+    const unread = r.totalUnread || 0;
+    const accCount = r.accountCount || 0;
+    sub.textContent = `${accCount} hesap · ${r.totalCount || 0} mesaj`;
+    if (unread > 0) {
+      badge.textContent = unread > 99 ? '99+' : String(unread);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  } catch (e) {
+    sub.textContent = state.accounts.length + ' hesap';
+    badge.classList.add('hidden');
+  }
 }
 
 function renderUpdateStatus(status) {
@@ -937,6 +986,7 @@ async function showMessageContextMenu(e, message) {
 async function loadAccounts() {
   state.accounts = await window.api.accounts.list();
   await renderAccounts();
+  await updateUnifiedSummary();
 }
 
 async function renderAccounts() {
@@ -1039,6 +1089,7 @@ async function selectFolder(folderId, accountId) {
   state.selectedFolder = { id: folderId, accountId };
   state.selectedMessage = null;
   document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
+  document.getElementById('unifiedInbox')?.classList.remove('active');
   document.querySelector(`.folder-item[data-folder-id="${folderId}"]`)?.classList.add('active');
   const acc = state.accounts.find(a => a.id === accountId);
   const folders = await window.api.folders.list(accountId);
@@ -1053,9 +1104,23 @@ async function selectFolder(folderId, accountId) {
 
 async function loadMessages() {
   if (!state.selectedFolder) return;
-  state.messages = await window.api.messages.list(state.selectedFolder.id, {
-    search: state.searchQuery || undefined, limit: 300
-  });
+  state.messages = [];
+
+  if (state.selectedFolder.unified) {
+    // v1.5: Birleşik gelen kutusu
+    const r = await window.api.messages.listUnified({
+      search: state.searchQuery || undefined,
+      limit: 300
+    });
+    state.messages = r.messages || [];
+    document.getElementById('folderTitle').textContent =
+      `📬 Birleşik Gelen Kutusu · ${r.accountCount || 0} hesap · ${r.totalCount || 0} mesaj` +
+      (r.totalUnread > 0 ? ` · ${r.totalUnread} okunmamış` : '');
+  } else {
+    state.messages = await window.api.messages.list(state.selectedFolder.id, {
+      search: state.searchQuery || undefined, limit: 300
+    });
+  }
   renderMessageList();
 }
 
@@ -1064,17 +1129,23 @@ function renderMessageList() {
   if (!state.messages.length) {
     container.innerHTML = '<div class="empty-state">Bu klasörde mesaj yok</div>'; return;
   }
+  const isUnified = state.selectedFolder?.unified;
+
   container.innerHTML = state.messages.map(m => {
     const date = m.date ? formatDate(m.date) : '';
     const fromDisplay = m.from_name || m.from_addr || '(bilinmeyen)';
     const spamBadge = m.is_spam ? '<span class="spam-badge">SPAM</span>' : '';
     const scoreBadge = (m.spam_score >= 30 && m.spam_score < 50)
       ? `<span class="warn-badge" title="Şüpheli puan: ${m.spam_score}">⚠</span>` : '';
+    // v1.5: unified modda hesap rozeti
+    const accBadge = isUnified && m._accountName
+      ? `<span class="acc-badge" style="background:hsl(${m._accountHue},55%,22%);color:hsl(${m._accountHue},80%,75%);border:1px solid hsl(${m._accountHue},45%,40%);" title="${escapeHtml(m._accountEmail || '')}">${escapeHtml(m._accountName)}</span>`
+      : '';
     return `
       <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
            data-id="${m.id}">
         <div class="msg-line1">
-          <span class="msg-from">${escapeHtml(fromDisplay)}</span>
+          <span class="msg-from">${accBadge}${escapeHtml(fromDisplay)}</span>
           <span class="msg-date">${date}</span>
         </div>
         <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>

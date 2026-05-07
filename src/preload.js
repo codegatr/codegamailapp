@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   messages: {
     list: (folderId, opts) => ipcRenderer.invoke('messages:list', folderId, opts),
+    listUnified: (opts) => ipcRenderer.invoke('messages:listUnified', opts),
     get: (id) => ipcRenderer.invoke('messages:get', id),
     markRead: (id, isRead) => ipcRenderer.invoke('messages:markRead', id, isRead),
     delete: (id) => ipcRenderer.invoke('messages:delete', id),

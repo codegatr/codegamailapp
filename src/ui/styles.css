@@ -594,3 +594,80 @@ body { display: flex; flex-direction: column; }
   background: rgba(249, 226, 175, 0.08);
   border-left: 2px solid var(--warn);
 }
+
+/* ============= v1.5: Birleşik Gelen Kutusu ============= */
+.unified-inbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 8px;
+  background: linear-gradient(135deg, var(--surface), var(--bg-3));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+  user-select: none;
+  flex-shrink: 0;
+}
+.unified-inbox:hover {
+  background: var(--surface-hi);
+  border-color: var(--primary);
+}
+.unified-inbox.active {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  border-color: var(--primary);
+  color: var(--primary-text);
+  box-shadow: 0 2px 8px rgba(137, 180, 250, 0.3);
+}
+.unified-inbox.active .unified-sub { color: rgba(30, 30, 46, 0.7); }
+.unified-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.unified-text { flex: 1; min-width: 0; }
+.unified-title {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.unified-sub {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.unified-badge {
+  background: var(--danger);
+  color: var(--primary-text);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.unified-badge.hidden { display: none; }
+.unified-inbox.active .unified-badge {
+  background: var(--bg);
+  color: var(--danger);
+}
+
+/* Hesap rozeti (mesaj listesinde unified modda) */
+.acc-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  vertical-align: middle;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

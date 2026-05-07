@@ -540,6 +540,69 @@ ipcMain.handle('folders:delete', (_, folderId) => {
 ipcMain.handle('messages:list', (_, folderId, opts = {}) => db.listMessages(folderId, opts));
 ipcMain.handle('messages:get', (_, messageId) => db.getMessage(messageId));
 
+// v1.5: Birleşik Gelen Kutusu - tüm hesapların \Inbox'larını aggregate et
+ipcMain.handle('messages:listUnified', (_, opts = {}) => {
+  if (!db) return { messages: [], totalUnread: 0, accountCount: 0 };
+  const accounts = db.listAccounts();
+  const allMessages = [];
+  let totalUnread = 0;
+  let inboxCount = 0;
+
+  for (const acc of accounts) {
+    let folders = [];
+    try { folders = db.listFolders(acc.id); } catch (_) { continue; }
+    const inbox = folders.find(f => f.special_use === '\\Inbox') || folders.find(f => /inbox|gelen/i.test(f.name));
+    if (!inbox) continue;
+    inboxCount++;
+
+    try {
+      const msgs = db.listMessages(inbox.id, {
+        search: opts.search || undefined,
+        limit: 200  // her hesaptan max 200, sonra global sıralama
+      });
+      const accountColor = hashHue(acc.email || acc.display_name || String(acc.id));
+      for (const m of msgs) {
+        if (!m.is_read && !m.is_spam) totalUnread++;
+        allMessages.push(Object.assign({}, m, {
+          _accountId: acc.id,
+          _accountName: acc.display_name,
+          _accountEmail: acc.email,
+          _accountHue: accountColor,
+          _folderId: inbox.id,
+          _folderName: inbox.name
+        }));
+      }
+    } catch (e) {
+      console.warn('Unified inbox sorgu hatası:', acc.email, e.message);
+    }
+  }
+
+  // Tarih DESC sırala (en yeni üstte)
+  allMessages.sort((a, b) => {
+    const da = a.date ? new Date(a.date).getTime() : 0;
+    const db_ = b.date ? new Date(b.date).getTime() : 0;
+    return db_ - da;
+  });
+
+  const limit = opts.limit || 300;
+  return {
+    messages: allMessages.slice(0, limit),
+    totalUnread,
+    accountCount: inboxCount,
+    totalCount: allMessages.length
+  };
+});
+
+// Hesap için tutarlı renk üretimi (0-360 hue)
+function hashHue(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h) + str.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h) % 360;
+}
+
 ipcMain.handle('messages:markRead', async (_, messageId, isRead) => {
   db.markMessageRead(messageId, isRead);
   try { await mailService.setFlag(messageId, '\\Seen', isRead); }
