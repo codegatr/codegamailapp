@@ -40,8 +40,11 @@ contextBridge.exposeInMainWorld('api', {
     removeCategory: (id, catId) => ipcRenderer.invoke('messages:removeCategory', id, catId),
     setCategories: (id, catIds) => ipcRenderer.invoke('messages:setCategories', id, catIds),
     getThread: (threadId, accountId) => ipcRenderer.invoke('messages:getThread', threadId, accountId),
-    backfillThreads: () => ipcRenderer.invoke('messages:backfillThreads')
+    backfillThreads: () => ipcRenderer.invoke('messages:backfillThreads'),
+    openInWindow: (id) => ipcRenderer.invoke('messages:openInWindow', id),
+    requestComposeAction: (action, data) => ipcRenderer.invoke('messages:requestComposeAction', { action, data })
   },
+  invokeOpenCompose: (params) => ipcRenderer.invoke('messages:requestComposeAction', { action: 'compose', data: params }),
   categories: {
     list: () => ipcRenderer.invoke('categories:list'),
     get: (id) => ipcRenderer.invoke('categories:get', id),
@@ -228,7 +231,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

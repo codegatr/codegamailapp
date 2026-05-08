@@ -1756,6 +1756,63 @@ ipcMain.handle('branding:removeBgImage', () => {
   return { ok: true };
 });
 
+ipcMain.handle('messages:requestComposeAction', (_, { action, data }) => {
+  // Popup mesaj penceresinden gelen reply/replyAll/forward isteğini ana pencereye ilet
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    // Ana pencere kapalıysa aç
+    if (typeof createWindow === 'function') createWindow();
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('compose-action-from-popup', { action, data });
+  }
+  return { ok: true };
+});
+const messageWindows = new Map(); // messageId -> BrowserWindow
+
+ipcMain.handle('messages:openInWindow', (_, messageId) => {
+  if (!messageId) return { ok: false, error: 'Mesaj ID gerekli' };
+
+  // Aynı mesaj zaten açıksa odakla
+  const existing = messageWindows.get(messageId);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    return { ok: true, focused: true };
+  }
+
+  const iconPath = getIconPath();
+  const win = new BrowserWindow({
+    width: 760,
+    height: 720,
+    minWidth: 480,
+    minHeight: 360,
+    title: 'Mesaj — CODEGA Mail',
+    backgroundColor: appConfig.get('theme') === 'light' ? '#ffffff' : '#1e1e2e',
+    icon: iconPath || undefined,
+    parent: undefined,           // bağımsız pencere - taskbar'da ayrı görünür
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  win.loadFile(path.join(__dirname, 'ui', 'message-window.html'),
+               { search: 'id=' + encodeURIComponent(messageId) });
+  win.setMenuBarVisibility(false);
+
+  messageWindows.set(messageId, win);
+  win.on('closed', () => {
+    messageWindows.delete(messageId);
+  });
+
+  return { ok: true };
+});
+
 // =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================

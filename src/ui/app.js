@@ -1426,6 +1426,7 @@ async function showMessageContextMenu(e, message) {
       setTimeout(() => showCategorizeMenu(message.id, currentIds, e), 50);
     }},
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
+    { label: '🪟 Yeni Pencerede Aç', action: () => window.api.messages.openInWindow(message.id) },
     { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
     { label: '📅 Mesajdan Etkinlik Oluştur', action: () => createEventFromMessage(message) },
     { label: '🏷 Otomatik Kategorize Et', action: () => autoCategorizeMessageManual(message) },
@@ -1689,6 +1690,12 @@ function renderMessageList() {
       // Yıldız tıklamaysa mesajı açma
       if (e.target.dataset.toggleImportant) return;
       openMessage(id);
+    };
+    // v1.32: Çift tıklama → ayrı pencerede aç (Outlook tarzı)
+    el.ondblclick = (e) => {
+      if (e.target.dataset.toggleImportant) return;
+      e.preventDefault();
+      window.api.messages.openInWindow(id);
     };
     el.oncontextmenu = async (e) => {
       const fullMsg = await window.api.messages.get(id);
@@ -7049,3 +7056,17 @@ async function refreshLayoutSettings() {
 window.addEventListener('DOMContentLoaded', () => {
   applyLayoutFromConfig();
 });
+
+// ============= v1.32: Popup mesaj penceresinden gelen compose actions =============
+if (window.api && window.api.on) {
+  window.api.on('compose-action-from-popup', (payload) => {
+    const data = payload && payload.data ? payload.data : {};
+    if (data.replyTo) {
+      openCompose({ replyTo: data.replyTo, replyAll: !!data.replyAll });
+    } else if (data.forwardOf) {
+      openCompose({ forward: data.forwardOf });
+    } else {
+      openCompose();
+    }
+  });
+}
