@@ -534,7 +534,12 @@ ipcMain.handle('config:get', () => ({
   autoArchiveMonths: appConfig.get('autoArchiveMonths') || 6,
   autoLockEnabled: !!appConfig.get('autoLockEnabled'),
   autoLockMinutes: appConfig.get('autoLockMinutes') || 15,
-  autoCategorizeEnabled: appConfig.get('autoCategorizeEnabled') !== false  // default açık
+  autoCategorizeEnabled: appConfig.get('autoCategorizeEnabled') !== false,
+  theme: appConfig.get('theme') || 'dark',
+  accentColor: appConfig.get('accentColor') || null,
+  logoDataUrl: appConfig.get('logoDataUrl') || null,
+  bgImageDataUrl: appConfig.get('bgImageDataUrl') || null,
+  bgImageOpacity: typeof appConfig.get('bgImageOpacity') === 'number' ? appConfig.get('bgImageOpacity') : 6
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
@@ -1695,6 +1700,59 @@ function autoCategorizeNewMessages(messageIds) {
     if (count > 0) db.save();
   } catch (e) { console.warn('autoCategorizeNewMessages error:', e.message); }
 }
+
+// =====================================================================
+// v1.30 IPC: Görünüm (logo + arka plan resmi yükleme)
+// =====================================================================
+async function pickAndReadImage(title, maxBytes) {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title,
+    properties: ['openFile'],
+    filters: [{ name: 'Resim', extensions: ['png', 'jpg', 'jpeg', 'webp', 'svg'] }]
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+  try {
+    const filePath = result.filePaths[0];
+    const stat = fs.statSync(filePath);
+    if (stat.size > maxBytes) {
+      return { ok: false, error: `Dosya çok büyük (${(stat.size / 1024).toFixed(0)} KB) - en fazla ${(maxBytes / 1024).toFixed(0)} KB olmalı` };
+    }
+    const buffer = fs.readFileSync(filePath);
+    const ext = filePath.toLowerCase().split('.').pop();
+    const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+              : ext === 'svg' ? 'image/svg+xml'
+              : ext === 'webp' ? 'image/webp'
+              : 'image/png';
+    const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+    return { ok: true, dataUrl, size: stat.size };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+ipcMain.handle('branding:uploadLogo', async () => {
+  const r = await pickAndReadImage('Logo Seç', 200 * 1024);
+  if (r.canceled || !r.ok) return r;
+  appConfig.set('logoDataUrl', r.dataUrl);
+  return { ok: true, dataUrl: r.dataUrl };
+});
+
+ipcMain.handle('branding:removeLogo', () => {
+  appConfig.set('logoDataUrl', null);
+  return { ok: true };
+});
+
+ipcMain.handle('branding:uploadBgImage', async () => {
+  const r = await pickAndReadImage('Arka Plan Resmi Seç', 1024 * 1024);
+  if (r.canceled || !r.ok) return r;
+  appConfig.set('bgImageDataUrl', r.dataUrl);
+  return { ok: true, dataUrl: r.dataUrl };
+});
+
+ipcMain.handle('branding:removeBgImage', () => {
+  appConfig.set('bgImageDataUrl', null);
+  return { ok: true };
+});
 
 // =====================================================================
 // v1.18 IPC: Görevler / To-Do

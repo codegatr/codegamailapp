@@ -168,6 +168,12 @@ contextBridge.exposeInMainWorld('api', {
     single: (messageId) => ipcRenderer.invoke('autocategorize:single', messageId),
     all: (opts) => ipcRenderer.invoke('autocategorize:all', opts)
   },
+  branding: {
+    uploadLogo: () => ipcRenderer.invoke('branding:uploadLogo'),
+    removeLogo: () => ipcRenderer.invoke('branding:removeLogo'),
+    uploadBgImage: () => ipcRenderer.invoke('branding:uploadBgImage'),
+    removeBgImage: () => ipcRenderer.invoke('branding:removeBgImage')
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),

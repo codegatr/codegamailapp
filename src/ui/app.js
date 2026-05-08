@@ -831,6 +831,9 @@ async function openSettings() {
 
   // v1.23: Güvenlik panelini yenile
   await refreshSecuritySettings();
+
+  // v1.30: Görünüm ayarları
+  await refreshAppearanceSettings();
   // v1.3: Güncelleme tercihi
   const autoUpdEl = document.getElementById('settings_auto_update');
   if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
@@ -6641,3 +6644,277 @@ async function autoCategorizeMessageManual(message) {
 }
 
 // Komut paletine ekle - Otomatik Kategorize
+
+// ============= v1.30: Tema + Görünüm Özelleştirme =============
+const themeState = {
+  theme: 'dark',
+  accentColor: null,
+  logoDataUrl: null,
+  bgImageDataUrl: null,
+  bgImageOpacity: 6,
+  systemMql: null
+};
+
+async function applyAppearanceFromConfig() {
+  try {
+    const cfg = await window.api.config.get();
+    themeState.theme = cfg.theme || 'dark';
+    themeState.accentColor = cfg.accentColor || null;
+    themeState.logoDataUrl = cfg.logoDataUrl || null;
+    themeState.bgImageDataUrl = cfg.bgImageDataUrl || null;
+    themeState.bgImageOpacity = typeof cfg.bgImageOpacity === 'number' ? cfg.bgImageOpacity : 6;
+
+    applyTheme(themeState.theme);
+    applyAccentColor(themeState.accentColor);
+    applyLogo(themeState.logoDataUrl);
+    applyBgImage(themeState.bgImageDataUrl, themeState.bgImageOpacity);
+  } catch (e) {
+    console.warn('Görünüm uygulanamadı:', e.message);
+  }
+}
+
+function applyTheme(theme) {
+  const html = document.documentElement;
+  html.classList.remove('theme-light', 'theme-dark');
+
+  let effective = theme;
+  if (theme === 'system') {
+    const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+    effective = prefersLight ? 'light' : 'dark';
+
+    // System tema değişimini dinle
+    if (!themeState.systemMql) {
+      themeState.systemMql = window.matchMedia('(prefers-color-scheme: light)');
+      themeState.systemMql.addEventListener('change', () => {
+        if (themeState.theme === 'system') applyTheme('system');
+      });
+    }
+  }
+
+  if (effective === 'light') html.classList.add('theme-light');
+  else html.classList.add('theme-dark');
+}
+
+function applyAccentColor(color) {
+  const html = document.documentElement;
+  if (!color) {
+    html.style.removeProperty('--primary');
+    html.style.removeProperty('--primary-hi');
+    html.style.removeProperty('--primary-text');
+    return;
+  }
+  html.style.setProperty('--primary', color);
+  // Hover için biraz açık/koyu varyant
+  html.style.setProperty('--primary-hi', shadeColor(color, isLightTheme() ? -15 : 15));
+  // Primary text rengi: arkaplana göre kontrast
+  html.style.setProperty('--primary-text', isColorLight(color) ? '#1a1a1a' : '#ffffff');
+}
+
+function applyLogo(dataUrl) {
+  const img = document.getElementById('customLogoImg');
+  const icon = document.getElementById('brandIcon');
+  const text = document.getElementById('brandText');
+  if (!img) return;
+  if (dataUrl) {
+    img.src = dataUrl;
+    img.classList.remove('hidden');
+    if (icon) icon.style.display = 'none';
+    if (text) text.style.display = 'none';
+  } else {
+    img.src = '';
+    img.classList.add('hidden');
+    if (icon) icon.style.display = '';
+    if (text) text.style.display = '';
+  }
+}
+
+function applyBgImage(dataUrl, opacityPercent) {
+  const layer = document.getElementById('bgImageLayer');
+  if (!layer) return;
+  if (dataUrl) {
+    layer.style.backgroundImage = `url("${dataUrl}")`;
+    layer.style.opacity = (opacityPercent / 100).toFixed(2);
+    layer.style.display = 'block';
+  } else {
+    layer.style.backgroundImage = '';
+    layer.style.display = 'none';
+  }
+}
+
+// Renk yardımcıları
+function isLightTheme() {
+  return document.documentElement.classList.contains('theme-light');
+}
+function isColorLight(hex) {
+  const c = hex.replace('#', '');
+  const r = parseInt(c.substr(0, 2), 16);
+  const g = parseInt(c.substr(2, 2), 16);
+  const b = parseInt(c.substr(4, 2), 16);
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness > 155;
+}
+function shadeColor(hex, percent) {
+  let R = parseInt(hex.slice(1, 3), 16);
+  let G = parseInt(hex.slice(3, 5), 16);
+  let B = parseInt(hex.slice(5, 7), 16);
+  R = Math.min(255, Math.max(0, Math.round(R * (100 + percent) / 100)));
+  G = Math.min(255, Math.max(0, Math.round(G * (100 + percent) / 100)));
+  B = Math.min(255, Math.max(0, Math.round(B * (100 + percent) / 100)));
+  return '#' + [R, G, B].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+// Settings UI binding
+function bindAppearanceSettings() {
+  // Tema kartları
+  document.querySelectorAll('.theme-card').forEach(card => {
+    if (card.dataset.bound) return;
+    card.dataset.bound = '1';
+    card.onclick = async () => {
+      const theme = card.dataset.theme;
+      themeState.theme = theme;
+      applyTheme(theme);
+      // Accent rengi yeniden uygula (tema değişince hover varyantı yeniden hesaplanır)
+      applyAccentColor(themeState.accentColor);
+      await window.api.config.updatePrefs({ theme });
+      refreshAppearanceUIState();
+      flashSettingsSavedIndicator();
+    };
+  });
+
+  // Accent renkler
+  document.querySelectorAll('.accent-color-swatch').forEach(sw => {
+    if (sw.dataset.bound) return;
+    sw.dataset.bound = '1';
+    sw.onclick = async () => {
+      const color = sw.dataset.color;
+      themeState.accentColor = color;
+      applyAccentColor(color);
+      await window.api.config.updatePrefs({ accentColor: color });
+      refreshAppearanceUIState();
+      flashSettingsSavedIndicator();
+    };
+  });
+
+  // Logo upload
+  const btnUploadLogo = document.getElementById('btnUploadLogo');
+  if (btnUploadLogo && !btnUploadLogo.dataset.bound) {
+    btnUploadLogo.dataset.bound = '1';
+    btnUploadLogo.onclick = async () => {
+      const r = await window.api.branding.uploadLogo();
+      if (r.canceled) return;
+      if (!r.ok) { alert('Hata: ' + r.error); return; }
+      themeState.logoDataUrl = r.dataUrl;
+      applyLogo(r.dataUrl);
+      refreshAppearanceUIState();
+      setStatus('✓ Logo yüklendi');
+    };
+  }
+  const btnRemoveLogo = document.getElementById('btnRemoveLogo');
+  if (btnRemoveLogo && !btnRemoveLogo.dataset.bound) {
+    btnRemoveLogo.dataset.bound = '1';
+    btnRemoveLogo.onclick = async () => {
+      await window.api.branding.removeLogo();
+      themeState.logoDataUrl = null;
+      applyLogo(null);
+      refreshAppearanceUIState();
+      setStatus('Logo kaldırıldı');
+    };
+  }
+
+  // Bg upload
+  const btnUploadBg = document.getElementById('btnUploadBg');
+  if (btnUploadBg && !btnUploadBg.dataset.bound) {
+    btnUploadBg.dataset.bound = '1';
+    btnUploadBg.onclick = async () => {
+      const r = await window.api.branding.uploadBgImage();
+      if (r.canceled) return;
+      if (!r.ok) { alert('Hata: ' + r.error); return; }
+      themeState.bgImageDataUrl = r.dataUrl;
+      applyBgImage(r.dataUrl, themeState.bgImageOpacity);
+      refreshAppearanceUIState();
+      setStatus('✓ Arka plan resmi yüklendi');
+    };
+  }
+  const btnRemoveBg = document.getElementById('btnRemoveBg');
+  if (btnRemoveBg && !btnRemoveBg.dataset.bound) {
+    btnRemoveBg.dataset.bound = '1';
+    btnRemoveBg.onclick = async () => {
+      await window.api.branding.removeBgImage();
+      themeState.bgImageDataUrl = null;
+      applyBgImage(null);
+      refreshAppearanceUIState();
+      setStatus('Arka plan kaldırıldı');
+    };
+  }
+  // Opacity slider
+  const opRange = document.getElementById('bgOpacityRange');
+  if (opRange && !opRange.dataset.bound) {
+    opRange.dataset.bound = '1';
+    opRange.oninput = async () => {
+      const val = parseInt(opRange.value, 10);
+      themeState.bgImageOpacity = val;
+      document.getElementById('bgOpacityLabel').textContent = val + '%';
+      applyBgImage(themeState.bgImageDataUrl, val);
+    };
+    opRange.onchange = async () => {
+      await window.api.config.updatePrefs({ bgImageOpacity: themeState.bgImageOpacity });
+      flashSettingsSavedIndicator();
+    };
+  }
+}
+
+function refreshAppearanceUIState() {
+  // Tema kart aktif
+  document.querySelectorAll('.theme-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.theme === themeState.theme);
+  });
+  // Accent swatch aktif
+  document.querySelectorAll('.accent-color-swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.color === themeState.accentColor);
+  });
+  // Logo preview
+  const lp = document.getElementById('logoPreview');
+  const lpImg = document.getElementById('logoPreviewImg');
+  if (lp && lpImg) {
+    if (themeState.logoDataUrl) {
+      lpImg.src = themeState.logoDataUrl;
+      lp.classList.remove('hidden');
+    } else {
+      lp.classList.add('hidden');
+    }
+  }
+  // Bg preview
+  const bp = document.getElementById('bgImagePreview');
+  const bpImg = document.getElementById('bgImagePreviewImg');
+  if (bp && bpImg) {
+    if (themeState.bgImageDataUrl) {
+      bpImg.src = themeState.bgImageDataUrl;
+      bp.classList.remove('hidden');
+    } else {
+      bp.classList.add('hidden');
+    }
+  }
+  // Opacity
+  const opRange = document.getElementById('bgOpacityRange');
+  const opLabel = document.getElementById('bgOpacityLabel');
+  if (opRange) opRange.value = String(themeState.bgImageOpacity);
+  if (opLabel) opLabel.textContent = themeState.bgImageOpacity + '%';
+}
+
+// Settings açılınca bind + state yenile
+async function refreshAppearanceSettings() {
+  bindAppearanceSettings();
+  // Config'i state'e yükle
+  const cfg = await window.api.config.get();
+  themeState.theme = cfg.theme || 'dark';
+  themeState.accentColor = cfg.accentColor || null;
+  themeState.logoDataUrl = cfg.logoDataUrl || null;
+  themeState.bgImageDataUrl = cfg.bgImageDataUrl || null;
+  themeState.bgImageOpacity = typeof cfg.bgImageOpacity === 'number' ? cfg.bgImageOpacity : 6;
+  refreshAppearanceUIState();
+}
+
+// İlk yüklemede temayı uygula
+window.addEventListener('DOMContentLoaded', () => {
+  applyAppearanceFromConfig();
+});

@@ -6,10 +6,12 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="bgImageLayer" class="bg-image-layer" style="display:none;"></div>
   <header class="toolbar">
     <div class="brand">
-      <span class="brand-icon">✉</span>
-      <span class="brand-text">CODEGA Mail</span>
+      <img id="customLogoImg" class="brand-logo-img hidden" alt="Logo">
+      <span class="brand-icon" id="brandIcon">✉</span>
+      <span class="brand-text" id="brandText">CODEGA Mail</span>
     </div>
     <div class="toolbar-actions">
       <button id="btnCompose" class="btn btn-primary" title="Yeni mesaj (Ctrl+N)">
@@ -617,6 +619,72 @@
             <input type="text" id="settingsPath" readonly style="flex:1;">
             <button class="btn" id="settingsBrowsePath">Değiştir…</button>
             <button class="btn btn-ghost" id="settingsOpenFolder" title="Gezginde aç">📁</button>
+          </div>
+        </div>
+
+        <!-- v1.30: Görünüm -->
+        <div class="form-section full" style="margin-top:18px;">🎨 Görünüm</div>
+        <div class="form-grid" style="grid-template-columns:1fr;">
+          <div class="form-group full">
+            <label>Tema</label>
+            <div class="theme-preview-grid">
+              <div class="theme-card" data-theme="dark">
+                <div class="theme-card-preview preview-dark"></div>
+                <div class="theme-card-label">🌙 Koyu</div>
+              </div>
+              <div class="theme-card" data-theme="light">
+                <div class="theme-card-preview preview-light"></div>
+                <div class="theme-card-label">☀️ Açık</div>
+              </div>
+              <div class="theme-card" data-theme="system">
+                <div class="theme-card-preview preview-system"></div>
+                <div class="theme-card-label">💻 Sistem</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group full">
+            <label>Vurgu Rengi (Accent)</label>
+            <div class="accent-colors">
+              <div class="accent-color-swatch" data-color="#0078d4" style="background:#0078d4;" title="Outlook Mavi"></div>
+              <div class="accent-color-swatch" data-color="#89b4fa" style="background:#89b4fa;" title="Açık Mavi"></div>
+              <div class="accent-color-swatch" data-color="#5c2d91" style="background:#5c2d91;" title="Mor"></div>
+              <div class="accent-color-swatch" data-color="#107c10" style="background:#107c10;" title="Yeşil"></div>
+              <div class="accent-color-swatch" data-color="#d83b01" style="background:#d83b01;" title="Turuncu"></div>
+              <div class="accent-color-swatch" data-color="#c4314b" style="background:#c4314b;" title="Kırmızı"></div>
+              <div class="accent-color-swatch" data-color="#008272" style="background:#008272;" title="Teal"></div>
+              <div class="accent-color-swatch" data-color="#1f1f23" style="background:#1f1f23;" title="Siyah"></div>
+            </div>
+            <small>Buton, link ve aktif elemanlarda kullanılır</small>
+          </div>
+
+          <div class="form-group full">
+            <label>Şirket Logosu (sol üst köşe)</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn" id="btnUploadLogo">📁 Logo Seç...</button>
+              <button class="btn btn-ghost" id="btnRemoveLogo" style="color:var(--danger);">🗑 Kaldır</button>
+              <small style="margin-left:auto;color:var(--muted);">PNG/JPG, max 200 KB</small>
+            </div>
+            <div class="logo-preview hidden" id="logoPreview">
+              <img id="logoPreviewImg" alt="Logo">
+            </div>
+          </div>
+
+          <div class="form-group full">
+            <label>Arka Plan Resmi</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn" id="btnUploadBg">📁 Resim Seç...</button>
+              <button class="btn btn-ghost" id="btnRemoveBg" style="color:var(--danger);">🗑 Kaldır</button>
+              <small style="margin-left:auto;color:var(--muted);">PNG/JPG, max 1 MB</small>
+            </div>
+            <div style="margin-top:10px;">
+              <label style="font-size:11px;">Görünürlük: <span id="bgOpacityLabel">6%</span></label>
+              <input type="range" id="bgOpacityRange" min="0" max="30" value="6" step="1" style="width:100%;">
+              <small>Çok belirgin olursa metni okumayı zorlaştırır - %6-10 önerilir</small>
+            </div>
+            <div class="bg-image-preview hidden" id="bgImagePreview">
+              <img id="bgImagePreviewImg" alt="Arka Plan">
+            </div>
           </div>
         </div>
 

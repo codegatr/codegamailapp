@@ -3120,3 +3120,182 @@ body { display: flex; flex-direction: column; }
   padding: 16px;
 }
 .cal-event-form.hidden { display: none; }
+
+/* ============= v1.30: Açık Tema + Görünüm Özelleştirme ============= */
+
+/* Açık tema (Outlook tarzı sade) */
+html.theme-light {
+  --bg: #ffffff;
+  --bg-2: #f3f4f6;
+  --bg-3: #e8eaed;
+  --surface: #ffffff;
+  --surface-hi: #eef0f3;
+  --border: #dfe2e6;
+  --text: #1f1f23;
+  --text-2: #4a4a52;
+  --muted: #6e6e7a;
+  --primary: #0078d4;
+  --primary-hi: #106ebe;
+  --primary-text: #ffffff;
+  --danger: #c4314b;
+  --warn: #b58900;
+  --success: #107c10;
+  --accent: #5c2d91;
+}
+
+/* Açık tema'da scrollbar ve form kontrolleri için iyileştirme */
+html.theme-light input,
+html.theme-light textarea,
+html.theme-light select {
+  background: #ffffff;
+  color: var(--text);
+  border-color: var(--border);
+}
+html.theme-light input:focus,
+html.theme-light textarea:focus,
+html.theme-light select:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+html.theme-light .modal-content {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+html.theme-light .dropdown-menu {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+html.theme-light kbd {
+  background: #f0f2f5;
+  border: 1px solid #d0d3d8;
+  color: var(--text);
+}
+html.theme-light pre,
+html.theme-light code {
+  background: #f6f8fa;
+  color: #24292e;
+}
+html.theme-light .pgp-info-card,
+html.theme-light .pgp-key-card,
+html.theme-light .archive-item:hover,
+html.theme-light .cal-day-event:hover {
+  background: #fafbfc;
+}
+
+/* Logo (sol üst, toolbar'ın en başında) */
+.brand-logo-img {
+  max-height: 32px;
+  max-width: 140px;
+  margin-right: 10px;
+  border-radius: 4px;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+/* Arka plan resmi katmanı (mesaj listesi/içerik alanı için) */
+.bg-image-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.06;
+  transition: opacity 0.3s ease;
+}
+
+/* Görünüm ayarları */
+.theme-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+.theme-card {
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  text-align: center;
+  background: var(--surface);
+  transition: all 0.15s;
+}
+.theme-card:hover {
+  border-color: var(--primary);
+}
+.theme-card.active {
+  border-color: var(--primary);
+  background: rgba(0, 120, 212, 0.08);
+}
+.theme-card-preview {
+  height: 50px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+}
+.theme-card-preview.preview-dark {
+  background: linear-gradient(135deg, #1e1e2e 0%, #313244 100%);
+}
+.theme-card-preview.preview-light {
+  background: linear-gradient(135deg, #ffffff 0%, #f3f4f6 100%);
+}
+.theme-card-preview.preview-system {
+  background: linear-gradient(135deg, #1e1e2e 0%, #1e1e2e 50%, #ffffff 50%, #ffffff 100%);
+}
+.theme-card-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.accent-colors {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.accent-color-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.15s;
+}
+.accent-color-swatch:hover {
+  transform: scale(1.1);
+}
+.accent-color-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+.bg-image-preview {
+  position: relative;
+  margin-top: 8px;
+  background: var(--bg-3);
+  border-radius: 6px;
+  padding: 8px;
+}
+.bg-image-preview img {
+  max-width: 100%;
+  max-height: 150px;
+  border-radius: 4px;
+  display: block;
+}
+.logo-preview {
+  margin-top: 8px;
+  background: var(--bg-3);
+  border-radius: 6px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+}
+.logo-preview img {
+  max-height: 50px;
+  max-width: 200px;
+  object-fit: contain;
+}
