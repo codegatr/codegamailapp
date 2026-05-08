@@ -385,6 +385,21 @@ class Database {
         );
         CREATE INDEX IF NOT EXISTS idx_mail_rules_enabled ON mail_rules(enabled, sort_order);
 
+        CREATE TABLE IF NOT EXISTS quick_steps (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          icon TEXT DEFAULT '⚡',
+          color TEXT DEFAULT '#3498db',
+          shortcut TEXT,
+          actions TEXT NOT NULL,
+          sort_order INTEGER DEFAULT 0,
+          run_count INTEGER DEFAULT 0,
+          show_in_toolbar INTEGER DEFAULT 1,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_quick_steps_order ON quick_steps(sort_order);
+
         CREATE TABLE IF NOT EXISTS tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           title TEXT NOT NULL,
@@ -2134,6 +2149,60 @@ class Database {
     const now = new Date().toISOString();
     this.prepare('UPDATE mail_rules SET run_count = run_count + 1, last_run_at = ? WHERE id = ?')
       .run(now, id);
+  }
+
+  // ====== v1.36: Quick Steps ======
+  listQuickSteps(opts = {}) {
+    let where = '1=1';
+    if (opts.toolbarOnly) where += ' AND show_in_toolbar = 1';
+    return this.prepare(`
+      SELECT id, name, icon, color, shortcut, actions, sort_order, run_count, show_in_toolbar, created_at
+      FROM quick_steps WHERE ${where}
+      ORDER BY sort_order ASC, id ASC
+    `).all();
+  }
+
+  getQuickStep(id) {
+    return this.prepare('SELECT * FROM quick_steps WHERE id = ?').get(id);
+  }
+
+  addQuickStep(qs) {
+    const r = this.prepare(`
+      INSERT INTO quick_steps (name, icon, color, shortcut, actions, sort_order, show_in_toolbar)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      qs.name || 'Yeni Adım',
+      qs.icon || '⚡',
+      qs.color || '#3498db',
+      qs.shortcut || null,
+      JSON.stringify(qs.actions || []),
+      qs.sort_order || 0,
+      qs.show_in_toolbar === false ? 0 : 1
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateQuickStep(id, updates) {
+    const allowed = ['name', 'icon', 'color', 'shortcut', 'actions', 'sort_order', 'show_in_toolbar'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (f === 'actions') v = JSON.stringify(v);
+      else if (typeof v === 'boolean') v = v ? 1 : 0;
+      return v;
+    });
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE quick_steps SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteQuickStep(id) {
+    this.prepare('DELETE FROM quick_steps WHERE id = ?').run(id);
+  }
+
+  recordQuickStepRun(id) {
+    this.prepare('UPDATE quick_steps SET run_count = run_count + 1 WHERE id = ?').run(id);
   }
 
   // ====== v1.27: Takvim / Events ======

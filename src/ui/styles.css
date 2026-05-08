@@ -3724,3 +3724,97 @@ body.dragging-message .folder-item:not(.drop-target) {
 .rule-row-editor .re-action-category {
   flex: 1;
 }
+
+/* ============= v1.36: Quick Steps ============= */
+.quick-steps-bar {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-right: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  max-width: 400px;
+}
+.qs-toolbar-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 10px !important;
+  border-radius: 5px;
+  white-space: nowrap;
+  min-width: 70px;
+  background: var(--surface);
+}
+.qs-toolbar-btn:hover {
+  background: var(--surface-hi);
+}
+
+/* Quick Steps yönetim kartları */
+.quick-step-card {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  transition: all 0.15s;
+}
+.quick-step-card:hover {
+  border-color: var(--primary);
+}
+.qs-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.qs-info {
+  flex: 1;
+  min-width: 0;
+}
+.qs-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.qs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.qs-action-pill {
+  background: var(--bg-3);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.qs-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.qs-tag {
+  background: rgba(0, 120, 212, 0.15);
+  color: var(--primary);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.qs-card-actions {
+  display: flex;
+  gap: 4px;
+}

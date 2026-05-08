@@ -135,6 +135,14 @@ contextBridge.exposeInMainWorld('api', {
     applyToAll: (opts) => ipcRenderer.invoke('rules:applyToAll', opts),
     applyToMessage: (id) => ipcRenderer.invoke('rules:applyToMessage', id)
   },
+  quickSteps: {
+    list: (opts) => ipcRenderer.invoke('quickSteps:list', opts),
+    get: (id) => ipcRenderer.invoke('quickSteps:get', id),
+    add: (qs) => ipcRenderer.invoke('quickSteps:add', qs),
+    update: (id, updates) => ipcRenderer.invoke('quickSteps:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('quickSteps:delete', id),
+    execute: (id, messageIds) => ipcRenderer.invoke('quickSteps:execute', id, messageIds)
+  },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },

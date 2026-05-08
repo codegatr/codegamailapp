@@ -1994,6 +1994,84 @@ function applyRulesToNewMessages(messageIds) {
 }
 
 // =====================================================================
+// v1.36 IPC: Quick Steps
+// =====================================================================
+ipcMain.handle('quickSteps:list', (_, opts) => db.listQuickSteps(opts || {}));
+ipcMain.handle('quickSteps:get', (_, id) => db.getQuickStep(id));
+
+ipcMain.handle('quickSteps:add', (_, qs) => {
+  try {
+    if (!qs.name || !qs.name.trim()) return { ok: false, error: 'Ad gerekli' };
+    if (!qs.actions || !qs.actions.length) return { ok: false, error: 'En az bir eylem gerekli' };
+    const id = db.addQuickStep(qs);
+    db.save();
+    return { ok: true, id };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('quickSteps:update', (_, id, updates) => {
+  try {
+    db.updateQuickStep(id, updates);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('quickSteps:delete', (_, id) => {
+  try {
+    db.deleteQuickStep(id);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/**
+ * Quick Step'i bir maile uygula (manuel - tek mail veya çoklu)
+ * Bazı eylemler (reply/forward/newMail) renderer'da işlenir, döner.
+ */
+ipcMain.handle('quickSteps:execute', (_, quickStepId, messageIds) => {
+  try {
+    const qs = db.getQuickStep(quickStepId);
+    if (!qs) return { ok: false, error: 'Quick Step bulunamadı' };
+    const actions = JSON.parse(qs.actions || '[]');
+    const ids = Array.isArray(messageIds) ? messageIds : [messageIds].filter(Boolean);
+    if (!ids.length) return { ok: false, error: 'Mesaj ID gerekli' };
+
+    // Renderer'a iletilecek aksiyon (reply/forward/newMail)
+    const rendererAction = actions.find(a => ['reply', 'replyAll', 'forward', 'newMail'].includes(a.type));
+
+    let processed = 0;
+    let totalActions = 0;
+    for (const id of ids) {
+      const msg = db.getMessage(id);
+      if (!msg) continue;
+      // Db-side action'ları uygula
+      for (const action of actions) {
+        if (['reply', 'replyAll', 'forward', 'newMail'].includes(action.type)) continue; // Renderer halledecek
+        try {
+          MailRulesEngine.executeAction(msg, action, db);
+          totalActions++;
+        } catch (e) { console.warn('Quick step action hatası:', e.message); }
+      }
+      processed++;
+    }
+    db.recordQuickStepRun(quickStepId);
+    db.save();
+
+    return {
+      ok: true,
+      processed,
+      totalActions,
+      rendererAction,
+      // Tek mesajda renderer aksiyonu için mesaj id'si
+      primaryMessageId: ids[0]
+    };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));

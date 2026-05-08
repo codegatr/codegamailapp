@@ -23,8 +23,8 @@
       <button id="btnAddAccount" class="btn">+ Hesap</button>
       <button id="btnNewFolder" class="btn">+ Klasör</button>
       <div class="toolbar-spacer"></div>
+      <div id="quickStepsBar" class="quick-steps-bar"></div>
       <button id="btnSpamRules" class="btn btn-ghost" title="Spam kuralları">🛡 Spam</button>
-      <button id="btnRules" class="btn btn-ghost" title="Filtre kuralları (otomatik klasörleme)">📋 Kurallar</button>
       <button id="btnCategories" class="btn btn-ghost" title="Renkli kategoriler/etiketler">🏷 Kategoriler</button>
       <button id="btnConversationView" class="btn btn-ghost" title="Konuşma görünümü (Re: zincirleri grupla)">💬 Konuşma</button>
       <button id="btnTemplates" class="btn btn-ghost" title="Mesaj şablonları">📝 Şablonlar</button>
@@ -35,6 +35,7 @@
       <button id="btnPGP" class="btn btn-ghost" title="PGP Anahtarları (uçtan uca şifreleme)">🔐 PGP</button>
       <button id="btnCalendar" class="btn btn-ghost" title="Takvim - etkinlikler ve hatırlatıcılar">📅 Takvim</button>
       <button id="btnRules" class="btn btn-ghost" title="Mail Kuralları (otomatik klasöre taşıma/etiketleme)">⚙ Kurallar</button>
+      <button id="btnQuickSteps" class="btn btn-ghost" title="Quick Steps yönetimi - özelleştirilebilir kestirmeler">⚡ Quick Steps</button>
       <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
@@ -85,6 +86,81 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.36: Quick Steps ===== -->
+  <div id="modalQuickSteps" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>⚡ Quick Steps <span style="font-size:11px;color:var(--muted);font-weight:400;">(özelleştirilebilir kestirmeler)</span></h2>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary" id="btnNewQuickStep">+ Yeni Quick Step</button>
+        <button class="modal-close" data-close="modalQuickSteps" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:16px;overflow-y:auto;max-height:calc(90vh - 110px);">
+        <p style="font-size:12px;color:var(--text-2);margin-bottom:14px;">
+          Tek tıkla birden fazla eylem zinciri çalıştırın. Toolbar'a eklediğiniz Quick Steps butonları seçili maile uygulanır.
+          Klavye kısayolu da atayabilirsiniz (<kbd>Ctrl+Shift+1</kbd>, <kbd>Ctrl+Shift+2</kbd> vb).
+        </p>
+        <div id="quickStepsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Step Editör -->
+  <div id="modalQuickStepEditor" class="modal hidden">
+    <div class="modal-content modal-md" style="max-width:680px;">
+      <div class="modal-header">
+        <h2 id="qsEditorTitle">Yeni Quick Step</h2>
+        <button class="modal-close" data-close="modalQuickStepEditor">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row" style="display:flex;gap:8px;align-items:flex-end;">
+          <div style="flex:1;">
+            <label>Ad</label>
+            <input type="text" id="qs_name" placeholder="Ör: Müşteri Klasörüne Taşı + Önemli">
+          </div>
+          <div>
+            <label>Icon</label>
+            <input type="text" id="qs_icon" maxlength="2" style="width:50px;text-align:center;font-size:18px;" value="⚡">
+          </div>
+          <div>
+            <label>Renk</label>
+            <input type="color" id="qs_color" value="#3498db" style="width:50px;height:34px;padding:1px;">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Klavye Kısayolu (opsiyonel)</label>
+          <select id="qs_shortcut">
+            <option value="">— Yok —</option>
+            <option value="Ctrl+Shift+1">Ctrl+Shift+1</option>
+            <option value="Ctrl+Shift+2">Ctrl+Shift+2</option>
+            <option value="Ctrl+Shift+3">Ctrl+Shift+3</option>
+            <option value="Ctrl+Shift+4">Ctrl+Shift+4</option>
+            <option value="Ctrl+Shift+5">Ctrl+Shift+5</option>
+            <option value="Ctrl+Shift+6">Ctrl+Shift+6</option>
+            <option value="Ctrl+Shift+7">Ctrl+Shift+7</option>
+            <option value="Ctrl+Shift+8">Ctrl+Shift+8</option>
+            <option value="Ctrl+Shift+9">Ctrl+Shift+9</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label class="toggle-row">
+            <input type="checkbox" id="qs_show_in_toolbar" checked>
+            <span>Toolbar'da göster</span>
+          </label>
+        </div>
+
+        <div class="form-section" style="margin-top:14px;">⚡ Eylemler (sırayla çalışır)</div>
+        <div id="qs_actions"></div>
+        <button class="btn btn-ghost" id="btnQsAddAction" style="margin-top:6px;">+ Eylem Ekle</button>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px;">
+          <button class="btn btn-ghost" data-close="modalQuickStepEditor">İptal</button>
+          <button class="btn btn-primary" id="btnSaveQuickStep">💾 Kaydet</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.35: Mail Kuralları ===== -->
   <div id="modalRules" class="modal hidden">

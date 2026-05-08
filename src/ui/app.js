@@ -429,7 +429,7 @@ function bindToolbar() {
   document.getElementById('btnArchive').onclick = openArchive;
   document.getElementById('btnPGP').onclick = openPGP;
   document.getElementById('btnCalendar').onclick = openCalendar;
-  document.getElementById('btnRules').onclick = openRules;
+  document.getElementById('btnQuickSteps').onclick = openQuickSteps;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -1432,6 +1432,7 @@ async function showMessageContextMenu(e, message) {
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
     { label: '🪟 Yeni Pencerede Aç', action: () => window.api.messages.openInWindow(message.id) },
     { label: '🔧 Bu Mailden Kural Oluştur', action: () => createRuleFromMessage(message) },
+    { label: '⚡ Quick Step Çalıştır...', action: (e) => showQuickStepsForMessage(message, e) },
     { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
     { label: '📅 Mesajdan Etkinlik Oluştur', action: () => createEventFromMessage(message) },
     { label: '🏷 Otomatik Kategorize Et', action: () => autoCategorizeMessageManual(message) },
@@ -5058,6 +5059,8 @@ function buildCommandList() {
       action: () => openCalendar(), category: 'Modül' },
     { id: 'rules', label: 'Mail Kuralları (Filtreler)', icon: '⚙',
       action: () => openRules(), category: 'Modül' },
+    { id: 'quick-steps', label: 'Quick Steps yönetimi', icon: '⚡',
+      action: () => openQuickSteps(), category: 'Modül' },
     { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
       action: async () => {
         const r = await window.api.autoCategorize.all({ onlyUntagged: true });
@@ -7942,3 +7945,318 @@ function createRuleFromMessage(message) {
 }
 
 // Komut paletine ekle
+
+// ============= v1.36: Quick Steps =============
+const qsState = {
+  bound: false,
+  editingId: null,
+  actions: []
+};
+
+const QS_ACTION_TYPES = [
+  { value: 'moveToFolder', label: '📁 Klasöre taşı', needsFolder: true },
+  { value: 'addCategory', label: '🏷 Kategori ekle', needsCategory: true },
+  { value: 'markRead', label: '✓ Okundu işaretle' },
+  { value: 'markImportant', label: '⭐ Önemli işaretle' },
+  { value: 'markSpam', label: '🚫 Spam' },
+  { value: 'archive', label: '📦 Arşivle' },
+  { value: 'delete', label: '🗑 Sil' },
+  { value: 'reply', label: '↩ Yanıtla (compose aç)' },
+  { value: 'replyAll', label: '↩↩ Tümünü Yanıtla' },
+  { value: 'forward', label: '→ İlet' }
+];
+
+async function openQuickSteps() {
+  document.getElementById('modalQuickSteps').classList.remove('hidden');
+  if (!qsState.bound) {
+    qsState.bound = true;
+    document.getElementById('btnNewQuickStep').onclick = () => openQuickStepEditor(null);
+    document.getElementById('btnQsAddAction').onclick = qsAddAction;
+    document.getElementById('btnSaveQuickStep').onclick = saveQuickStep;
+  }
+  await renderQuickStepsList();
+}
+
+async function renderQuickStepsList() {
+  const list = await window.api.quickSteps.list();
+  const el = document.getElementById('quickStepsList');
+  if (!list.length) {
+    el.innerHTML = `
+      <div class="empty-state" style="padding:40px;font-size:13px;">
+        Henüz Quick Step yok. <strong>+ Yeni Quick Step</strong> ile ilkini oluşturun.<br><br>
+        <small><strong>Örnekler:</strong></small><br>
+        <small>• "Müşterilere Taşı + Önemli İşaretle" - Tek tıkla 2 işlem</small><br>
+        <small>• "Yanıtla + Arşivle" - Cevap verip otomatik arşive at</small><br>
+        <small>• "Spam İşaretle + Sil" - Hemen kurtul</small>
+      </div>
+    `;
+    return;
+  }
+  el.innerHTML = list.map(qs => {
+    const actions = JSON.parse(qs.actions || '[]');
+    return `
+      <div class="quick-step-card">
+        <div class="qs-icon" style="background:${escapeHtml(qs.color || '#3498db')};">${escapeHtml(qs.icon || '⚡')}</div>
+        <div class="qs-info">
+          <div class="qs-name">${escapeHtml(qs.name)}</div>
+          <div class="qs-actions">
+            ${actions.map(a => `<span class="qs-action-pill">${escapeHtml(describeQsAction(a))}</span>`).join(' → ')}
+          </div>
+          <div class="qs-meta">
+            ${qs.shortcut ? `<kbd>${escapeHtml(qs.shortcut)}</kbd>` : ''}
+            ${qs.show_in_toolbar ? '<span class="qs-tag">📌 Toolbar</span>' : ''}
+            ${qs.run_count > 0 ? `<span style="color:var(--muted);">${qs.run_count}× kullanıldı</span>` : ''}
+          </div>
+        </div>
+        <div class="qs-card-actions">
+          <button class="btn btn-ghost" data-edit="${qs.id}">✏</button>
+          <button class="btn btn-ghost" data-delete="${qs.id}" style="color:var(--danger);">🗑</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => openQuickStepEditor(parseInt(b.dataset.edit, 10)));
+  el.querySelectorAll('[data-delete]').forEach(b => b.onclick = async () => {
+    if (!confirm('Bu Quick Step silinsin mi?')) return;
+    await window.api.quickSteps.delete(parseInt(b.dataset.delete, 10));
+    await renderQuickStepsList();
+    await renderQuickStepsToolbar();
+  });
+}
+
+function describeQsAction(a) {
+  switch (a.type) {
+    case 'moveToFolder': return `📁 Taşı`;
+    case 'addCategory': return `🏷 Kategori`;
+    case 'markRead': return '✓ Okundu';
+    case 'markImportant': return '⭐ Önemli';
+    case 'markSpam': return '🚫 Spam';
+    case 'archive': return '📦 Arşiv';
+    case 'delete': return '🗑 Sil';
+    case 'reply': return '↩ Yanıtla';
+    case 'replyAll': return '↩↩ Tümünü';
+    case 'forward': return '→ İlet';
+    default: return a.type;
+  }
+}
+
+async function openQuickStepEditor(id) {
+  qsState.editingId = id;
+  if (id) {
+    const qs = await window.api.quickSteps.get(id);
+    if (qs) {
+      document.getElementById('qsEditorTitle').textContent = '✏ Düzenle';
+      document.getElementById('qs_name').value = qs.name || '';
+      document.getElementById('qs_icon').value = qs.icon || '⚡';
+      document.getElementById('qs_color').value = qs.color || '#3498db';
+      document.getElementById('qs_shortcut').value = qs.shortcut || '';
+      document.getElementById('qs_show_in_toolbar').checked = !!qs.show_in_toolbar;
+      try { qsState.actions = JSON.parse(qs.actions || '[]'); } catch (_) { qsState.actions = []; }
+    }
+  } else {
+    document.getElementById('qsEditorTitle').textContent = '+ Yeni Quick Step';
+    document.getElementById('qs_name').value = '';
+    document.getElementById('qs_icon').value = '⚡';
+    document.getElementById('qs_color').value = '#3498db';
+    document.getElementById('qs_shortcut').value = '';
+    document.getElementById('qs_show_in_toolbar').checked = true;
+    qsState.actions = [{ type: 'markImportant' }];
+  }
+  await renderQsActions();
+  document.getElementById('modalQuickStepEditor').classList.remove('hidden');
+}
+
+async function renderQsActions() {
+  const el = document.getElementById('qs_actions');
+  el.innerHTML = '';
+  for (let i = 0; i < qsState.actions.length; i++) {
+    el.appendChild(await buildQsActionRow(qsState.actions[i], i));
+  }
+}
+
+async function buildQsActionRow(action, idx) {
+  const row = document.createElement('div');
+  row.className = 'rule-row-editor';
+  const def = QS_ACTION_TYPES.find(t => t.value === action.type) || QS_ACTION_TYPES[0];
+  let extraHtml = '';
+  if (def.needsFolder) {
+    const accounts = await window.api.accounts.list();
+    let opts = '<option value="">— Klasör seç —</option>';
+    for (const a of accounts) {
+      const folders = await window.api.folders.list(a.id);
+      opts += `<optgroup label="${escapeHtml(a.display_name)}">`;
+      for (const f of folders) {
+        opts += `<option value="${f.id}" ${action.folderId === f.id ? 'selected' : ''}>${escapeHtml(f.name)}</option>`;
+      }
+      opts += '</optgroup>';
+    }
+    extraHtml = `<select class="qs-action-folder" data-idx="${idx}">${opts}</select>`;
+  } else if (def.needsCategory) {
+    const cats = await window.api.categories.list();
+    const opts = '<option value="">— Kategori —</option>' +
+      cats.map(c => `<option value="${c.id}" ${action.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+    extraHtml = `<select class="qs-action-category" data-idx="${idx}">${opts}</select>`;
+  }
+  row.innerHTML = `
+    <select class="qs-action-type" data-idx="${idx}">
+      ${QS_ACTION_TYPES.map(t => `<option value="${t.value}" ${t.value === action.type ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
+    </select>
+    ${extraHtml}
+    <button class="btn btn-ghost qs-action-remove" data-idx="${idx}" style="color:var(--danger);margin-left:auto;">🗑</button>
+  `;
+  row.querySelector('.qs-action-type').onchange = (e) => {
+    qsState.actions[idx] = { type: e.target.value };
+    renderQsActions();
+  };
+  row.querySelector('.qs-action-folder')?.addEventListener('change', (e) => {
+    qsState.actions[idx].folderId = parseInt(e.target.value, 10);
+  });
+  row.querySelector('.qs-action-category')?.addEventListener('change', (e) => {
+    qsState.actions[idx].categoryId = parseInt(e.target.value, 10);
+  });
+  row.querySelector('.qs-action-remove').onclick = () => {
+    qsState.actions.splice(idx, 1);
+    if (!qsState.actions.length) qsState.actions.push({ type: 'markImportant' });
+    renderQsActions();
+  };
+  return row;
+}
+
+function qsAddAction() {
+  qsState.actions.push({ type: 'markRead' });
+  renderQsActions();
+}
+
+async function saveQuickStep() {
+  const name = document.getElementById('qs_name').value.trim();
+  if (!name) { alert('Ad gerekli'); return; }
+  // Validate actions
+  const validActions = qsState.actions.filter(a => {
+    const def = QS_ACTION_TYPES.find(t => t.value === a.type);
+    if (!def) return false;
+    if (def.needsFolder && !a.folderId) return false;
+    if (def.needsCategory && !a.categoryId) return false;
+    return true;
+  });
+  if (!validActions.length) { alert('En az bir geçerli eylem gerekli'); return; }
+  const data = {
+    name,
+    icon: document.getElementById('qs_icon').value || '⚡',
+    color: document.getElementById('qs_color').value,
+    shortcut: document.getElementById('qs_shortcut').value || null,
+    show_in_toolbar: document.getElementById('qs_show_in_toolbar').checked,
+    actions: validActions
+  };
+  let r;
+  if (qsState.editingId) r = await window.api.quickSteps.update(qsState.editingId, data);
+  else r = await window.api.quickSteps.add(data);
+  if (r.ok) {
+    setStatus('✓ Quick Step kaydedildi');
+    document.getElementById('modalQuickStepEditor').classList.add('hidden');
+    await renderQuickStepsList();
+    await renderQuickStepsToolbar();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+// Toolbar'da quick steps butonlarını render et
+async function renderQuickStepsToolbar() {
+  const el = document.getElementById('quickStepsBar');
+  if (!el) return;
+  const list = await window.api.quickSteps.list({ toolbarOnly: true });
+  if (!list.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = list.map(qs => `
+    <button class="btn btn-ghost qs-toolbar-btn"
+            data-qs-id="${qs.id}"
+            title="${escapeHtml(qs.name)}${qs.shortcut ? ' (' + qs.shortcut + ')' : ''}"
+            style="border-left:3px solid ${escapeHtml(qs.color || '#3498db')};">
+      <span style="font-size:14px;">${escapeHtml(qs.icon || '⚡')}</span>
+      <span style="font-size:11px;">${escapeHtml(qs.name.length > 15 ? qs.name.slice(0, 14) + '…' : qs.name)}</span>
+    </button>
+  `).join('');
+  el.querySelectorAll('.qs-toolbar-btn').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.qsId, 10);
+      executeQuickStep(id);
+    };
+  });
+}
+
+// Quick Step'i seçili maile/maillere uygula
+async function executeQuickStep(quickStepId) {
+  // Hangi mailler? Çoklu seçim varsa onlar, yoksa selectedMessage
+  let messageIds = [];
+  if (state.multiSelectIds && state.multiSelectIds.size) {
+    messageIds = Array.from(state.multiSelectIds);
+  } else if (state.selectedMessage) {
+    messageIds = [state.selectedMessage.id];
+  }
+  if (!messageIds.length) {
+    alert('Önce bir veya daha fazla mail seçin');
+    return;
+  }
+  if (messageIds.length > 1) {
+    if (!confirm(`${messageIds.length} maile Quick Step uygulansın mı?`)) return;
+  }
+
+  const r = await window.api.quickSteps.execute(quickStepId, messageIds);
+  if (!r.ok) { alert('Hata: ' + r.error); return; }
+
+  // Renderer aksiyonu varsa (reply/forward), tek mail için çalışır
+  if (r.rendererAction && messageIds.length === 1) {
+    const msg = await window.api.messages.get(r.primaryMessageId);
+    if (msg) {
+      if (r.rendererAction.type === 'reply') openCompose({ replyTo: msg });
+      else if (r.rendererAction.type === 'replyAll') openCompose({ replyTo: msg, replyAll: true });
+      else if (r.rendererAction.type === 'forward') openCompose({ forward: msg });
+    }
+  }
+
+  setStatus(`⚡ Quick Step uygulandı: ${r.processed} mail, ${r.totalActions} işlem`);
+  clearMultiSelect();
+  await loadAccounts();
+  if (state.selectedFolder) await loadMessages();
+}
+
+// Sağ tık menüsünden gelen "Quick Step Çalıştır..." dialog
+async function showQuickStepsForMessage(message, contextEvent) {
+  const list = await window.api.quickSteps.list();
+  if (!list.length) {
+    alert('Henüz Quick Step yok. ⚡ Quick Steps menüsünden oluşturun.');
+    return;
+  }
+  const items = list.map(qs => ({
+    label: `${qs.icon || '⚡'} ${qs.name}${qs.shortcut ? '  ' + qs.shortcut : ''}`,
+    action: () => {
+      // Önce mesajı seçili duruma getir, sonra çalıştır
+      state.selectedMessage = message;
+      executeQuickStep(qs.id);
+    }
+  }));
+  const ev = contextEvent || { preventDefault: () => {}, stopPropagation: () => {},
+                                clientX: 200, clientY: 200 };
+  showContextMenu(ev, items);
+}
+
+// Klavye kısayolları (Ctrl+Shift+1..9)
+document.addEventListener('keydown', async (e) => {
+  if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
+  const num = parseInt(e.key, 10);
+  if (!num || num < 1 || num > 9) return;
+  const shortcut = `Ctrl+Shift+${num}`;
+  const list = await window.api.quickSteps.list();
+  const qs = list.find(q => q.shortcut === shortcut);
+  if (!qs) return;
+  e.preventDefault();
+  e.stopPropagation();
+  executeQuickStep(qs.id);
+});
+
+// Uygulamada başlangıçta toolbar'ı render et
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => renderQuickStepsToolbar().catch(() => {}), 800);
+});
