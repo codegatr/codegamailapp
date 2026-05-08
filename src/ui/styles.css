@@ -4574,10 +4574,13 @@ html.dark .mdn-banner {
   color: var(--primary);
 }
 .menubar-logo-img {
-  height: 20px;
-  max-width: 30px;
+  height: 22px;
+  max-width: 120px;
   object-fit: contain;
+  vertical-align: middle;
 }
+.menubar-logo-img.hidden { display: none !important; }
+.brand-logo-img.hidden { display: none !important; }
 .menubar-name {
   font-weight: 700;
   font-size: 12px;
@@ -4657,6 +4660,7 @@ html.dark .mdn-banner {
   padding: 4px 0;
   animation: dropdownFadeIn 0.12s ease;
 }
+.dropdown-container.hidden { display: none !important; }
 @keyframes dropdownFadeIn {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
