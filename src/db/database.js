@@ -2487,6 +2487,83 @@ class Database {
     return matured;
   }
 
+  // ====== v1.55: Sweep (Süpür - Toplu Gönderici İşlemi) ======
+  /**
+   * Bir göndericiden gelen tüm maillerin önizlemesi
+   * @param {string} senderEmail
+   * @param {object} opts - { olderThanDays, accountId }
+   */
+  countMessagesBySender(senderEmail, opts = {}) {
+    let where = 'LOWER(from_addr) = LOWER(?) AND (is_archived = 0 OR is_archived IS NULL)';
+    const params = [senderEmail];
+    if (opts.accountId) { where += ' AND account_id = ?'; params.push(opts.accountId); }
+    if (opts.olderThanDays) {
+      where += ` AND date <= datetime('now', '-${parseInt(opts.olderThanDays, 10)} days')`;
+    }
+    const total = this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
+    const oldest = this.prepare(`SELECT MIN(date) AS d FROM messages WHERE ${where}`).get(...params)?.d;
+    const newest = this.prepare(`SELECT MAX(date) AS d FROM messages WHERE ${where}`).get(...params)?.d;
+    return { total, oldest, newest };
+  }
+
+  /**
+   * Süpür - tüm mailleri sil (kalıcı: sadece DB'den; IMAP'taki hala duruyor)
+   */
+  sweepDelete(senderEmail, opts = {}) {
+    let where = 'LOWER(from_addr) = LOWER(?)';
+    const params = [senderEmail];
+    if (opts.accountId) { where += ' AND account_id = ?'; params.push(opts.accountId); }
+    if (opts.olderThanDays) {
+      where += ` AND date <= datetime('now', '-${parseInt(opts.olderThanDays, 10)} days')`;
+    }
+    if (opts.keepLatest) {
+      // En sonuncuyu tut, gerisini sil
+      const latest = this.prepare(`SELECT id FROM messages WHERE ${where} ORDER BY date DESC LIMIT 1`).get(...params);
+      if (latest) where += ` AND id != ${latest.id}`;
+    }
+    const r = this.prepare(`DELETE FROM messages WHERE ${where}`).run(...params);
+    return { deleted: r.changes };
+  }
+
+  /**
+   * Süpür - tüm mailleri klasöre taşı
+   */
+  sweepMove(senderEmail, targetFolderId, opts = {}) {
+    let where = 'LOWER(from_addr) = LOWER(?)';
+    const params = [senderEmail];
+    if (opts.accountId) { where += ' AND account_id = ?'; params.push(opts.accountId); }
+    if (opts.olderThanDays) {
+      where += ` AND date <= datetime('now', '-${parseInt(opts.olderThanDays, 10)} days')`;
+    }
+    const r = this.prepare(`UPDATE messages SET folder_id = ? WHERE ${where}`).run(targetFolderId, ...params);
+    return { moved: r.changes };
+  }
+
+  /**
+   * Süpür - arşivle (is_archived = 1)
+   */
+  sweepArchive(senderEmail, opts = {}) {
+    let where = 'LOWER(from_addr) = LOWER(?) AND (is_archived = 0 OR is_archived IS NULL)';
+    const params = [senderEmail];
+    if (opts.accountId) { where += ' AND account_id = ?'; params.push(opts.accountId); }
+    if (opts.olderThanDays) {
+      where += ` AND date <= datetime('now', '-${parseInt(opts.olderThanDays, 10)} days')`;
+    }
+    const r = this.prepare(`UPDATE messages SET is_archived = 1 WHERE ${where}`).run(...params);
+    return { archived: r.changes };
+  }
+
+  /**
+   * Süpür - okundu olarak işaretle
+   */
+  sweepMarkRead(senderEmail, opts = {}) {
+    let where = 'LOWER(from_addr) = LOWER(?) AND is_read = 0';
+    const params = [senderEmail];
+    if (opts.accountId) { where += ' AND account_id = ?'; params.push(opts.accountId); }
+    const r = this.prepare(`UPDATE messages SET is_read = 1 WHERE ${where}`).run(...params);
+    return { markedRead: r.changes };
+  }
+
   /**
    * v1.50: Birleşik bildirim paneli için son N saatteki tüm yeni mailler
    */

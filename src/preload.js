@@ -171,6 +171,10 @@ contextBridge.exposeInMainWorld('api', {
     preview: (filePath, fileType) => ipcRenderer.invoke('import:preview', filePath, fileType),
     start: (filePath, fileType, options) => ipcRenderer.invoke('import:start', filePath, fileType, options)
   },
+  sweep: {
+    preview: (sender, opts) => ipcRenderer.invoke('sweep:preview', sender, opts),
+    execute: (sender, action, opts) => ipcRenderer.invoke('sweep:execute', sender, action, opts)
+  },
   readReceipt: {
     send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
     ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),

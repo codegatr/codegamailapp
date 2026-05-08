@@ -69,6 +69,9 @@
             <button class="ribbon-btn-big" data-action="archive-msg" data-needs-msg>
               <div class="rbn-icon">📦</div><div class="rbn-label">Arşivle</div>
             </button>
+            <button class="ribbon-btn-big" data-action="sweep" data-needs-msg>
+              <div class="rbn-icon">🧹</div><div class="rbn-label">Süpür</div>
+            </button>
             <button class="ribbon-btn-big" data-action="mark-spam" data-needs-msg>
               <div class="rbn-icon">🛡</div><div class="rbn-label">Spam</div>
             </button>
@@ -390,6 +393,87 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.55: Sweep (Süpür) Modal ===== -->
+  <div id="modalSweep" class="modal hidden">
+    <div class="modal-content" style="max-width:520px;">
+      <div class="modal-header">
+        <h2>🧹 Süpür</h2>
+        <button class="modal-close" data-close="modalSweep">×</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div class="sweep-sender-card">
+          <div class="sweep-sender-avatar" id="sweepAvatar">?</div>
+          <div class="sweep-sender-info">
+            <div class="sweep-sender-name" id="sweepSenderName"></div>
+            <div class="sweep-sender-email" id="sweepSenderEmail"></div>
+            <div class="sweep-sender-stats" id="sweepStats">⏳ Yükleniyor...</div>
+          </div>
+        </div>
+
+        <h3 style="margin-top:20px;font-size:14px;">Ne yapmak istersiniz?</h3>
+
+        <div class="sweep-options">
+          <label class="sweep-opt">
+            <input type="radio" name="sweep_action" value="archive" checked>
+            <div class="sweep-opt-content">
+              <div class="sweep-opt-title">📦 Hepsini arşivle</div>
+              <div class="sweep-opt-desc">Tüm mailler arşive taşınır (geri alınabilir)</div>
+            </div>
+          </label>
+
+          <label class="sweep-opt">
+            <input type="radio" name="sweep_action" value="move">
+            <div class="sweep-opt-content">
+              <div class="sweep-opt-title">📁 Klasöre taşı</div>
+              <div class="sweep-opt-desc">Belirli bir klasöre toplu taşıma</div>
+              <select id="sweepTargetFolder" class="sweep-folder-select hidden">
+                <option value="">Klasör seçin...</option>
+              </select>
+            </div>
+          </label>
+
+          <label class="sweep-opt">
+            <input type="radio" name="sweep_action" value="mark-read">
+            <div class="sweep-opt-content">
+              <div class="sweep-opt-title">✓ Hepsini okundu işaretle</div>
+              <div class="sweep-opt-desc">Bildirim sayısını sıfırlar (silmez)</div>
+            </div>
+          </label>
+
+          <label class="sweep-opt">
+            <input type="radio" name="sweep_action" value="delete">
+            <div class="sweep-opt-content">
+              <div class="sweep-opt-title">🗑 Hepsini sil</div>
+              <div class="sweep-opt-desc"><strong style="color:var(--danger);">Kalıcı silme!</strong></div>
+            </div>
+          </label>
+
+          <label class="sweep-opt">
+            <input type="radio" name="sweep_action" value="rule">
+            <div class="sweep-opt-content">
+              <div class="sweep-opt-title">⚙ Kural oluştur (kalıcı)</div>
+              <div class="sweep-opt-desc">Bu adresten gelen mailler artık otomatik işlenecek</div>
+            </div>
+          </label>
+        </div>
+
+        <h3 style="margin-top:18px;font-size:13px;color:var(--text-2);">Zaman filtresi</h3>
+        <select id="sweepTimeFilter" class="sweep-folder-select" style="width:100%;">
+          <option value="">Tümü (zaman sınırı yok)</option>
+          <option value="7">7 günden eski mailler</option>
+          <option value="30">30 günden eski mailler</option>
+          <option value="90">3 aydan eski mailler</option>
+          <option value="180">6 aydan eski mailler</option>
+          <option value="365">1 yıldan eski mailler</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="modalSweep">İptal</button>
+        <button class="btn btn-primary" id="sweepExecute">🧹 Süpür</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.53: Mail Import Wizard ===== -->
   <div id="modalImport" class="modal hidden">

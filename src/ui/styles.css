@@ -5500,3 +5500,95 @@ html.dark .mdn-banner {
 #statusOnline.offline {
   color: var(--muted);
 }
+
+/* ============= v1.55: Sweep (Süpür) ============= */
+.sweep-sender-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.sweep-sender-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 22px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.sweep-sender-info { flex: 1; min-width: 0; }
+.sweep-sender-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.sweep-sender-email {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: 'Consolas', monospace;
+  margin: 2px 0 4px 0;
+}
+.sweep-sender-stats {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.sweep-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.sweep-opt {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.sweep-opt:hover {
+  border-color: var(--primary);
+  background: var(--bg-3);
+}
+.sweep-opt input[type="radio"] {
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+.sweep-opt input[type="radio"]:checked ~ .sweep-opt-content .sweep-opt-title {
+  color: var(--primary);
+}
+.sweep-opt:has(input:checked) {
+  border-color: var(--primary);
+  background: rgba(52, 152, 219, 0.06);
+}
+.sweep-opt-content { flex: 1; }
+.sweep-opt-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sweep-opt-desc {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+}
+.sweep-folder-select {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 12px;
+  width: 100%;
+}
+.sweep-folder-select.hidden { display: none !important; }

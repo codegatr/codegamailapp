@@ -2312,6 +2312,66 @@ ipcMain.handle('import:start', async (_, filePath, fileType, options) => {
 });
 
 // =====================================================================
+// v1.55 IPC: Sweep (Süpür - Toplu Gönderici İşlemi)
+// =====================================================================
+ipcMain.handle('sweep:preview', (_, senderEmail, opts) => {
+  try {
+    return { ok: true, ...db.countMessagesBySender(senderEmail, opts || {}) };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('sweep:execute', async (_, senderEmail, action, opts) => {
+  try {
+    let result;
+    opts = opts || {};
+    switch (action) {
+      case 'delete':
+        result = db.sweepDelete(senderEmail, opts);
+        break;
+      case 'move':
+        if (!opts.targetFolderId) return { ok: false, error: 'Hedef klasör gerekli' };
+        result = db.sweepMove(senderEmail, opts.targetFolderId, opts);
+        break;
+      case 'archive':
+        result = db.sweepArchive(senderEmail, opts);
+        break;
+      case 'mark-read':
+        result = db.sweepMarkRead(senderEmail, opts);
+        break;
+      case 'rule':
+        // Kalıcı kural oluştur
+        if (!opts.targetFolderId && !opts.deleteForever) {
+          return { ok: false, error: 'Hedef klasör veya silme aksiyonu gerekli' };
+        }
+        const rule = {
+          name: `Süpür: ${senderEmail}`,
+          enabled: 1,
+          condition_type: 'from',
+          condition_op: 'equals',
+          condition_value: senderEmail,
+          action_type: opts.deleteForever ? 'delete' : 'move',
+          action_value: opts.targetFolderId ? String(opts.targetFolderId) : '',
+          sort_order: 0
+        };
+        const ruleId = db.addMailRule(rule);
+        // Mevcut maillere de uygula
+        if (opts.applyNow) {
+          if (opts.deleteForever) result = db.sweepDelete(senderEmail, {});
+          else if (opts.targetFolderId) result = db.sweepMove(senderEmail, opts.targetFolderId, {});
+        }
+        result = { ...result, ruleId, ruleCreated: true };
+        break;
+      default:
+        return { ok: false, error: 'Bilinmeyen aksiyon' };
+    }
+    db.save();
+    return { ok: true, ...result };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// =====================================================================
 // v1.46 IPC: Read Receipt (RFC 3798 MDN)
 // =====================================================================
 const ReadReceiptService = require('./services/read-receipt');

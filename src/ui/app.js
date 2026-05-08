@@ -2213,6 +2213,7 @@ function renderMessageView(msg) {
       ${msg.is_spam
         ? '<button class="btn btn-ghost" id="btnNotSpam" title="Spam değil">✓ Spam değil</button>'
         : '<button class="btn btn-ghost" id="btnMarkSpam" title="Spam olarak işaretle">🛡</button>'}
+      <button class="btn btn-ghost" id="btnSweepMsg" title="Bu göndericiden gelen tüm maillere işlem (Süpür)">🧹</button>
       <button class="btn btn-ghost" id="btnSnoozeMsg" title="Maili ertele (H)">💤</button>
       <button class="btn btn-ghost" id="btnOpenInWindow" title="Yeni pencerede aç">🪟</button>
       <div class="msg-actions-sep"></div>
@@ -2257,6 +2258,9 @@ function renderMessageView(msg) {
   // v1.52: Snooze
   const btnSnoozeMsg = document.getElementById('btnSnoozeMsg');
   if (btnSnoozeMsg) btnSnoozeMsg.onclick = () => openSnoozeModal(msg);
+  // v1.55: Sweep
+  const btnSweepMsg = document.getElementById('btnSweepMsg');
+  if (btnSweepMsg) btnSweepMsg.onclick = () => openSweepModal(msg);
 
   // v1.47: MDN banner butonları
   const btnMdnSend = document.getElementById('btnMdnSend');
@@ -11010,3 +11014,128 @@ document.addEventListener('click', async (e) => {
       break;
   }
 });
+
+// ============= v1.55: Sweep (Süpür - Toplu Gönderici İşlemi) =============
+let _sweepSender = null;
+
+async function openSweepModal(msg) {
+  if (!msg || !msg.from_addr) return alert('Bu mesajda gönderici adresi yok');
+  _sweepSender = (msg.from_addr || '').toLowerCase();
+
+  document.getElementById('modalSweep').classList.remove('hidden');
+  document.getElementById('sweepSenderName').textContent = msg.from_name || msg.from_addr;
+  document.getElementById('sweepSenderEmail').textContent = msg.from_addr;
+
+  // Avatar
+  const initial = (msg.from_name || msg.from_addr || '?').charAt(0).toUpperCase();
+  const palette = ['#3498db','#9b59b6','#e74c3c','#f39c12','#2ecc71','#1abc9c','#e67e22','#34495e'];
+  let hash = 0;
+  for (let i = 0; i < _sweepSender.length; i++) hash = _sweepSender.charCodeAt(i) + ((hash << 5) - hash);
+  const av = document.getElementById('sweepAvatar');
+  av.style.background = palette[Math.abs(hash) % palette.length];
+  av.textContent = initial;
+
+  // Klasör listesi yükle (tüm hesaplardan)
+  const folderSel = document.getElementById('sweepTargetFolder');
+  folderSel.innerHTML = '<option value="">Klasör seçin...</option>';
+  for (const acc of state.accounts) {
+    const folders = await window.api.folders.list(acc.id);
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = acc.display_name;
+    folders.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = f.name;
+      optgroup.appendChild(opt);
+    });
+    folderSel.appendChild(optgroup);
+  }
+
+  await refreshSweepStats();
+}
+
+async function refreshSweepStats() {
+  if (!_sweepSender) return;
+  const days = document.getElementById('sweepTimeFilter').value;
+  const opts = days ? { olderThanDays: parseInt(days, 10) } : {};
+  const r = await window.api.sweep.preview(_sweepSender, opts);
+  const el = document.getElementById('sweepStats');
+  if (r.ok) {
+    if (r.total === 0) {
+      el.innerHTML = '<span style="color:var(--muted);">Bu kriterlerde mail bulunamadı</span>';
+    } else {
+      const oldest = r.oldest ? new Date(r.oldest).toLocaleDateString('tr-TR') : '?';
+      const newest = r.newest ? new Date(r.newest).toLocaleDateString('tr-TR') : '?';
+      el.innerHTML = `<strong style="color:var(--primary);">${r.total} mail</strong> · ${oldest} - ${newest} arasında`;
+    }
+  }
+}
+
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'sweepTimeFilter') {
+    await refreshSweepStats();
+  }
+  if (e.target.name === 'sweep_action') {
+    const target = document.getElementById('sweepTargetFolder');
+    if (target) target.classList.toggle('hidden', e.target.value !== 'move');
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'sweepExecute') {
+    if (!_sweepSender) return;
+    const action = document.querySelector('input[name="sweep_action"]:checked')?.value;
+    if (!action) { alert('Lütfen bir aksiyon seçin'); return; }
+
+    const opts = {};
+    const days = document.getElementById('sweepTimeFilter').value;
+    if (days) opts.olderThanDays = parseInt(days, 10);
+
+    if (action === 'move') {
+      const folderId = document.getElementById('sweepTargetFolder').value;
+      if (!folderId) return alert('Lütfen hedef klasör seçin');
+      opts.targetFolderId = parseInt(folderId, 10);
+    }
+
+    if (action === 'rule') {
+      const folderId = document.getElementById('sweepTargetFolder').value;
+      if (folderId) opts.targetFolderId = parseInt(folderId, 10);
+      else if (confirm('Hedef klasör seçilmedi. Bu adresten gelen tüm gelecek mailler SİLİNSİN mi?\n\nKalıcı kural oluşturulacak.')) {
+        opts.deleteForever = true;
+      } else { return; }
+      opts.applyNow = confirm('Mevcut maillere de uygulansın mı?');
+    }
+
+    if (action === 'delete' && !confirm(`Bu göndericiden gelen tüm mailler KALICI olarak silinecek. Devam edilsin mi?`)) {
+      return;
+    }
+
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Süpürülüyor...';
+
+    const r = await window.api.sweep.execute(_sweepSender, action, opts);
+
+    if (r.ok) {
+      const stats = [];
+      if (r.deleted) stats.push(`${r.deleted} silindi`);
+      if (r.moved) stats.push(`${r.moved} taşındı`);
+      if (r.archived) stats.push(`${r.archived} arşivlendi`);
+      if (r.markedRead) stats.push(`${r.markedRead} okundu işaretlendi`);
+      if (r.ruleCreated) stats.push(`Kural oluşturuldu`);
+      setStatus('🧹 Süpürüldü: ' + stats.join(', '));
+      document.getElementById('modalSweep').classList.add('hidden');
+      await loadAccounts();
+      await loadMessages();
+    } else {
+      alert('Hata: ' + r.error);
+    }
+    btn.disabled = false;
+    btn.textContent = '🧹 Süpür';
+  }
+});
+
+// Ribbon entegrasyonu
+if (typeof RIBBON_ACTIONS !== 'undefined') {
+  RIBBON_ACTIONS['sweep'] = () => state.selectedMessage && openSweepModal(state.selectedMessage);
+}
