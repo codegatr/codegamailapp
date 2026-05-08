@@ -5061,6 +5061,8 @@ function buildCommandList() {
       action: () => openRules(), category: 'Modül' },
     { id: 'quick-steps', label: 'Quick Steps yönetimi', icon: '⚡',
       action: () => openQuickSteps(), category: 'Modül' },
+    { id: 'advanced-search', label: 'Gelişmiş Arama', icon: '🔍',
+      action: () => openAdvancedSearch(), category: 'Modül' },
     { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
       action: async () => {
         const r = await window.api.autoCategorize.all({ onlyUntagged: true });
@@ -8259,4 +8261,368 @@ document.addEventListener('keydown', async (e) => {
 // Uygulamada başlangıçta toolbar'ı render et
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => renderQuickStepsToolbar().catch(() => {}), 800);
+});
+
+// ============= v1.37: Gelişmiş Arama =============
+const searchState = {
+  bound: false,
+  // Aktif gelişmiş arama opts'i (null = arama yok)
+  activeFilters: null,
+  // Hızlı filtre chip'leri
+  quickFilters: {
+    hasAttachment: false,
+    isUnread: false,
+    isImportant: false,
+    thisWeek: false
+  }
+};
+
+function bindAdvancedSearchUI() {
+  if (searchState.bound) return;
+  searchState.bound = true;
+
+  document.getElementById('btnAdvancedSearch').onclick = openAdvancedSearch;
+  document.getElementById('btnAsSearch').onclick = executeAdvancedSearch;
+  document.getElementById('btnAsClear').onclick = clearAdvancedSearchForm;
+
+  // Tarih ön ayarlar
+  document.querySelectorAll('.as-date-preset').forEach(btn => {
+    btn.onclick = () => {
+      const days = parseInt(btn.dataset.days, 10);
+      const today = new Date();
+      const from = new Date(today);
+      if (days > 0) from.setDate(today.getDate() - days);
+      document.getElementById('as_dateFrom').value = from.toISOString().slice(0, 10);
+      document.getElementById('as_dateTo').value = today.toISOString().slice(0, 10);
+    };
+  });
+
+  // Hesap → klasör cascading
+  document.getElementById('as_accountId').onchange = async () => {
+    const accId = parseInt(document.getElementById('as_accountId').value, 10);
+    const folderSel = document.getElementById('as_folderId');
+    folderSel.innerHTML = '<option value="">— Tüm klasörler —</option>';
+    if (accId) {
+      const folders = await window.api.folders.list(accId);
+      for (const f of folders) {
+        folderSel.innerHTML += `<option value="${f.id}">${escapeHtml(f.name)}</option>`;
+      }
+    }
+  };
+
+  // Quick filter chip'leri
+  renderQuickFilterChips();
+}
+
+async function openAdvancedSearch() {
+  bindAdvancedSearchUI();
+  // Hesap dropdown'ını doldur
+  const accSel = document.getElementById('as_accountId');
+  accSel.innerHTML = '<option value="">— Tüm hesaplar —</option>';
+  for (const a of state.accounts || []) {
+    accSel.innerHTML += `<option value="${a.id}">${escapeHtml(a.display_name)} - ${escapeHtml(a.email)}</option>`;
+  }
+  // Eğer searchBox'ta metin varsa text alanına yaz
+  const sb = document.getElementById('searchBox').value.trim();
+  if (sb && !document.getElementById('as_text').value) {
+    document.getElementById('as_text').value = sb;
+  }
+  document.getElementById('modalAdvancedSearch').classList.remove('hidden');
+}
+
+function clearAdvancedSearchForm() {
+  ['as_text','as_from','as_to','as_subject','as_body','as_dateFrom','as_dateTo','as_minSize','as_maxSize'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['as_hasAttachment','as_isUnread','as_isImportant','as_isSpam','as_includeArchived'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = false;
+  });
+  document.getElementById('as_accountId').value = '';
+  document.getElementById('as_folderId').innerHTML = '<option value="">— Tüm klasörler —</option>';
+}
+
+async function executeAdvancedSearch() {
+  const opts = collectAdvancedSearchOpts();
+  document.getElementById('modalAdvancedSearch').classList.add('hidden');
+  searchState.activeFilters = opts;
+  await applyAdvancedSearch();
+}
+
+function collectAdvancedSearchOpts() {
+  const v = (id) => document.getElementById(id)?.value?.trim();
+  const opts = {};
+  if (v('as_text')) opts.text = v('as_text');
+  if (v('as_from')) opts.from = v('as_from');
+  if (v('as_to')) opts.to = v('as_to');
+  if (v('as_subject')) opts.subject = v('as_subject');
+  if (v('as_body')) opts.body = v('as_body');
+  if (v('as_dateFrom')) opts.dateFrom = v('as_dateFrom') + 'T00:00:00';
+  if (v('as_dateTo')) opts.dateTo = v('as_dateTo') + 'T23:59:59';
+  const minS = parseInt(v('as_minSize'), 10);
+  const maxS = parseInt(v('as_maxSize'), 10);
+  if (!isNaN(minS) && minS > 0) opts.minSize = minS * 1024;
+  if (!isNaN(maxS) && maxS > 0) opts.maxSize = maxS * 1024;
+  if (document.getElementById('as_hasAttachment').checked) opts.hasAttachment = true;
+  if (document.getElementById('as_isUnread').checked) opts.isRead = false;
+  if (document.getElementById('as_isImportant').checked) opts.isImportant = true;
+  if (document.getElementById('as_isSpam').checked) opts.isSpam = true;
+  if (document.getElementById('as_includeArchived').checked) opts.includeArchived = true;
+  const accId = parseInt(document.getElementById('as_accountId').value, 10);
+  const folderId = parseInt(document.getElementById('as_folderId').value, 10);
+  if (accId) opts.accountId = accId;
+  if (folderId) opts.folderId = folderId;
+  return opts;
+}
+
+async function applyAdvancedSearch() {
+  if (!searchState.activeFilters) {
+    clearAdvancedFilters();
+    return;
+  }
+  const opts = searchState.activeFilters;
+  const messages = await window.api.search.advanced(opts);
+  state.messages = messages || [];
+  state.selectedFolder = null; // Cross-folder mode
+
+  // Aktif filtre çubuğunu göster
+  renderActiveFiltersBar();
+  // folderTitle güncelle
+  document.getElementById('folderTitle').textContent = `🔍 Arama: ${messages.length} sonuç`;
+  document.querySelectorAll('.folder-item.active').forEach(el => el.classList.remove('active'));
+  document.getElementById('unifiedInbox')?.classList.remove('active');
+
+  // Mesaj listesini render et
+  renderSearchResults(messages);
+}
+
+function clearAdvancedFilters() {
+  searchState.activeFilters = null;
+  searchState.quickFilters = { hasAttachment: false, isUnread: false, isImportant: false, thisWeek: false };
+  document.getElementById('searchBox').value = '';
+  state.searchQuery = '';
+  document.getElementById('activeFiltersBar').classList.add('hidden');
+  renderQuickFilterChips();
+  // Önceki klasöre dön (varsa)
+  if (state.accounts && state.accounts[0]) {
+    const folders = state.accounts[0].folders || [];
+    const inbox = folders.find(f => f.special_use === '\\Inbox' || /inbox|gelen/i.test(f.name)) || folders[0];
+    if (inbox) selectFolder(inbox.id, state.accounts[0].id);
+  }
+}
+
+function renderActiveFiltersBar() {
+  const bar = document.getElementById('activeFiltersBar');
+  const opts = searchState.activeFilters;
+  if (!opts) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const chips = [];
+  if (opts.text) chips.push(`Metin: "${opts.text}"`);
+  if (opts.from) chips.push(`Gönderen: "${opts.from}"`);
+  if (opts.to) chips.push(`Alıcı: "${opts.to}"`);
+  if (opts.subject) chips.push(`Konu: "${opts.subject}"`);
+  if (opts.body) chips.push(`İçerik: "${opts.body}"`);
+  if (opts.hasAttachment) chips.push('📎 Eki var');
+  if (opts.isRead === false) chips.push('📨 Okunmamış');
+  if (opts.isImportant) chips.push('⭐ Önemli');
+  if (opts.isSpam) chips.push('🚫 Spam');
+  if (opts.dateFrom) chips.push(`📅 ≥ ${opts.dateFrom.slice(0, 10)}`);
+  if (opts.dateTo) chips.push(`📅 ≤ ${opts.dateTo.slice(0, 10)}`);
+  if (opts.minSize) chips.push(`≥ ${(opts.minSize / 1024).toFixed(0)} KB`);
+  if (opts.maxSize) chips.push(`≤ ${(opts.maxSize / 1024).toFixed(0)} KB`);
+  if (opts.includeArchived) chips.push('📦 Arşiv dahil');
+
+  bar.classList.remove('hidden');
+  bar.innerHTML = chips.map(c => `<span class="active-filter-chip">${escapeHtml(c)}</span>`).join('') +
+    `<button class="btn btn-ghost" id="btnClearFilters" style="font-size:11px;padding:3px 10px;margin-left:auto;color:var(--danger);">✕ Filtreleri Temizle</button>`;
+  document.getElementById('btnClearFilters').onclick = clearAdvancedFilters;
+}
+
+function renderSearchResults(messages) {
+  const container = document.getElementById('messageList');
+  if (!messages.length) {
+    container.innerHTML = '<div class="empty-state" style="padding:40px;">Hiç sonuç bulunamadı.<br><br><small>Filtreleri gevşeterek tekrar deneyin.</small></div>';
+    return;
+  }
+  // Mevcut renderMessages mantığını kullan ama folder bilgisi göster
+  container.innerHTML = messages.map(m => {
+    const date = m.date ? new Date(m.date).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '';
+    const fromName = m.from_name || (m.from_addr || '').split('@')[0];
+    return `
+      <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${m.is_important ? 'is-important' : ''}"
+           data-id="${m.id}" data-account-id="${m.account_id}" data-folder-id="${m.folder_id}">
+        <div class="message-from">
+          ${m.is_important ? '<span style="color:#f5a623;">⭐</span>' : ''}
+          ${escapeHtml(fromName)}
+          <small style="color:var(--muted);">[${escapeHtml(m.account_name || '')} / ${escapeHtml(m.folder_name || '')}]</small>
+        </div>
+        <div class="message-subject">${escapeHtml(m.subject || '(Konusuz)')}</div>
+        <div class="message-preview">${escapeHtml((m.preview || '').slice(0, 120))}</div>
+        <div class="message-meta">
+          ${m.has_attachments ? '<span title="Ek var">📎</span>' : ''}
+          ${m.size ? `<span style="color:var(--muted);font-size:10px;">${(m.size/1024).toFixed(0)}KB</span>` : ''}
+          <span class="message-date">${escapeHtml(date)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.message-item').forEach(el => {
+    const id = parseInt(el.dataset.id, 10);
+    el.onclick = () => openMessage(id);
+    el.ondblclick = () => window.api.messages.openInWindow(id);
+    el.oncontextmenu = async (e) => {
+      const fullMsg = await window.api.messages.get(id);
+      if (fullMsg) showMessageContextMenu(e, fullMsg);
+    };
+  });
+}
+
+// Hızlı filtre chip'leri (search box altında)
+function renderQuickFilterChips() {
+  const el = document.getElementById('quickFilterChips');
+  if (!el) return;
+  const qf = searchState.quickFilters;
+  el.innerHTML = `
+    <button class="quick-chip ${qf.hasAttachment ? 'active' : ''}" data-qf="hasAttachment">📎 Eki olanlar</button>
+    <button class="quick-chip ${qf.isUnread ? 'active' : ''}" data-qf="isUnread">📨 Okunmamış</button>
+    <button class="quick-chip ${qf.isImportant ? 'active' : ''}" data-qf="isImportant">⭐ Önemli</button>
+    <button class="quick-chip ${qf.thisWeek ? 'active' : ''}" data-qf="thisWeek">📅 Bu hafta</button>
+  `;
+  el.querySelectorAll('.quick-chip').forEach(b => {
+    b.onclick = () => {
+      const key = b.dataset.qf;
+      qf[key] = !qf[key];
+      applyQuickFilters();
+    };
+  });
+}
+
+async function applyQuickFilters() {
+  const qf = searchState.quickFilters;
+  const anyActive = qf.hasAttachment || qf.isUnread || qf.isImportant || qf.thisWeek;
+  if (!anyActive) {
+    // Hepsi kapalı → reset
+    searchState.activeFilters = null;
+    document.getElementById('activeFiltersBar').classList.add('hidden');
+    renderQuickFilterChips();
+    if (state.selectedFolder) {
+      const f = state.selectedFolder;
+      await selectFolder(f.id, f.account_id || f.accountId);
+    }
+    return;
+  }
+  // Quick filter'leri opts'a çevir
+  const opts = {};
+  if (qf.hasAttachment) opts.hasAttachment = true;
+  if (qf.isUnread) opts.isRead = false;
+  if (qf.isImportant) opts.isImportant = true;
+  if (qf.thisWeek) {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    opts.dateFrom = d.toISOString();
+  }
+  // Mevcut klasör bağlamını koru
+  if (state.selectedFolder?.id) opts.folderId = state.selectedFolder.id;
+  searchState.activeFilters = opts;
+  await applyAdvancedSearch();
+  renderQuickFilterChips();
+}
+
+// Search syntax parser (Gmail tarzı: from:x subject:y has:attachment)
+function parseSearchSyntax(query) {
+  if (!query || !query.trim()) return null;
+  const opts = {};
+  const remaining = [];
+  // Token'lara böl (boşluk veya tırnak)
+  const tokenRegex = /(\w+):"([^"]+)"|(\w+):(\S+)|"([^"]+)"|(\S+)/g;
+  let m;
+  while ((m = tokenRegex.exec(query)) !== null) {
+    const key = (m[1] || m[3] || '').toLowerCase();
+    const value = m[2] || m[4];
+    const plainQ = m[5] || m[6];
+    if (key && value) {
+      switch (key) {
+        case 'from': opts.from = value; break;
+        case 'to': opts.to = value; break;
+        case 'subject': opts.subject = value; break;
+        case 'body': opts.body = value; break;
+        case 'has':
+          if (value === 'attachment' || value === 'attach') opts.hasAttachment = true;
+          break;
+        case 'is':
+          if (value === 'unread') opts.isRead = false;
+          else if (value === 'read') opts.isRead = true;
+          else if (value === 'important' || value === 'starred') opts.isImportant = true;
+          else if (value === 'spam') opts.isSpam = true;
+          break;
+        case 'before': opts.dateTo = value + 'T23:59:59'; break;
+        case 'after': opts.dateFrom = value + 'T00:00:00'; break;
+        case 'larger': {
+          const mb = value.match(/(\d+)\s*([km]?b)?/i);
+          if (mb) {
+            let bytes = parseInt(mb[1], 10);
+            const unit = (mb[2] || '').toLowerCase();
+            if (unit === 'kb' || !unit) bytes *= 1024;
+            else if (unit === 'mb') bytes *= 1024 * 1024;
+            opts.minSize = bytes;
+          }
+          break;
+        }
+        case 'smaller': {
+          const mb = value.match(/(\d+)\s*([km]?b)?/i);
+          if (mb) {
+            let bytes = parseInt(mb[1], 10);
+            const unit = (mb[2] || '').toLowerCase();
+            if (unit === 'kb' || !unit) bytes *= 1024;
+            else if (unit === 'mb') bytes *= 1024 * 1024;
+            opts.maxSize = bytes;
+          }
+          break;
+        }
+        default: remaining.push(m[0]);
+      }
+    } else if (plainQ) {
+      remaining.push(plainQ);
+    }
+  }
+  if (remaining.length) opts.text = remaining.join(' ');
+  return Object.keys(opts).length ? opts : null;
+}
+
+// Search box'a syntax dinleyici (Enter'a basınca syntax'ı parse et)
+function bindSearchSyntax() {
+  const sb = document.getElementById('searchBox');
+  if (!sb) return;
+  sb.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const q = sb.value.trim();
+    if (!q) {
+      // Boşsa filtreyi temizle
+      if (searchState.activeFilters) clearAdvancedFilters();
+      return;
+    }
+    const parsed = parseSearchSyntax(q);
+    // Eğer syntax token'ı yoksa basit text araması
+    if (!parsed || (Object.keys(parsed).length === 1 && parsed.text)) {
+      state.searchQuery = q;
+      if (state.selectedFolder) await loadMessages();
+      return;
+    }
+    // Syntax tokens var → gelişmiş arama
+    e.preventDefault();
+    searchState.activeFilters = parsed;
+    await applyAdvancedSearch();
+  });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    bindAdvancedSearchUI();
+    bindSearchSyntax();
+    renderQuickFilterChips();
+  }, 1000);
 });

@@ -2205,6 +2205,153 @@ class Database {
     this.prepare('UPDATE quick_steps SET run_count = run_count + 1 WHERE id = ?').run(id);
   }
 
+  // ====== v1.37: Gelişmiş Arama ======
+  /**
+   * Cross-folder gelişmiş arama
+   * @param {object} opts
+   * - text: serbest metin (subject + from + from_name + body)
+   * - from: gönderici email/name içeriği
+   * - to: alıcı email içeriği
+   * - subject: konu içeriği
+   * - body: gövde içeriği
+   * - hasAttachment: true/false
+   * - isRead: true/false (varsayılan: ikisi de)
+   * - isImportant: true/false
+   * - isSpam: true/false
+   * - dateFrom: ISO string
+   * - dateTo: ISO string
+   * - minSize: bytes
+   * - maxSize: bytes
+   * - accountId: belirli hesap
+   * - folderId: belirli klasör
+   * - includeArchived: arşivdekileri de dahil et
+   * - limit, offset
+   */
+  searchMessages(opts = {}) {
+    const conditions = [];
+    const params = [];
+
+    if (opts.text) {
+      conditions.push('(m.subject LIKE ? OR m.from_addr LIKE ? OR m.from_name LIKE ? OR m.body_text LIKE ?)');
+      const q = `%${opts.text}%`;
+      params.push(q, q, q, q);
+    }
+    if (opts.from) {
+      conditions.push('(m.from_addr LIKE ? OR m.from_name LIKE ?)');
+      const q = `%${opts.from}%`;
+      params.push(q, q);
+    }
+    if (opts.to) {
+      conditions.push('m.to_addrs LIKE ?');
+      params.push('%' + opts.to + '%');
+    }
+    if (opts.subject) {
+      conditions.push('m.subject LIKE ?');
+      params.push('%' + opts.subject + '%');
+    }
+    if (opts.body) {
+      conditions.push('m.body_text LIKE ?');
+      params.push('%' + opts.body + '%');
+    }
+    if (opts.hasAttachment === true) conditions.push('m.has_attachments = 1');
+    else if (opts.hasAttachment === false) conditions.push('m.has_attachments = 0');
+
+    if (opts.isRead === true) conditions.push('m.is_read = 1');
+    else if (opts.isRead === false) conditions.push('m.is_read = 0');
+
+    if (opts.isImportant === true) conditions.push('m.is_important = 1');
+    if (opts.isSpam === true) conditions.push('m.is_spam = 1');
+    else if (opts.isSpam === false) conditions.push('m.is_spam = 0');
+
+    if (opts.dateFrom) {
+      conditions.push('m.date >= ?');
+      params.push(opts.dateFrom);
+    }
+    if (opts.dateTo) {
+      conditions.push('m.date <= ?');
+      params.push(opts.dateTo);
+    }
+
+    if (typeof opts.minSize === 'number') {
+      conditions.push('m.size >= ?');
+      params.push(opts.minSize);
+    }
+    if (typeof opts.maxSize === 'number') {
+      conditions.push('m.size <= ?');
+      params.push(opts.maxSize);
+    }
+
+    if (opts.accountId) {
+      conditions.push('m.account_id = ?');
+      params.push(opts.accountId);
+    }
+    if (opts.folderId) {
+      conditions.push('m.folder_id = ?');
+      params.push(opts.folderId);
+    }
+
+    if (!opts.includeArchived) {
+      conditions.push('(m.is_archived = 0 OR m.is_archived IS NULL)');
+    }
+
+    const where = conditions.length ? conditions.join(' AND ') : '1=1';
+    const limit = opts.limit || 200;
+    const offset = opts.offset || 0;
+
+    return this.prepare(`
+      SELECT m.id, m.account_id, m.folder_id, m.uid, m.uidl,
+             m.from_addr, m.from_name, m.to_addrs, m.subject, m.date,
+             m.is_read, m.is_flagged, m.is_spam, m.is_important, m.spam_score,
+             m.has_attachments, m.size, m.thread_id,
+             m.is_archived,
+             SUBSTR(m.body_text, 1, 200) AS preview,
+             a.display_name AS account_name, a.email AS account_email,
+             f.name AS folder_name,
+             (SELECT GROUP_CONCAT(c.id || char(31) || c.name || char(31) || c.color, char(30))
+              FROM message_categories mc JOIN categories c ON c.id = mc.category_id
+              WHERE mc.message_id = m.id) AS categories
+      FROM messages m
+      LEFT JOIN accounts a ON a.id = m.account_id
+      LEFT JOIN folders f ON f.id = m.folder_id
+      WHERE ${where}
+      ORDER BY m.date DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
+  }
+
+  /**
+   * Sayım versiyonu (filter sonuçlarının toplam adedi)
+   */
+  searchMessagesCount(opts = {}) {
+    // Basit yaklaşım: searchMessages'ın opts'unu kullan ama sadece COUNT(*) al
+    const conditions = [];
+    const params = [];
+    if (opts.text) {
+      conditions.push('(subject LIKE ? OR from_addr LIKE ? OR from_name LIKE ? OR body_text LIKE ?)');
+      const q = `%${opts.text}%`; params.push(q, q, q, q);
+    }
+    if (opts.from) { conditions.push('(from_addr LIKE ? OR from_name LIKE ?)'); const q = `%${opts.from}%`; params.push(q, q); }
+    if (opts.to) { conditions.push('to_addrs LIKE ?'); params.push('%' + opts.to + '%'); }
+    if (opts.subject) { conditions.push('subject LIKE ?'); params.push('%' + opts.subject + '%'); }
+    if (opts.body) { conditions.push('body_text LIKE ?'); params.push('%' + opts.body + '%'); }
+    if (opts.hasAttachment === true) conditions.push('has_attachments = 1');
+    if (opts.hasAttachment === false) conditions.push('has_attachments = 0');
+    if (opts.isRead === true) conditions.push('is_read = 1');
+    if (opts.isRead === false) conditions.push('is_read = 0');
+    if (opts.isImportant === true) conditions.push('is_important = 1');
+    if (opts.isSpam === true) conditions.push('is_spam = 1');
+    if (opts.isSpam === false) conditions.push('is_spam = 0');
+    if (opts.dateFrom) { conditions.push('date >= ?'); params.push(opts.dateFrom); }
+    if (opts.dateTo) { conditions.push('date <= ?'); params.push(opts.dateTo); }
+    if (typeof opts.minSize === 'number') { conditions.push('size >= ?'); params.push(opts.minSize); }
+    if (typeof opts.maxSize === 'number') { conditions.push('size <= ?'); params.push(opts.maxSize); }
+    if (opts.accountId) { conditions.push('account_id = ?'); params.push(opts.accountId); }
+    if (opts.folderId) { conditions.push('folder_id = ?'); params.push(opts.folderId); }
+    if (!opts.includeArchived) conditions.push('(is_archived = 0 OR is_archived IS NULL)');
+    const where = conditions.length ? conditions.join(' AND ') : '1=1';
+    return this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
+  }
+
   // ====== v1.27: Takvim / Events ======
   listEvents(opts = {}) {
     let where = '1=1';

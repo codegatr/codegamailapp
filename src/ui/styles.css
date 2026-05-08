@@ -3818,3 +3818,51 @@ body.dragging-message .folder-item:not(.drop-target) {
   display: flex;
   gap: 4px;
 }
+
+/* ============= v1.37: Gelişmiş Arama ============= */
+.quick-filter-chips {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 6px 0 4px 0;
+}
+.quick-chip {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  padding: 3px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.quick-chip:hover {
+  border-color: var(--primary);
+  color: var(--text);
+}
+.quick-chip.active {
+  background: var(--primary);
+  color: var(--primary-text);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+
+.active-filters-bar {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 6px 8px;
+  background: rgba(0, 120, 212, 0.08);
+  border: 1px solid var(--primary);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+.active-filter-chip {
+  background: var(--primary);
+  color: var(--primary-text);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}

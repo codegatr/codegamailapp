@@ -2072,6 +2072,26 @@ ipcMain.handle('quickSteps:execute', (_, quickStepId, messageIds) => {
 });
 
 // =====================================================================
+// v1.37 IPC: Gelişmiş Arama
+// =====================================================================
+ipcMain.handle('search:advanced', (_, opts) => {
+  try {
+    return db.searchMessages(opts || {});
+  } catch (e) {
+    console.warn('search:advanced error:', e.message);
+    return [];
+  }
+});
+
+ipcMain.handle('search:advancedCount', (_, opts) => {
+  try {
+    return db.searchMessagesCount(opts || {});
+  } catch (e) {
+    return 0;
+  }
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));

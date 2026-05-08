@@ -62,8 +62,13 @@
 
     <section class="pane pane-list">
       <div class="list-header">
-        <input id="searchBox" type="text" placeholder="Konu, gönderen veya içerik ara…" />
+        <div style="display:flex;gap:6px;align-items:center;width:100%;">
+          <input id="searchBox" type="text" placeholder="Konu, gönderen, içerik ara… (from: subject: has:attachment)" style="flex:1;" />
+          <button id="btnAdvancedSearch" class="btn btn-ghost" title="Gelişmiş arama (filtreler)" style="font-size:11px;padding:4px 8px;">🔍 Filtrele</button>
+        </div>
         <span id="folderTitle" class="folder-title"></span>
+        <div id="quickFilterChips" class="quick-filter-chips"></div>
+        <div id="activeFiltersBar" class="active-filters-bar hidden"></div>
       </div>
       <div id="messageList" class="message-list">
         <div class="empty-state">Bir klasör seçin</div>
@@ -86,6 +91,102 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.37: Gelişmiş Arama ===== -->
+  <div id="modalAdvancedSearch" class="modal hidden">
+    <div class="modal-content modal-md" style="max-width:680px;">
+      <div class="modal-header">
+        <h2>🔍 Gelişmiş Arama</h2>
+        <button class="modal-close" data-close="modalAdvancedSearch">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-section" style="margin-top:0;">📝 Metin Filtreleri</div>
+        <div class="form-row">
+          <label>Tüm alanlarda ara</label>
+          <input type="text" id="as_text" placeholder="Konu, gönderen, içerik...">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-row">
+            <label>Gönderen</label>
+            <input type="text" id="as_from" placeholder="trendyol veya isim">
+          </div>
+          <div class="form-row">
+            <label>Alıcı</label>
+            <input type="text" id="as_to" placeholder="email içeriği">
+          </div>
+          <div class="form-row">
+            <label>Konu</label>
+            <input type="text" id="as_subject" placeholder="fatura, sipariş">
+          </div>
+          <div class="form-row">
+            <label>Mesaj İçeriği</label>
+            <input type="text" id="as_body" placeholder="kelime">
+          </div>
+        </div>
+
+        <div class="form-section" style="margin-top:14px;">📅 Tarih Aralığı</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-row">
+            <label>Başlangıç</label>
+            <input type="date" id="as_dateFrom">
+          </div>
+          <div class="form-row">
+            <label>Bitiş</label>
+            <input type="date" id="as_dateTo">
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;margin-bottom:8px;">
+          <button class="btn btn-ghost as-date-preset" data-days="0" style="font-size:11px;padding:3px 8px;">Bugün</button>
+          <button class="btn btn-ghost as-date-preset" data-days="7" style="font-size:11px;padding:3px 8px;">Son 7 gün</button>
+          <button class="btn btn-ghost as-date-preset" data-days="30" style="font-size:11px;padding:3px 8px;">Son 30 gün</button>
+          <button class="btn btn-ghost as-date-preset" data-days="90" style="font-size:11px;padding:3px 8px;">Son 3 ay</button>
+          <button class="btn btn-ghost as-date-preset" data-days="365" style="font-size:11px;padding:3px 8px;">Son 1 yıl</button>
+        </div>
+
+        <div class="form-section" style="margin-top:14px;">📦 Boyut</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-row">
+            <label>Min (KB)</label>
+            <input type="number" id="as_minSize" placeholder="0">
+          </div>
+          <div class="form-row">
+            <label>Max (KB)</label>
+            <input type="number" id="as_maxSize" placeholder="örn: 1000 = 1 MB">
+          </div>
+        </div>
+
+        <div class="form-section" style="margin-top:14px;">🏷 Durum & Hesap</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-row">
+            <label>Hesap</label>
+            <select id="as_accountId">
+              <option value="">— Tüm hesaplar —</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Klasör</label>
+            <select id="as_folderId">
+              <option value="">— Tüm klasörler —</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px 14px;margin-top:8px;">
+          <label class="toggle-row"><input type="checkbox" id="as_hasAttachment"> <span>📎 Sadece eki olanlar</span></label>
+          <label class="toggle-row"><input type="checkbox" id="as_isUnread"> <span>📨 Sadece okunmamışlar</span></label>
+          <label class="toggle-row"><input type="checkbox" id="as_isImportant"> <span>⭐ Sadece önemliler</span></label>
+          <label class="toggle-row"><input type="checkbox" id="as_isSpam"> <span>🚫 Sadece spam</span></label>
+          <label class="toggle-row"><input type="checkbox" id="as_includeArchived"> <span>📦 Arşivi de dahil et</span></label>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+          <button class="btn btn-ghost" id="btnAsClear">🗑 Temizle</button>
+          <button class="btn btn-ghost" data-close="modalAdvancedSearch">İptal</button>
+          <button class="btn btn-primary" id="btnAsSearch">🔍 Ara</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.36: Quick Steps ===== -->
   <div id="modalQuickSteps" class="modal hidden">

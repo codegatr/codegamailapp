@@ -143,6 +143,10 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('quickSteps:delete', id),
     execute: (id, messageIds) => ipcRenderer.invoke('quickSteps:execute', id, messageIds)
   },
+  search: {
+    advanced: (opts) => ipcRenderer.invoke('search:advanced', opts),
+    count: (opts) => ipcRenderer.invoke('search:advancedCount', opts)
+  },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },
