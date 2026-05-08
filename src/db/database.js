@@ -302,6 +302,19 @@ class Database {
           result TEXT,
           scanned_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS bayes_tokens (
+          token TEXT PRIMARY KEY,
+          spam_count INTEGER DEFAULT 0,
+          ham_count INTEGER DEFAULT 0,
+          last_seen TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_bayes_token ON bayes_tokens(token);
+
+        CREATE TABLE IF NOT EXISTS bayes_meta (
+          key TEXT PRIMARY KEY,
+          value INTEGER DEFAULT 0
+        );
       `);
     } catch (_) {}
 
@@ -1131,6 +1144,79 @@ class Database {
   clearOldVtCache(daysOld = 30) {
     const cutoff = new Date(Date.now() - daysOld * 86400000).toISOString();
     this.prepare('DELETE FROM vt_scan_cache WHERE scanned_at < ?').run(cutoff);
+  }
+
+  // ====== v1.14: Bayesian Spam Filter ======
+  bayesAddTokens(tokens, isSpam) {
+    if (!tokens || !tokens.length) return;
+    const now = new Date().toISOString();
+    const stmt = this.prepare(`
+      INSERT INTO bayes_tokens (token, spam_count, ham_count, last_seen)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(token) DO UPDATE SET
+        spam_count = spam_count + excluded.spam_count,
+        ham_count = ham_count + excluded.ham_count,
+        last_seen = excluded.last_seen
+    `);
+    for (const tok of tokens) {
+      stmt.run(tok, isSpam ? 1 : 0, isSpam ? 0 : 1, now);
+    }
+  }
+
+  bayesRemoveTokens(tokens, wasSpam) {
+    if (!tokens || !tokens.length) return;
+    const stmt = this.prepare(`
+      UPDATE bayes_tokens
+      SET spam_count = MAX(0, spam_count - ?), ham_count = MAX(0, ham_count - ?)
+      WHERE token = ?
+    `);
+    for (const tok of tokens) {
+      stmt.run(wasSpam ? 1 : 0, wasSpam ? 0 : 1, tok);
+    }
+  }
+
+  bayesGetTokenStats(token) {
+    return this.prepare('SELECT spam_count, ham_count FROM bayes_tokens WHERE token = ?').get(token);
+  }
+
+  bayesGetTokenStatsBatch(tokens) {
+    if (!tokens || !tokens.length) return new Map();
+    const placeholders = tokens.map(() => '?').join(',');
+    const rows = this.prepare(
+      `SELECT token, spam_count, ham_count FROM bayes_tokens WHERE token IN (${placeholders})`
+    ).all(...tokens);
+    const m = new Map();
+    for (const r of rows) m.set(r.token, r);
+    return m;
+  }
+
+  bayesIncrementMeta(key, delta = 1) {
+    this.prepare(`
+      INSERT INTO bayes_meta (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = value + excluded.value
+    `).run(key, delta);
+  }
+
+  bayesGetMeta() {
+    const rows = this.prepare('SELECT key, value FROM bayes_meta').all();
+    const m = {};
+    for (const r of rows) m[r.key] = r.value;
+    return m;
+  }
+
+  bayesStats() {
+    const tokenCount = this.prepare('SELECT COUNT(*) AS c FROM bayes_tokens').get().c;
+    const meta = this.bayesGetMeta();
+    return {
+      totalTokens: tokenCount,
+      totalSpamMsgs: meta.total_spam_msgs || 0,
+      totalHamMsgs: meta.total_ham_msgs || 0,
+      isReady: (meta.total_spam_msgs || 0) >= 5 && (meta.total_ham_msgs || 0) >= 5
+    };
+  }
+
+  bayesReset() {
+    this.exec('DELETE FROM bayes_tokens; DELETE FROM bayes_meta;');
   }
 }
 

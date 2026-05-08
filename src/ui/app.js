@@ -524,6 +524,9 @@ function bindSettings() {
 
   // v1.13: VirusTotal handler'ları
   bindVirusTotalSettings();
+
+  // v1.14: Bayes handler'ları
+  bindBayesSettings();
 }
 
 function showNotificationTroubleshoot(result) {
@@ -576,6 +579,9 @@ async function openSettings() {
   }
   const vtAuto = document.getElementById('vt_autoScan');
   if (vtAuto) vtAuto.checked = cfg.virustotalAutoScan !== false;
+
+  // v1.14: Bayes istatistik
+  await refreshBayesStats();
 
   await renderSettingsAccountList();
   document.getElementById('modalSettings').classList.remove('hidden');
@@ -3438,4 +3444,53 @@ function flashSettingsSavedIndicator() {
     el.style.fontWeight = 'normal';
     el.classList.remove('save-flash');
   }, 2200);
+}
+
+// ============= v1.14: Bayesian Spam Filter UI =============
+function bindBayesSettings() {
+  const btnRefresh = document.getElementById('btnBayesRefresh');
+  const btnReset = document.getElementById('btnBayesReset');
+  if (btnRefresh && !btnRefresh.dataset.bound) {
+    btnRefresh.dataset.bound = '1';
+    btnRefresh.onclick = refreshBayesStats;
+  }
+  if (btnReset && !btnReset.dataset.bound) {
+    btnReset.dataset.bound = '1';
+    btnReset.onclick = async () => {
+      const r = await window.api.bayes.stats();
+      const total = (r.totalSpamMsgs || 0) + (r.totalHamMsgs || 0);
+      if (!confirm(
+        `Bayesian filtrenin TÜM eğitim verisi silinecek.\n\n` +
+        `${r.totalTokens || 0} token, ${r.totalSpamMsgs || 0} spam, ${r.totalHamMsgs || 0} ham mesaj öğrenmesi sıfırlanır.\n\n` +
+        `Bu işlem GERİ ALINAMAZ. Emin misiniz?`
+      )) return;
+      await window.api.bayes.reset();
+      flashSettingsSavedIndicator();
+      setStatus('✓ Bayesian filtre sıfırlandı');
+      await refreshBayesStats();
+    };
+  }
+}
+
+async function refreshBayesStats() {
+  const r = await window.api.bayes.stats();
+  const elTokens = document.getElementById('bayes_tokens');
+  const elSpam = document.getElementById('bayes_spam_count');
+  const elHam = document.getElementById('bayes_ham_count');
+  const elStatus = document.getElementById('bayes_status');
+  if (!elTokens) return;
+
+  elTokens.textContent = (r.totalTokens || 0).toLocaleString('tr-TR');
+  elSpam.textContent = (r.totalSpamMsgs || 0).toLocaleString('tr-TR');
+  elHam.textContent = (r.totalHamMsgs || 0).toLocaleString('tr-TR');
+
+  if (r.isReady) {
+    elStatus.textContent = '🟢 AKTİF';
+    elStatus.style.color = '#2ecc71';
+  } else {
+    const spamNeeded = Math.max(0, 5 - (r.totalSpamMsgs || 0));
+    const hamNeeded = Math.max(0, 5 - (r.totalHamMsgs || 0));
+    elStatus.innerHTML = `🟡 Eğitim<br><span style="font-size:10px;font-weight:400;">${spamNeeded} spam + ${hamNeeded} ham daha</span>`;
+    elStatus.style.color = '#f39c12';
+  }
 }

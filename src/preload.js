@@ -88,6 +88,11 @@ contextBridge.exposeInMainWorld('api', {
     testKey: (apiKey) => ipcRenderer.invoke('virustotal:testKey', apiKey),
     clearCache: () => ipcRenderer.invoke('virustotal:clearCache')
   },
+  bayes: {
+    stats: () => ipcRenderer.invoke('bayes:stats'),
+    reset: () => ipcRenderer.invoke('bayes:reset'),
+    predictMessage: (messageId) => ipcRenderer.invoke('bayes:predictMessage', messageId)
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

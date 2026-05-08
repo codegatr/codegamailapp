@@ -234,6 +234,34 @@
           <button class="btn btn-ghost" id="btnVtClearCache" style="font-size:11px;">🗑 Tarama Önbelleğini Temizle</button>
         </div>
 
+        <!-- v1.14: Bayesian Spam Filter -->
+        <div class="form-section full" style="margin-top:18px;">🧠 Akıllı Spam Filtresi (Bayesian)</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px;">
+          Mesajları "Bu Spam" / "Spam Değil" olarak işaretledikçe filtreniz öğrenir ve kişiselleşir. En az <strong>5 spam + 5 normal</strong> mesaj eğitilince devreye girer. (Paul Graham'ın klasik Bayesian algoritması)
+        </div>
+        <div id="bayesStatsBox" class="bayes-stats">
+          <div class="bayes-stat">
+            <div class="bayes-stat-label">Toplam Token</div>
+            <div class="bayes-stat-value" id="bayes_tokens">—</div>
+          </div>
+          <div class="bayes-stat">
+            <div class="bayes-stat-label">Spam Mesaj</div>
+            <div class="bayes-stat-value" id="bayes_spam_count" style="color:#e74c3c;">—</div>
+          </div>
+          <div class="bayes-stat">
+            <div class="bayes-stat-label">Normal Mesaj</div>
+            <div class="bayes-stat-value" id="bayes_ham_count" style="color:#2ecc71;">—</div>
+          </div>
+          <div class="bayes-stat">
+            <div class="bayes-stat-label">Durum</div>
+            <div class="bayes-stat-value" id="bayes_status">—</div>
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:6px;">
+          <button class="btn btn-ghost" id="btnBayesRefresh" style="font-size:11px;">🔄 Yenile</button>
+          <button class="btn btn-ghost" id="btnBayesReset" style="font-size:11px;color:var(--danger);">🗑 Tüm Eğitimi Sıfırla</button>
+        </div>
+
         <!-- Hakkında -->
         <div class="form-section full" style="margin-top:18px;">ℹ Hakkında</div>
         <div style="font-size:12px;color:var(--text-2);line-height:1.6;">

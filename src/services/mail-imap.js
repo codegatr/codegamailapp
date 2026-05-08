@@ -171,7 +171,7 @@ class ImapService {
                 // Spam değerlendirmesi - ama hâlihazırda Junk klasöründe gelen maile yapma
                 let targetFolderId = folderId;
                 if (spamCtx.spamRules && !spamCtx.isSpamFolder) {
-                  const spamResult = SpamFilter.evaluate(messageData, spamCtx.spamRules);
+                  const spamResult = SpamFilter.evaluate(messageData, spamCtx.spamRules, db);
                   messageData.spam_score = spamResult.score;
                   if (spamResult.action === 'spam' && spamResult.score >= spamCtx.spamThreshold) {
                     messageData.is_spam = true;

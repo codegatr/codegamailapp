@@ -1753,3 +1753,32 @@ body { display: flex; flex-direction: column; }
   50% { transform: scale(1.08); }
   100% { transform: scale(1); }
 }
+
+/* ============= v1.14: Bayesian Stats ============= */
+.bayes-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.bayes-stat {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+}
+.bayes-stat-label {
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.bayes-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+@media (max-width: 700px) {
+  .bayes-stats { grid-template-columns: repeat(2, 1fr); }
+}

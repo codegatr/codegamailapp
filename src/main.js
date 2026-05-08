@@ -693,15 +693,55 @@ ipcMain.handle('messages:move', async (_, messageId, targetFolderId) => {
 });
 
 ipcMain.handle('messages:markSpam', async (_, messageId) => {
+  // v1.14: Bayes - bu mesajı spam olarak öğret
+  try {
+    const BayesFilter = require('./services/bayes');
+    const msg = db.getMessage(messageId);
+    if (msg) {
+      // Eğer önceden ham olarak öğretilmişse önce onu geri al
+      // (basit yaklaşım: sadece spam ekle, double-counting kabul ediyoruz; küçük etki)
+      BayesFilter.train(db, msg, true);
+      db.save();
+    }
+  } catch (e) { console.warn('Bayes train spam:', e.message); }
+
   const r = await mailService.markAsSpam(messageId);
   updateTray();
   return r;
 });
 
 ipcMain.handle('messages:markNotSpam', async (_, messageId) => {
+  // v1.14: Bayes - bu mesajı ham (spam değil) olarak öğret
+  try {
+    const BayesFilter = require('./services/bayes');
+    const msg = db.getMessage(messageId);
+    if (msg) {
+      BayesFilter.train(db, msg, false);
+      db.save();
+    }
+  } catch (e) { console.warn('Bayes train ham:', e.message); }
+
   const r = await mailService.markAsNotSpam(messageId);
   updateTray();
   return r;
+});
+
+// v1.14: Bayes IPC
+ipcMain.handle('bayes:stats', () => db.bayesStats());
+ipcMain.handle('bayes:reset', () => {
+  db.bayesReset();
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('bayes:predictMessage', (_, messageId) => {
+  try {
+    const BayesFilter = require('./services/bayes');
+    const msg = db.getMessage(messageId);
+    if (!msg) return { ok: false, error: 'Mesaj bulunamadı' };
+    return Object.assign({ ok: true }, BayesFilter.predict(db, msg));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 });
 
 // =====================================================================

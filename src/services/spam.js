@@ -48,29 +48,27 @@ const SPAM_KEYWORDS_BODY = [
 class SpamFilter {
   /**
    * Bir mailin spam puanını hesaplar.
-   * @param {Object} message - parsed mail nesnesi (subject, from_addr, body_text, ...)
+   * @param {Object} message - parsed mail nesnesi
    * @param {Array} rules - DB'den gelen spam_rules listesi
-   * @returns {Object} { score, reasons, action }
-   *   action: 'allow' | 'inbox' | 'spam'
+   * @param {Object} db - opsiyonel; verilirse Bayesian skoru da puana katılır
    */
-  static evaluate(message, rules = []) {
+  static evaluate(message, rules = [], db = null) {
     const reasons = [];
 
-    // 1) Whitelist eşleşmesi -> direkt geç
+    // 1) Whitelist
     for (const rule of rules.filter(r => r.action === 'allow')) {
       if (SpamFilter._matches(rule, message)) {
         return { score: 0, reasons: ['whitelist eşleşmesi: ' + rule.pattern], action: 'allow' };
       }
     }
 
-    // 2) Blacklist eşleşmesi -> direkt spam
+    // 2) Blacklist
     for (const rule of rules.filter(r => r.action === 'block')) {
       if (SpamFilter._matches(rule, message)) {
         return { score: 100, reasons: ['blacklist eşleşmesi: ' + rule.pattern], action: 'spam' };
       }
     }
 
-    // 3) Heuristik puanlama
     let score = 0;
     const subject = (message.subject || '').toLowerCase();
     const subjectRaw = message.subject || '';
@@ -140,6 +138,33 @@ class SpamFilter {
     }
 
     score = Math.max(0, Math.min(100, score));
+
+    // v1.14: Bayesian filter (DB verildiyse ve eğitim varsa)
+    if (db) {
+      try {
+        const BayesFilter = require('./bayes');
+        const bayes = BayesFilter.predict(db, message);
+        if (bayes.ready) {
+          // Bayes 0.9+ = çok yüksek spam, 0.1- = ham. Heuristik puanı modüle et
+          if (bayes.probability >= 0.9) {
+            score += 40;
+            reasons.push(`Bayes: ${bayes.score}% spam olasılığı (kullanıcının öğrettiği)`);
+          } else if (bayes.probability >= 0.7) {
+            score += 25;
+            reasons.push(`Bayes: ${bayes.score}% spam olasılığı`);
+          } else if (bayes.probability <= 0.1) {
+            // Çok düşük olasılık = bu mail büyük ihtimalle ham. Skoru azalt
+            score = Math.max(0, score - 30);
+            reasons.push(`Bayes: ham (kullanıcının öğrettiği)`);
+          } else if (bayes.probability <= 0.3) {
+            score = Math.max(0, score - 10);
+          }
+          score = Math.max(0, Math.min(100, score));
+        }
+      } catch (e) {
+        // Bayes hatası varsa sessizce devam et
+      }
+    }
 
     let action = 'inbox';
     if (score >= 50) action = 'spam';

@@ -97,7 +97,7 @@ class Pop3Service {
 
           // Spam değerlendirme
           if (spamRules) {
-            const spamResult = SpamFilter.evaluate(messageData, spamRules);
+            const spamResult = SpamFilter.evaluate(messageData, spamRules, db);
             messageData.spam_score = spamResult.score;
             if (spamResult.action === 'spam' && spamResult.score >= spamThreshold) {
               messageData.is_spam = true;
