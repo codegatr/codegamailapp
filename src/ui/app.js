@@ -7094,17 +7094,38 @@ function applyLogo(dataUrl) {
   const img = document.getElementById('customLogoImg');
   const icon = document.getElementById('brandIcon');
   const text = document.getElementById('brandText');
-  if (!img) return;
+  // v1.48: Menübar img'i de senkronize et
+  const img2 = document.getElementById('customLogoImg2');
+  const icon2 = document.getElementById('brandIcon2');
+
   if (dataUrl) {
-    img.src = dataUrl;
-    img.classList.remove('hidden');
+    if (img) {
+      img.src = dataUrl;
+      img.style.display = '';
+      img.classList.remove('hidden');
+    }
     if (icon) icon.style.display = 'none';
     if (text) text.style.display = 'none';
+    // Menübar
+    if (img2) {
+      img2.src = dataUrl;
+      img2.classList.remove('hidden');
+      img2.style.display = '';
+    }
+    if (icon2) icon2.style.display = 'none';
   } else {
-    img.src = '';
-    img.classList.add('hidden');
+    if (img) {
+      img.src = '';
+      img.classList.add('hidden');
+      img.style.display = 'none';
+    }
     if (icon) icon.style.display = '';
     if (text) text.style.display = '';
+    if (img2) {
+      img2.src = '';
+      img2.classList.add('hidden');
+    }
+    if (icon2) icon2.style.display = '';
   }
 }
 
@@ -9871,7 +9892,21 @@ const MENUS = {
     label: 'Yardım',
     items: [
       { icon: '⌨', label: 'Klavye Kısayolları', shortcut: 'F1', action: () => document.getElementById('modalKeyboardHelp')?.classList.remove('hidden') },
-      { icon: '🚀', label: 'Güncellemeyi Kontrol Et', action: () => window.api.app?.checkForUpdates?.() },
+      { icon: '🚀', label: 'Güncellemeyi Kontrol Et', action: async () => {
+        setStatus('🔎 Güncelleme aranıyor...');
+        try {
+          const r = await window.api.app?.checkForUpdates?.();
+          if (!r) { alert('Güncelleme servisi yok'); return; }
+          if (!r.ok) { alert('Güncelleme kontrolü başarısız:\n' + (r.error || 'Bilinmeyen hata')); setStatus('Güncelleme: hata', 'error'); return; }
+          if (r.hasUpdate) {
+            alert(`✓ Yeni sürüm var!\n\nMevcut: v${r.current}\nYeni: v${r.latest}\n\nİndirme arka planda başlayacak. Tamamlandığında bildirim göreceksiniz.`);
+            setStatus(`Güncelleme indiriliyor: v${r.latest}`);
+          } else {
+            alert(`✓ Güncel sürümü kullanıyorsunuz (v${r.current}).`);
+            setStatus('Güncel sürüm');
+          }
+        } catch (e) { alert('Hata: ' + e.message); }
+      } },
       { icon: '🌐', label: 'GitHub Sayfası', action: () => openExternalLink('https://github.com/codegatr/codegamailapp') },
       { icon: '🐛', label: 'Hata Bildir', action: () => openExternalLink('https://github.com/codegatr/codegamailapp/issues/new') },
       { sep: true },
@@ -9970,12 +10005,12 @@ document.addEventListener('click', (e) => {
     } else {
       showDropdown(menuId, menuItem);
     }
-    return;
+    return; // ← KRİTİK: aşağıdaki kapatma logic'i çalışmasın
   }
-  // Dışarı tıklayınca kapan
-  if (!e.target.closest('#dropdownContainer')) {
-    closeDropdown();
-  }
+  // Dropdown içine tıklandı - hiç dokunma (action handler kendi kapatır)
+  if (e.target.closest('#dropdownContainer')) return;
+  // Dışarı tıklama - kapat
+  closeDropdown();
 });
 
 // Hover ile menü değiştirme (Outlook tarzı - menü açıkken üzerine gelinen menü açılır)

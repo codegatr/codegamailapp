@@ -285,7 +285,8 @@ contextBridge.exposeInMainWorld('api', {
     openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
     dataPath: () => ipcRenderer.invoke('app:dataPath'),
     openDataFolder: () => ipcRenderer.invoke('app:openDataFolder'),
-    quit: () => ipcRenderer.invoke('app:quit')
+    quit: () => ipcRenderer.invoke('app:quit'),
+    checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates')
   },
   updater: {
     status: () => ipcRenderer.invoke('updater:status'),

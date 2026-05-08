@@ -2864,13 +2864,26 @@ ipcMain.handle('app:dataPath', () => appConfig.getDataPath());
 ipcMain.handle('app:openDataFolder', () => shell.openPath(appConfig.getDataPath()));
 ipcMain.handle('app:openLogFolder', () => shell.openPath(app.getPath('userData')));
 ipcMain.handle('app:quit', () => { isQuitting = true; app.quit(); });
-ipcMain.handle('app:checkForUpdates', () => {
+ipcMain.handle('app:checkForUpdates', async () => {
   try {
     if (typeof autoUpdater !== 'undefined' && autoUpdater) {
-      autoUpdater.checkForUpdates();
-      return { ok: true };
+      // Kullanıcıya görsel feedback ver - mainWindow'a status mesajı
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('inapp-notification', {
+          type: 'info',
+          title: 'Güncelleme Kontrolü',
+          message: 'Yeni sürüm aranıyor...'
+        });
+      }
+      const result = await autoUpdater.checkForUpdates();
+      const current = app.getVersion();
+      const latest = result?.updateInfo?.version;
+      if (latest && latest !== current) {
+        return { ok: true, hasUpdate: true, current, latest };
+      }
+      return { ok: true, hasUpdate: false, current };
     }
-    return { ok: false, error: 'Updater yapılandırılmamış' };
+    return { ok: false, error: 'Updater yapılandırılmamış (dev modda mı çalışıyor?)' };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
