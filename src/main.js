@@ -1207,19 +1207,71 @@ ipcMain.handle('sync:account', async (_, accountId) => {
 ipcMain.handle('sync:all', async () => {
   const accounts = db.listAccounts();
   const results = [];
+
+  // v1.17: Genel başlangıç event'i
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('sync:overall', {
+      stage: 'start',
+      total: accounts.length,
+      accounts: accounts.map(a => ({ id: a.id, displayName: a.display_name, email: a.email }))
+    });
+  }
+
   for (const acc of accounts) {
+    // v1.17: Hesap başlangıç event'i
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('sync:overall', {
+        stage: 'account-start',
+        accountId: acc.id,
+        displayName: acc.display_name,
+        email: acc.email
+      });
+    }
+
     try {
-      const r = await mailService.syncAccount(acc.id, (event, data) => {
+      const r = await mailService.syncAccount(acc.id, (data) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('sync:progress', { accountId: acc.id, ...data });
         }
       });
       results.push({ accountId: acc.id, ok: true, ...r });
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sync:overall', {
+          stage: 'account-done',
+          accountId: acc.id,
+          ok: true,
+          newMessages: r.newMessages || 0,
+          spamMessages: r.spamMessages || 0
+        });
+      }
     } catch (err) {
       logError('sync:' + acc.id, err);
       results.push({ accountId: acc.id, ok: false, error: err.message });
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sync:overall', {
+          stage: 'account-done',
+          accountId: acc.id,
+          ok: false,
+          error: err.message
+        });
+      }
     }
   }
+
+  // v1.17: Genel bitiş event'i
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const totalNew = results.reduce((s, r) => s + (r.newMessages || 0), 0);
+    const totalSpam = results.reduce((s, r) => s + (r.spamMessages || 0), 0);
+    const errors = results.filter(r => !r.ok).length;
+    mainWindow.webContents.send('sync:overall', {
+      stage: 'all-done',
+      totalNew, totalSpam, errors,
+      total: accounts.length
+    });
+  }
+
   db.save();
   updateTray();
   return results;

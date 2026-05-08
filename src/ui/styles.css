@@ -1998,3 +1998,207 @@ body { display: flex; flex-direction: column; }
   padding: 2px 6px;
   border-radius: 8px;
 }
+
+/* ============= v1.17: Outlook tarzı Senkronizasyon Penceresi ============= */
+.sync-modal { width: 580px; max-width: 95vw; }
+
+.sync-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.sync-summary strong { color: var(--primary); }
+
+.sync-progress-overall {
+  width: 100%;
+  height: 16px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.sync-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #2ecc71, #27ae60);
+  transition: width 0.3s ease-out;
+  position: relative;
+  box-shadow: 0 0 8px rgba(46,204,113,0.4);
+}
+.sync-progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: sync-shimmer 1.6s linear infinite;
+}
+@keyframes sync-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.sync-tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sync-tab {
+  background: transparent;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.sync-tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+.sync-tab span {
+  display: inline-block;
+  background: var(--bg-3);
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  margin-left: 6px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sync-pane { padding: 12px 0; }
+.sync-pane.hidden { display: none; }
+
+.sync-task-header {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1.5fr;
+  padding: 6px 10px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  background: var(--bg-3);
+  border-radius: 4px;
+  font-weight: 700;
+}
+.sync-tasks-list {
+  max-height: 280px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.sync-task-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1.5fr;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  transition: background 0.15s;
+}
+.sync-task-row:hover { background: var(--surface-hi); }
+.sync-task-pending { opacity: 0.6; }
+.sync-task-syncing .sync-task-icon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+.sync-task-done .sync-task-icon { color: #2ecc71; }
+.sync-task-error { color: var(--danger); }
+.sync-task-error .sync-task-icon { color: var(--danger); }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.sync-col-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sync-task-icon {
+  font-size: 13px;
+  width: 16px;
+  display: inline-block;
+  text-align: center;
+}
+.sync-task-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sync-col-progress {
+  padding: 0 8px;
+}
+.sync-mini-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.sync-mini-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2ecc71);
+  transition: width 0.3s ease-out;
+}
+.sync-task-error .sync-mini-fill {
+  background: var(--danger);
+}
+
+.sync-col-status {
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sync-current-task {
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border-radius: 4px;
+  border-left: 3px solid var(--primary);
+  font-style: italic;
+}
+
+.sync-errors-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.sync-error-item {
+  padding: 10px 12px;
+  border: 1px solid rgba(231,76,60,0.3);
+  background: rgba(231,76,60,0.06);
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.sync-error-account {
+  font-weight: 600;
+  font-size: 13px;
+  color: #ff6b6b;
+  margin-bottom: 4px;
+}
+.sync-error-msg {
+  font-size: 12px;
+  color: var(--text);
+  font-family: monospace;
+  background: rgba(0,0,0,0.2);
+  padding: 6px 8px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+.sync-error-time {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+}

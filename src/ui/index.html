@@ -79,6 +79,50 @@
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
 
+  <!-- ===== v1.17: Senkronizasyon İlerleme Penceresi (Outlook tarzı) ===== -->
+  <div id="modalSyncProgress" class="modal hidden">
+    <div class="modal-content modal-md sync-modal">
+      <div class="modal-header">
+        <h2 id="syncModalTitle">📧 Gönderme/Alma İlerlemesi</h2>
+        <button class="modal-close" id="btnCloseSyncModal" title="Kapat">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="sync-summary">
+          <span id="syncSummaryText"><strong>0 / 0</strong> hesap senkronize ediliyor</span>
+          <button class="btn btn-ghost" id="btnSyncCancelAll" style="font-size:11px;" disabled>Tümünü İptal</button>
+        </div>
+        <div class="sync-progress-overall">
+          <div id="syncOverallBar" class="sync-progress-bar" style="width:0%;"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2);margin:10px 0 6px;">
+          <input type="checkbox" id="syncAutoClose" checked>
+          <span>Senkronizasyon bitince bu pencereyi otomatik kapat</span>
+        </label>
+
+        <div class="sync-tabs">
+          <button class="sync-tab active" data-tab="tasks">Görevler <span id="syncTaskCount">0</span></button>
+          <button class="sync-tab" data-tab="errors">Hatalar <span id="syncErrorCount" style="color:var(--danger);">0</span></button>
+        </div>
+
+        <div id="syncTasksPane" class="sync-pane">
+          <div class="sync-task-header">
+            <span class="sync-col-name">Hesap</span>
+            <span class="sync-col-progress">İlerleme</span>
+            <span class="sync-col-status">Durum</span>
+          </div>
+          <div id="syncTasksList" class="sync-tasks-list"></div>
+          <div id="syncCurrentTask" class="sync-current-task">—</div>
+        </div>
+
+        <div id="syncErrorsPane" class="sync-pane hidden">
+          <div id="syncErrorsList" class="sync-errors-list">
+            <div class="empty-state" style="padding:20px;font-size:12px;">Hata yok</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== İlk Çalıştırma ===== -->
   <div id="modalFirstRun" class="modal hidden">
     <div class="modal-content">

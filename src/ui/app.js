@@ -1623,20 +1623,239 @@ async function deleteCurrentMessage() {
   } catch (e) { setStatus('Silme hatası: ' + e.message, 'error'); }
 }
 
-// ============= Senkronizasyon =============
+// ============= v1.17: Senkronizasyon İlerleme Penceresi (Outlook tarzı) =============
+const syncState = {
+  accounts: new Map(),  // accountId → { displayName, email, status, progress, currentFolder, newMessages, error }
+  errors: [],
+  totalAccounts: 0,
+  doneAccounts: 0,
+  active: false,
+  bound: false
+};
+
 async function syncAll() {
   if (!state.accounts.length) return setStatus('Önce bir hesap ekleyin');
-  setStatus('Tüm hesaplar senkronize ediliyor…');
-  const results = await window.api.sync.all();
-  const total = results.reduce((acc, r) => acc + (r.newMessages || 0), 0);
-  const totalSpam = results.reduce((acc, r) => acc + (r.spamMessages || 0), 0);
-  const errors = results.filter(r => !r.ok);
-  let msg = `Senkronizasyon tamamlandı - ${total} yeni mesaj`;
-  if (totalSpam > 0) msg += `, ${totalSpam} spam`;
-  if (errors.length) msg += `, ${errors.length} hata`;
-  setStatus(msg);
-  await loadAccounts();
-  if (state.selectedFolder) await loadMessages();
+  if (syncState.active) {
+    // Zaten devam ediyor - sadece pencereyi göster
+    document.getElementById('modalSyncProgress').classList.remove('hidden');
+    return;
+  }
+
+  // UI hazırla
+  syncState.active = true;
+  syncState.accounts.clear();
+  syncState.errors = [];
+  syncState.doneAccounts = 0;
+  syncState.totalAccounts = 0;
+  bindSyncProgressUI();
+  resetSyncProgressUI();
+  document.getElementById('modalSyncProgress').classList.remove('hidden');
+
+  setStatus('Senkronizasyon başladı...');
+
+  try {
+    const results = await window.api.sync.all();
+    const total = results.reduce((acc, r) => acc + (r.newMessages || 0), 0);
+    const totalSpam = results.reduce((acc, r) => acc + (r.spamMessages || 0), 0);
+    const errors = results.filter(r => !r.ok);
+    let msg = `Senkronizasyon tamamlandı - ${total} yeni mesaj`;
+    if (totalSpam > 0) msg += `, ${totalSpam} spam`;
+    if (errors.length) msg += `, ${errors.length} hata`;
+    setStatus(msg);
+    await loadAccounts();
+    if (state.selectedFolder) await loadMessages();
+  } finally {
+    syncState.active = false;
+  }
+}
+
+function bindSyncProgressUI() {
+  if (syncState.bound) return;
+  syncState.bound = true;
+
+  // Tab'lar
+  document.querySelectorAll('.sync-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.sync-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.tab;
+      document.getElementById('syncTasksPane').classList.toggle('hidden', target !== 'tasks');
+      document.getElementById('syncErrorsPane').classList.toggle('hidden', target !== 'errors');
+    };
+  });
+
+  // Kapat butonu
+  document.getElementById('btnCloseSyncModal').onclick = () => {
+    document.getElementById('modalSyncProgress').classList.add('hidden');
+  };
+
+  // sync:overall event'leri
+  window.api.on('sync:overall', (data) => {
+    if (data.stage === 'start') {
+      syncState.totalAccounts = data.total;
+      syncState.doneAccounts = 0;
+      for (const a of (data.accounts || [])) {
+        syncState.accounts.set(a.id, {
+          id: a.id,
+          displayName: a.displayName,
+          email: a.email,
+          status: 'pending',
+          progress: 0,
+          newMessages: 0
+        });
+      }
+      renderSyncTasks();
+      updateSyncSummary();
+    } else if (data.stage === 'account-start') {
+      const acc = syncState.accounts.get(data.accountId);
+      if (acc) {
+        acc.status = 'syncing';
+        acc.progress = 5;
+        acc.currentFolder = 'Bağlanıyor...';
+      }
+      renderSyncTasks();
+      document.getElementById('syncCurrentTask').textContent =
+        `${data.displayName || data.email} - Senkronize ediliyor...`;
+    } else if (data.stage === 'account-done') {
+      const acc = syncState.accounts.get(data.accountId);
+      if (acc) {
+        if (data.ok) {
+          acc.status = 'done';
+          acc.progress = 100;
+          acc.newMessages = data.newMessages || 0;
+          acc.spamMessages = data.spamMessages || 0;
+          acc.currentFolder = null;
+        } else {
+          acc.status = 'error';
+          acc.progress = 100;
+          acc.error = data.error || 'Bilinmeyen hata';
+          syncState.errors.push({
+            accountId: data.accountId,
+            displayName: acc.displayName,
+            email: acc.email,
+            error: acc.error,
+            time: new Date()
+          });
+          renderSyncErrors();
+        }
+      }
+      syncState.doneAccounts++;
+      renderSyncTasks();
+      updateSyncSummary();
+    } else if (data.stage === 'all-done') {
+      document.getElementById('syncCurrentTask').textContent =
+        `✓ Tamamlandı: ${data.totalNew} yeni mesaj` +
+        (data.totalSpam > 0 ? `, ${data.totalSpam} spam` : '') +
+        (data.errors > 0 ? `, ${data.errors} hata` : '');
+      // Otomatik kapat
+      const autoClose = document.getElementById('syncAutoClose');
+      if (autoClose && autoClose.checked && data.errors === 0) {
+        setTimeout(() => {
+          if (!syncState.active) document.getElementById('modalSyncProgress').classList.add('hidden');
+        }, 1500);
+      }
+    }
+  });
+
+  // sync:progress (klasör/fetch detayları)
+  window.api.on('sync:progress', (data) => {
+    const acc = syncState.accounts.get(data.accountId);
+    if (!acc) return;
+
+    if (data.stage === 'folders') {
+      acc.totalFolders = data.count;
+      acc.doneFolders = 0;
+      acc.progress = 10;
+      acc.currentFolder = `${data.count} klasör bulundu`;
+    } else if (data.stage === 'fetching') {
+      acc.currentFolder = `${data.folder} - ${data.count} mail çekiliyor`;
+      // İlerleme hesapla
+      if (acc.totalFolders) {
+        acc.doneFolders = (acc.doneFolders || 0) + 1;
+        acc.progress = Math.min(95, 10 + (acc.doneFolders / acc.totalFolders) * 85);
+      }
+    } else if (data.stage === 'folder-error') {
+      acc.lastWarning = `Klasör hatası: ${data.folder} - ${data.error}`;
+    }
+    renderSyncTasks();
+    document.getElementById('syncCurrentTask').textContent =
+      `${acc.displayName} - ${acc.currentFolder || ''}`;
+  });
+}
+
+function resetSyncProgressUI() {
+  document.getElementById('syncTasksList').innerHTML = '';
+  document.getElementById('syncErrorsList').innerHTML =
+    '<div class="empty-state" style="padding:20px;font-size:12px;">Hata yok</div>';
+  document.getElementById('syncCurrentTask').textContent = 'Başlatılıyor...';
+  document.getElementById('syncTaskCount').textContent = '0';
+  document.getElementById('syncErrorCount').textContent = '0';
+  document.getElementById('syncOverallBar').style.width = '0%';
+  document.getElementById('syncSummaryText').innerHTML = '<strong>0 / 0</strong> hesap senkronize ediliyor';
+  // Görevler tab'ı aktif
+  document.querySelectorAll('.sync-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('.sync-tab[data-tab="tasks"]')?.classList.add('active');
+  document.getElementById('syncTasksPane').classList.remove('hidden');
+  document.getElementById('syncErrorsPane').classList.add('hidden');
+}
+
+function renderSyncTasks() {
+  const list = document.getElementById('syncTasksList');
+  if (!list) return;
+  const accounts = Array.from(syncState.accounts.values());
+  list.innerHTML = accounts.map(a => {
+    let statusIcon = '⏳', statusText = 'Bekliyor', statusClass = 'pending';
+    if (a.status === 'syncing') { statusIcon = '↻'; statusText = 'Senkronize ediliyor'; statusClass = 'syncing'; }
+    else if (a.status === 'done') { statusIcon = '✓'; statusText = `Tamamlandı (${a.newMessages || 0} yeni)`; statusClass = 'done'; }
+    else if (a.status === 'error') { statusIcon = '✗'; statusText = 'Hata'; statusClass = 'error'; }
+
+    return `
+      <div class="sync-task-row sync-task-${statusClass}">
+        <div class="sync-col-name">
+          <span class="sync-task-icon">${statusIcon}</span>
+          <span class="sync-task-name" title="${escapeHtml(a.email)}">${escapeHtml(a.displayName)}</span>
+        </div>
+        <div class="sync-col-progress">
+          <div class="sync-mini-bar"><div class="sync-mini-fill" style="width:${a.progress || 0}%;"></div></div>
+        </div>
+        <div class="sync-col-status">${escapeHtml(statusText)}</div>
+      </div>
+    `;
+  }).join('');
+
+  document.getElementById('syncTaskCount').textContent = String(accounts.length);
+}
+
+function renderSyncErrors() {
+  const list = document.getElementById('syncErrorsList');
+  if (!list) return;
+  if (!syncState.errors.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:20px;font-size:12px;">Hata yok</div>';
+    document.getElementById('syncErrorCount').textContent = '0';
+    return;
+  }
+  list.innerHTML = syncState.errors.map(e => `
+    <div class="sync-error-item">
+      <div class="sync-error-account">⚠ ${escapeHtml(e.displayName)} <span style="color:var(--muted);font-weight:400;font-size:11px;">${escapeHtml(e.email)}</span></div>
+      <div class="sync-error-msg">${escapeHtml(e.error)}</div>
+      <div class="sync-error-time">${e.time.toLocaleTimeString('tr-TR')}</div>
+    </div>
+  `).join('');
+  document.getElementById('syncErrorCount').textContent = String(syncState.errors.length);
+}
+
+function updateSyncSummary() {
+  const summary = document.getElementById('syncSummaryText');
+  const bar = document.getElementById('syncOverallBar');
+  const total = syncState.totalAccounts;
+  const done = syncState.doneAccounts;
+  if (summary) {
+    summary.innerHTML = `<strong>${done} / ${total}</strong> hesap senkronize edildi`;
+  }
+  if (bar) {
+    const pct = total > 0 ? (done / total) * 100 : 0;
+    bar.style.width = pct + '%';
+  }
 }
 
 async function syncAccount(accountId) {
