@@ -2180,6 +2180,15 @@ ipcMain.handle('stats:categoryDistribution', () => db.getCategoryDistribution())
 ipcMain.handle('stats:accountDistribution', () => db.getAccountDistribution());
 
 // =====================================================================
+// v1.50 IPC: Birleşik Bildirim Paneli
+// =====================================================================
+ipcMain.handle('notifications:recent', (_, hours, limit) => {
+  return db.getRecentMessagesAcrossAccounts(hours || 24, limit || 100);
+});
+
+ipcMain.handle('notifications:unreadByAccount', () => db.getUnreadByAccount());
+
+// =====================================================================
 // v1.46 IPC: Read Receipt (RFC 3798 MDN)
 // =====================================================================
 const ReadReceiptService = require('./services/read-receipt');

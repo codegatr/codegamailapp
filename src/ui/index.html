@@ -54,6 +54,9 @@
       <div class="toolbar-spacer"></div>
       <div id="quickStepsBar" class="quick-steps-bar"></div>
       <button id="btnDashboard" class="btn btn-ghost" title="Gösterge paneli (Ctrl+Shift+D)">📊</button>
+      <button id="btnNotifications" class="btn btn-ghost" title="Bildirimler (Ctrl+Shift+N)" style="position:relative;">
+        🔔 <span id="notifBadge" class="notif-badge hidden">0</span>
+      </button>
       <button id="btnUpdateBadge" class="btn btn-update hidden" title="Güncelleme mevcut">🚀 Güncelle</button>
     </div>
   </header>
@@ -132,6 +135,30 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.50: Birleşik Bildirim Paneli ===== -->
+  <div id="notifPanel" class="notif-panel hidden">
+    <div class="notif-panel-header">
+      <h3>🔔 Bildirimler</h3>
+      <div class="notif-panel-tabs">
+        <button class="notif-tab active" data-notif-tab="recent">📬 Son Mailler</button>
+        <button class="notif-tab" data-notif-tab="accounts">📧 Hesap Özeti</button>
+      </div>
+      <button class="notif-close" id="notifClose">×</button>
+    </div>
+    <div class="notif-panel-toolbar">
+      <select id="notifHourRange">
+        <option value="6">Son 6 saat</option>
+        <option value="24" selected>Son 24 saat</option>
+        <option value="72">Son 3 gün</option>
+        <option value="168">Son hafta</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" id="notifRefresh" title="Yenile">↻</button>
+    </div>
+    <div class="notif-panel-body">
+      <div id="notifList" class="notif-list"></div>
+    </div>
+  </div>
 
   <!-- ===== v1.45: Gösterge Paneli ===== -->
   <div id="modalDashboard" class="modal hidden">

@@ -9857,7 +9857,8 @@ const MENUS = {
       { icon: '💬', label: 'Konuşma Görünümü', action: () => document.getElementById('btnConversationView').click() },
       { icon: '🔍', label: 'Gelişmiş Arama', shortcut: 'Ctrl+Shift+F', action: () => document.getElementById('btnAdvancedSearch').click() },
       { icon: '📊', label: 'Gösterge Paneli', shortcut: 'Ctrl+Shift+D', action: () => openDashboard() },
-      { icon: '⌨', label: 'Komut Paleti', shortcut: 'Ctrl+K', action: () => openCommandPalette() }
+      { icon: '⌨', label: 'Komut Paleti', shortcut: 'Ctrl+K', action: () => openCommandPalette() },
+      { icon: '🔔', label: 'Bildirim Paneli', shortcut: 'Ctrl+Shift+N', action: () => openNotifPanel() }
     ]
   },
   araclar: {
@@ -10168,3 +10169,225 @@ if (typeof _origOpenSettings === 'function') {
     return r;
   };
 }
+
+// ============= v1.50: Birleşik Bildirim Paneli =============
+let _notifTab = 'recent';
+let _notifAutoRefresh = null;
+
+async function openNotifPanel() {
+  const panel = document.getElementById('notifPanel');
+  panel.classList.remove('hidden');
+  await refreshNotifications();
+  // Otomatik yenile (her 60sn)
+  if (_notifAutoRefresh) clearInterval(_notifAutoRefresh);
+  _notifAutoRefresh = setInterval(() => {
+    if (!panel.classList.contains('hidden')) refreshNotifications();
+  }, 60000);
+}
+
+function closeNotifPanel() {
+  document.getElementById('notifPanel').classList.add('hidden');
+  if (_notifAutoRefresh) { clearInterval(_notifAutoRefresh); _notifAutoRefresh = null; }
+}
+
+async function refreshNotifications() {
+  if (_notifTab === 'recent') {
+    const hours = parseInt(document.getElementById('notifHourRange').value, 10) || 24;
+    const list = await window.api.notifications.recent(hours, 100);
+    renderNotifList(list);
+  } else {
+    const accounts = await window.api.notifications.unreadByAccount();
+    renderNotifAccounts(accounts);
+  }
+}
+
+function renderNotifList(list) {
+  const c = document.getElementById('notifList');
+  if (!list || !list.length) {
+    c.innerHTML = '<div class="empty-state" style="padding:30px;text-align:center;color:var(--muted);">Bu zaman aralığında yeni mail yok</div>';
+    return;
+  }
+  c.innerHTML = list.map(m => {
+    const date = m.date ? formatDate(m.date) : '';
+    const fromName = m.from_name || m.from_addr || '?';
+    const initial = fromName.charAt(0).toUpperCase();
+    const senderEmail = (m.from_addr || '').toLowerCase();
+    let hash = 0;
+    for (let i = 0; i < senderEmail.length; i++) hash = senderEmail.charCodeAt(i) + ((hash << 5) - hash);
+    const palette = ['#3498db','#9b59b6','#e74c3c','#f39c12','#2ecc71','#1abc9c','#e67e22','#34495e'];
+    const color = palette[Math.abs(hash) % palette.length];
+    const accLabel = m._account_email ? `<span class="notif-acc-tag">${escapeHtml(m._account_email)}</span>` : '';
+    const flags = [];
+    if (!m.is_read) flags.push('<span class="notif-flag notif-flag-unread">YENİ</span>');
+    if (m.is_important) flags.push('<span class="notif-flag notif-flag-imp">⭐</span>');
+    if (m.has_attachments) flags.push('<span class="notif-flag">📎</span>');
+    if (m.requested_read_receipt) flags.push('<span class="notif-flag notif-flag-mdn">📬</span>');
+
+    return `
+      <div class="notif-item ${m.is_read ? '' : 'unread'}" data-msgid="${m.id}">
+        <div class="notif-avatar" style="background:${color};">${escapeHtml(initial)}</div>
+        <div class="notif-content">
+          <div class="notif-line1">
+            <span class="notif-from">${escapeHtml(fromName)}</span>
+            <span class="notif-date">${date}</span>
+          </div>
+          <div class="notif-subj">${escapeHtml(m.subject || '(Konu yok)')}</div>
+          <div class="notif-meta">
+            ${accLabel}
+            ${flags.join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Tıklayınca o maili aç
+  c.querySelectorAll('.notif-item').forEach(el => {
+    el.onclick = async () => {
+      const msgId = parseInt(el.dataset.msgid, 10);
+      const msg = list.find(x => x.id === msgId);
+      if (!msg) return;
+      // Hesap+klasörü seç, mesaj listesini yükle, mesajı aç
+      const acc = state.accounts.find(a => a.id === msg.account_id);
+      if (acc) {
+        // Hesabı genişlet ve INBOX'a git (kabaca, doğrudan mail aç da çalışır)
+        const folders = await window.api.folders.list(acc.id);
+        const inbox = folders.find(f => f.name === 'INBOX' || f.special_use === '\\Inbox') || folders[0];
+        if (inbox) {
+          state.selectedFolder = inbox;
+          state.searchQuery = '';
+          await loadMessages();
+        }
+      }
+      // Bildirim panelini kapat ve mesajı aç
+      closeNotifPanel();
+      const fullMsg = state.messages.find(m => m.id === msgId);
+      if (fullMsg) {
+        state.selectedMessage = fullMsg;
+        renderMessageView(fullMsg);
+        if (!fullMsg.is_read) {
+          await window.api.messages.markRead(msgId, true);
+          fullMsg.is_read = true;
+          renderMessageList();
+        }
+      } else {
+        // Yeni pencerede aç - belki klasör yüklü değil
+        window.api.messages.openInWindow(msgId);
+      }
+    };
+  });
+}
+
+function renderNotifAccounts(accounts) {
+  const c = document.getElementById('notifList');
+  if (!accounts || !accounts.length) {
+    c.innerHTML = '<div class="empty-state" style="padding:30px;color:var(--muted);">Hesap yok</div>';
+    return;
+  }
+  const totalUnread = accounts.reduce((s, a) => s + (a.unread || 0), 0);
+  const totalToday = accounts.reduce((s, a) => s + (a.today || 0), 0);
+
+  c.innerHTML = `
+    <div class="notif-summary">
+      <div class="notif-summary-card">
+        <div class="notif-summary-num">${totalUnread}</div>
+        <div class="notif-summary-label">📨 Toplam Okunmamış</div>
+      </div>
+      <div class="notif-summary-card">
+        <div class="notif-summary-num">${totalToday}</div>
+        <div class="notif-summary-label">📅 Son 24 Saat</div>
+      </div>
+    </div>
+    <div class="notif-accounts">
+      ${accounts.map(a => {
+        const initial = (a.display_name || a.email || '?').charAt(0).toUpperCase();
+        const e = (a.email || '').toLowerCase();
+        let hash = 0;
+        for (let i = 0; i < e.length; i++) hash = e.charCodeAt(i) + ((hash << 5) - hash);
+        const palette = ['#3498db','#9b59b6','#e74c3c','#f39c12','#2ecc71','#1abc9c','#e67e22','#34495e'];
+        const color = palette[Math.abs(hash) % palette.length];
+        return `
+          <div class="notif-acc-row" data-accid="${a.id}">
+            <div class="notif-avatar" style="background:${color};">${escapeHtml(initial)}</div>
+            <div class="notif-acc-info">
+              <div class="notif-acc-name">${escapeHtml(a.display_name || '')}</div>
+              <div class="notif-acc-email">${escapeHtml(a.email || '')}</div>
+            </div>
+            <div class="notif-acc-stats">
+              ${a.unread > 0 ? `<span class="notif-stat-unread">${a.unread} okunmamış</span>` : '<span class="notif-stat-clean">✓ tümü okundu</span>'}
+              ${a.today > 0 ? `<span class="notif-stat-today">${a.today} bugün</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  c.querySelectorAll('.notif-acc-row').forEach(el => {
+    el.onclick = async () => {
+      const accId = parseInt(el.dataset.accid, 10);
+      const folders = await window.api.folders.list(accId);
+      const inbox = folders.find(f => f.name === 'INBOX' || f.special_use === '\\Inbox') || folders[0];
+      if (inbox) {
+        state.selectedFolder = inbox;
+        await loadMessages();
+        closeNotifPanel();
+      }
+    };
+  });
+}
+
+// Toolbar 🔔 butonu + Ctrl+Shift+N
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btnNotifications')) {
+    const panel = document.getElementById('notifPanel');
+    if (panel.classList.contains('hidden')) openNotifPanel();
+    else closeNotifPanel();
+  }
+  if (e.target.closest('#notifClose')) closeNotifPanel();
+  if (e.target.closest('#notifRefresh')) refreshNotifications();
+  const tab = e.target.closest('.notif-tab');
+  if (tab) {
+    document.querySelectorAll('.notif-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    _notifTab = tab.dataset.notifTab;
+    refreshNotifications();
+  }
+});
+
+document.getElementById('notifHourRange')?.addEventListener('change', refreshNotifications);
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'n') {
+    e.preventDefault();
+    const panel = document.getElementById('notifPanel');
+    if (panel.classList.contains('hidden')) openNotifPanel();
+    else closeNotifPanel();
+  }
+});
+
+// Toolbar badge - okunmamış sayısı
+async function updateNotifBadge() {
+  try {
+    const accounts = await window.api.notifications.unreadByAccount();
+    const total = accounts.reduce((s, a) => s + (a.unread || 0), 0);
+    const badge = document.getElementById('notifBadge');
+    if (!badge) return;
+    if (total > 0) {
+      badge.textContent = total > 99 ? '99+' : total;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  } catch (_) {}
+}
+setInterval(updateNotifBadge, 30000);
+setTimeout(updateNotifBadge, 1500);
+
+// Sync sonrası badge güncelle
+window.api.on('background-sync-done', () => {
+  updateNotifBadge();
+  // Panel açıksa yenile
+  const panel = document.getElementById('notifPanel');
+  if (panel && !panel.classList.contains('hidden')) refreshNotifications();
+});

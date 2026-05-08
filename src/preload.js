@@ -156,6 +156,10 @@ contextBridge.exposeInMainWorld('api', {
     categoryDistribution: () => ipcRenderer.invoke('stats:categoryDistribution'),
     accountDistribution: () => ipcRenderer.invoke('stats:accountDistribution')
   },
+  notifications: {
+    recent: (hours, limit) => ipcRenderer.invoke('notifications:recent', hours, limit),
+    unreadByAccount: () => ipcRenderer.invoke('notifications:unreadByAccount')
+  },
   readReceipt: {
     send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
     ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),

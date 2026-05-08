@@ -2435,6 +2435,45 @@ class Database {
     return this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
   }
 
+  /**
+   * v1.50: Birleşik bildirim paneli için son N saatteki tüm yeni mailler
+   */
+  getRecentMessagesAcrossAccounts(hours = 24, limit = 100) {
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+    return this.prepare(`
+      SELECT
+        m.id, m.account_id, m.folder_id, m.subject, m.from_name, m.from_addr,
+        m.date, m.is_read, m.is_important, m.is_spam, m.has_attachments,
+        m.preview, m.request_read_receipt, m.requested_read_receipt,
+        a.display_name AS _account_name, a.email AS _account_email,
+        f.name AS _folder_name
+      FROM messages m
+      LEFT JOIN accounts a ON a.id = m.account_id
+      LEFT JOIN folders f ON f.id = m.folder_id
+      WHERE m.date >= ?
+        AND (m.is_archived = 0 OR m.is_archived IS NULL)
+        AND m.is_spam = 0
+      ORDER BY m.date DESC
+      LIMIT ?
+    `).all(since, limit);
+  }
+
+  /**
+   * Hesap başına okunmamış sayısı (özet)
+   */
+  getUnreadByAccount() {
+    return this.prepare(`
+      SELECT
+        a.id, a.display_name, a.email,
+        COUNT(CASE WHEN m.is_read = 0 AND m.is_spam = 0 AND (m.is_archived = 0 OR m.is_archived IS NULL) THEN 1 END) AS unread,
+        COUNT(CASE WHEN m.date >= datetime('now', '-24 hours') AND m.is_spam = 0 THEN 1 END) AS today
+      FROM accounts a
+      LEFT JOIN messages m ON m.account_id = a.id
+      GROUP BY a.id
+      ORDER BY unread DESC, a.id
+    `).all();
+  }
+
   // ====== v1.45: Gösterge Paneli İstatistikleri ======
   getStatsOverview() {
     const total = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE is_archived = 0 OR is_archived IS NULL').get()?.c || 0;
