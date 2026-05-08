@@ -266,6 +266,10 @@ class Database {
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_threshold INTEGER DEFAULT 50');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN sort_order INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN signature_data TEXT'); // v1.38: imza şablonu JSON
+    this._safeAlter('ALTER TABLE accounts ADD COLUMN auth_type TEXT DEFAULT \'password\''); // v1.42: 'password' | 'oauth2_microsoft' | 'oauth2_google'
+    this._safeAlter('ALTER TABLE accounts ADD COLUMN oauth_access_token TEXT');   // encrypted
+    this._safeAlter('ALTER TABLE accounts ADD COLUMN oauth_refresh_token TEXT');  // encrypted
+    this._safeAlter('ALTER TABLE accounts ADD COLUMN oauth_expires_at TEXT');     // ISO timestamp
     this._safeAlter('ALTER TABLE folders ADD COLUMN is_local INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN reply_to_addr TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_spam INTEGER DEFAULT 0');
@@ -652,7 +656,8 @@ class Database {
     const allowed = ['display_name', 'in_host', 'in_port', 'in_secure', 'in_username',
       'in_password', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_username',
       'smtp_password', 'pop3_leave_on_server', 'signature', 'signature_data',
-      'spam_enabled', 'spam_threshold', 'sort_order'];
+      'spam_enabled', 'spam_threshold', 'sort_order',
+      'auth_type', 'oauth_access_token', 'oauth_refresh_token', 'oauth_expires_at'];
     const fields = Object.keys(updates).filter(k => allowed.includes(k));
     if (!fields.length) return;
     const setClause = fields.map(f => `${f} = ?`).join(', ');

@@ -626,10 +626,15 @@ ipcMain.handle('accounts:get', (_, id) => {
 });
 
 ipcMain.handle('accounts:add', async (_, accountData) => {
-  const inPwEnc = crypto.encrypt(accountData.in_password);
-  const smtpPwEnc = accountData.smtp_password
-    ? crypto.encrypt(accountData.smtp_password) : inPwEnc;
-  const id = db.addAccount({ ...accountData, in_password: inPwEnc, smtp_password: smtpPwEnc });
+  // v1.42: OAuth2 hesabı için şifre opsiyonel
+  const data = { ...accountData };
+  if (data.in_password) data.in_password = crypto.encrypt(data.in_password);
+  if (data.smtp_password) data.smtp_password = crypto.encrypt(data.smtp_password);
+  else if (data.in_password) data.smtp_password = data.in_password;
+  // OAuth token şifreleme
+  if (data.oauth_access_token) data.oauth_access_token = crypto.encrypt(data.oauth_access_token);
+  if (data.oauth_refresh_token) data.oauth_refresh_token = crypto.encrypt(data.oauth_refresh_token);
+  const id = db.addAccount(data);
   return { id };
 });
 
@@ -649,8 +654,56 @@ ipcMain.handle('accounts:update', async (_, accountId, accountData) => {
   else delete updates.in_password;
   if (updates.smtp_password) updates.smtp_password = crypto.encrypt(updates.smtp_password);
   else delete updates.smtp_password;
+  // v1.42: OAuth token güncellemesi
+  if (updates.oauth_access_token) updates.oauth_access_token = crypto.encrypt(updates.oauth_access_token);
+  if (updates.oauth_refresh_token) updates.oauth_refresh_token = crypto.encrypt(updates.oauth_refresh_token);
   db.updateAccount(accountId, updates);
   return { ok: true };
+});
+
+// =====================================================================
+// v1.42 IPC: OAuth2 Login Flow
+// =====================================================================
+const oauth2Service = require('./services/oauth2');
+
+ipcMain.handle('oauth2:isConfigured', (_, provider) => {
+  return oauth2Service.isProviderConfigured(provider);
+});
+
+ipcMain.handle('oauth2:startFlow', async (_, provider) => {
+  try {
+    const result = await oauth2Service.startAuthFlow(provider);
+    return { ok: true, ...result };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('oauth2:refresh', async (_, accountId) => {
+  try {
+    const acc = db.getAccount(accountId);
+    if (!acc || !acc.auth_type || !acc.auth_type.startsWith('oauth2_')) {
+      return { ok: false, error: 'OAuth2 hesabı değil' };
+    }
+    const provider = acc.auth_type.replace('oauth2_', '');
+    let refreshToken = acc.oauth_refresh_token;
+    if (refreshToken) {
+      try { refreshToken = crypto.decrypt(refreshToken); } catch (_) {}
+    }
+    if (!refreshToken) {
+      return { ok: false, error: 'Refresh token yok - yeniden giriş gerekli' };
+    }
+    const result = await oauth2Service.refreshAccessToken(provider, refreshToken);
+    db.updateAccount(accountId, {
+      oauth_access_token: crypto.encrypt(result.accessToken),
+      oauth_refresh_token: crypto.encrypt(result.refreshToken),
+      oauth_expires_at: result.expiresAt
+    });
+    db.save();
+    return { ok: true, expiresAt: result.expiresAt };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 });
 
 ipcMain.handle('accounts:reorder', (_, orderedIds) => {

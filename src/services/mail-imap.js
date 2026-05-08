@@ -5,9 +5,10 @@ const EmailSecurity = require('./email-security');
 
 class ImapService {
   static _buildConnection(account, password) {
-    return new Imap({
+    // v1.42: OAuth2 için xoauth2 token, password için normal
+    const isOAuth = account.auth_type && account.auth_type.startsWith('oauth2_');
+    const config = {
       user: account.in_username,
-      password: password,
       host: account.in_host,
       port: account.in_port,
       tls: !!account.in_secure,
@@ -15,7 +16,15 @@ class ImapService {
       authTimeout: 15000,
       connTimeout: 15000,
       keepalive: false
-    });
+    };
+    if (isOAuth) {
+      // node-imap xoauth2 parametresi - SASL XOAUTH2 token
+      const oauth2 = require('./oauth2');
+      config.xoauth2 = oauth2.buildXOAuth2Token(account.in_username, password);
+    } else {
+      config.password = password;
+    }
+    return new Imap(config);
   }
 
   static async testConnection(account, password) {

@@ -10,9 +10,62 @@ class MailService {
 
   setDb(db) { this.db = db; }
 
+  /**
+   * v1.42: Access token süresi dolmadan önce yenile
+   * @returns {Promise<string>} geçerli accessToken
+   */
+  async _ensureValidOAuthToken(acc) {
+    const oauth2 = require('./oauth2');
+    let accessToken = acc.oauth_access_token ? this.crypto.decrypt(acc.oauth_access_token) : '';
+    let refreshToken = acc.oauth_refresh_token ? this.crypto.decrypt(acc.oauth_refresh_token) : '';
+    const expiresAt = acc.oauth_expires_at ? new Date(acc.oauth_expires_at).getTime() : 0;
+    const now = Date.now();
+    // 60 saniye buffer
+    if (accessToken && expiresAt - now > 60000) {
+      return accessToken;
+    }
+    // Refresh
+    if (!refreshToken) throw new Error('OAuth2 hesabı: yeniden giriş gerekli (refresh token yok)');
+    const provider = acc.auth_type.replace('oauth2_', '');
+    const result = await oauth2.refreshAccessToken(provider, refreshToken);
+    this.db.updateAccount(acc.id, {
+      oauth_access_token: this.crypto.encrypt(result.accessToken),
+      oauth_refresh_token: this.crypto.encrypt(result.refreshToken),
+      oauth_expires_at: result.expiresAt
+    });
+    this.db.save();
+    return result.accessToken;
+  }
+
+  async _getDecryptedAccountAsync(accountId) {
+    const acc = this.db.getAccount(accountId);
+    if (!acc) throw new Error('Hesap bulunamadı: ' + accountId);
+    if (acc.auth_type && acc.auth_type.startsWith('oauth2_')) {
+      const token = await this._ensureValidOAuthToken(acc);
+      return { account: acc, inPassword: token, smtpPassword: token };
+    }
+    return {
+      account: acc,
+      inPassword: this.crypto.decrypt(acc.in_password),
+      smtpPassword: acc.smtp_password
+        ? this.crypto.decrypt(acc.smtp_password)
+        : this.crypto.decrypt(acc.in_password)
+    };
+  }
+
   _getDecryptedAccount(accountId) {
     const acc = this.db.getAccount(accountId);
     if (!acc) throw new Error('Hesap bulunamadı: ' + accountId);
+    // Sync versiyon - OAuth için _getDecryptedAccountAsync kullanılmalı
+    if (acc.auth_type && acc.auth_type.startsWith('oauth2_')) {
+      // OAuth hesapları için sync versiyon: token süresi dolmuşsa hata
+      const accessToken = acc.oauth_access_token ? this.crypto.decrypt(acc.oauth_access_token) : '';
+      const expiresAt = acc.oauth_expires_at ? new Date(acc.oauth_expires_at).getTime() : 0;
+      if (!accessToken || expiresAt - Date.now() <= 60000) {
+        throw new Error('OAuth2 token süresi doldu - yeniden senkronize edin (otomatik yenilenir)');
+      }
+      return { account: acc, inPassword: accessToken, smtpPassword: accessToken };
+    }
     return {
       account: acc,
       inPassword: this.crypto.decrypt(acc.in_password),
@@ -50,7 +103,7 @@ class MailService {
   }
 
   async syncAccount(accountId, onProgress) {
-    const { account, inPassword } = this._getDecryptedAccount(accountId);
+    const { account, inPassword } = await this._getDecryptedAccountAsync(accountId);
 
     // Sync öncesi en yüksek mesaj id'sini al (kurallar için)
     let beforeMaxId = 0;
@@ -196,7 +249,7 @@ class MailService {
   }
 
   async sendMail(accountId, mailData) {
-    const { account, smtpPassword } = this._getDecryptedAccount(accountId);
+    const { account, smtpPassword } = await this._getDecryptedAccountAsync(accountId);
     const result = await SmtpService.sendMail(account, smtpPassword, mailData);
 
     try {
@@ -243,7 +296,7 @@ class MailService {
     const folder = this.db.getFolder(msg.folder_id);
     if (!folder || folder.is_local) return;
 
-    const { account, inPassword } = this._getDecryptedAccount(msg.account_id);
+    const { account, inPassword } = await this._getDecryptedAccountAsync(msg.account_id);
     if (account.protocol !== 'imap') return;
     await ImapService.setFlag(account, inPassword, folder.path, msg.uid, flag, isAdd);
   }
@@ -255,7 +308,7 @@ class MailService {
 
     try {
       if (msg.uid && folder && !folder.is_local) {
-        const { account, inPassword } = this._getDecryptedAccount(msg.account_id);
+        const { account, inPassword } = await this._getDecryptedAccountAsync(msg.account_id);
         if (account.protocol === 'imap') {
           await ImapService.deleteMessage(account, inPassword, folder.path, msg.uid);
         }
@@ -281,7 +334,7 @@ class MailService {
     // Sunucu tarafı taşıma (IMAP, ikisi de sunucuda ise)
     try {
       if (msg.uid && fromFolder && !fromFolder.is_local && !toFolder.is_local) {
-        const { account, inPassword } = this._getDecryptedAccount(msg.account_id);
+        const { account, inPassword } = await this._getDecryptedAccountAsync(msg.account_id);
         if (account.protocol === 'imap') {
           await ImapService.moveMessage(account, inPassword, fromFolder.path, toFolder.path, msg.uid);
           // Sunucu taşıdı ise yerel kaydı SİL (yeni UID ile yeni sync'te gelir)
@@ -306,7 +359,7 @@ class MailService {
     if (!name || !name.trim()) throw new Error('Klasör adı boş olamaz');
     name = name.trim();
 
-    const { account, inPassword } = this._getDecryptedAccount(accountId);
+    const { account, inPassword } = await this._getDecryptedAccountAsync(accountId);
 
     if (onServer && account.protocol === 'imap') {
       try {

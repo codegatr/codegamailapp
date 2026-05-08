@@ -2,16 +2,27 @@ const nodemailer = require('nodemailer');
 
 class SmtpService {
   static _buildTransport(account, smtpPassword) {
-    return nodemailer.createTransport({
+    const isOAuth = account.auth_type && account.auth_type.startsWith('oauth2_');
+    const baseConfig = {
       host: account.smtp_host,
       port: account.smtp_port,
-      secure: !!account.smtp_secure, // 465 için true, 587 için false (STARTTLS)
-      auth: {
+      secure: !!account.smtp_secure,
+      tls: { rejectUnauthorized: false }
+    };
+    if (isOAuth) {
+      // Nodemailer XOAUTH2 desteği - access token doğrudan
+      baseConfig.auth = {
+        type: 'OAuth2',
+        user: account.smtp_username || account.in_username,
+        accessToken: smtpPassword // OAuth flow'da access_token şifrelenmiş şekilde geliyor
+      };
+    } else {
+      baseConfig.auth = {
         user: account.smtp_username || account.in_username,
         pass: smtpPassword
-      },
-      tls: { rejectUnauthorized: false }
-    });
+      };
+    }
+    return nodemailer.createTransport(baseConfig);
   }
 
   static async sendMail(account, smtpPassword, mailData) {

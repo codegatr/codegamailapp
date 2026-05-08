@@ -1485,6 +1485,22 @@
           <div style="font-size:12px;color:var(--text-2);margin-bottom:16px;">
             E-posta adresinizi girin — sağlayıcınız otomatik tespit edilecek (Gmail, Outlook, Yandex, iCloud, Yahoo vs.)
           </div>
+
+          <!-- v1.42: OAuth2 hızlı bağlantı -->
+          <div class="oauth-quick" style="display:flex;gap:8px;margin-bottom:16px;">
+            <button type="button" class="btn oauth-btn-ms" id="btnConnectMicrosoft" style="flex:1;background:#0078d4;color:#fff;font-weight:600;border:none;padding:10px;">
+              <span style="font-size:14px;">🟦</span> Microsoft ile Bağlan
+              <small style="display:block;font-size:10px;font-weight:normal;opacity:0.85;">Outlook.com / Hotmail / Office 365</small>
+            </button>
+            <button type="button" class="btn oauth-btn-google" id="btnConnectGoogle" style="flex:1;background:#ea4335;color:#fff;font-weight:600;border:none;padding:10px;">
+              <span style="font-size:14px;">🟥</span> Google ile Bağlan
+              <small style="display:block;font-size:10px;font-weight:normal;opacity:0.85;">Gmail / Workspace</small>
+            </button>
+          </div>
+          <div style="text-align:center;font-size:11px;color:var(--muted);margin-bottom:14px;">
+            ya da aşağıdan manuel ayarla (IMAP/SMTP şifre)
+          </div>
+
           <div class="form-group">
             <label>Görünen Ad</label>
             <input type="text" id="acc_display_name" placeholder="Yunus Aksoy">

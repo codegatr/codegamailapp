@@ -1229,7 +1229,12 @@ function readAccountForm() {
           templateId: sigBuilderState._lastApplied.templateId,
           data: sigBuilderState._lastApplied.data
         })
-      : undefined
+      : undefined,
+    // v1.42: OAuth2 hesabı oluşturuluyorsa
+    auth_type: window._oauthPending ? `oauth2_${window._oauthPending.provider}` : 'password',
+    oauth_access_token: window._oauthPending?.accessToken || undefined,
+    oauth_refresh_token: window._oauthPending?.refreshToken || undefined,
+    oauth_expires_at: window._oauthPending?.expiresAt || undefined
   };
 }
 
@@ -1238,7 +1243,8 @@ function validateAccount(a, isEdit) {
   if (!a.email) return 'E-posta gerekli';
   if (!a.in_host) return 'Gelen sunucu gerekli';
   if (!a.in_username) return 'Kullanıcı adı gerekli';
-  if (!isEdit && !a.in_password) return 'Şifre gerekli';
+  // v1.42: OAuth2 hesaplarında şifre zorunlu değil
+  if (!isEdit && !a.in_password && a.auth_type !== 'oauth2_microsoft' && a.auth_type !== 'oauth2_google') return 'Şifre gerekli';
   if (!a.smtp_host) return 'SMTP sunucu gerekli';
   return null;
 }
@@ -8956,4 +8962,89 @@ const _origSelectFolder_v141 = window.selectFolder;
 // loadAccounts veya init sonrası kategorileri çek
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => renderSidebarCategories().catch(() => {}), 1500);
+});
+
+// Account modal kapandığında OAuth pending temizle
+document.addEventListener('click', (e) => {
+  if (e.target.matches('[data-close="modalAccount"]')) {
+    window._oauthPending = null;
+    // Form input'ları reset
+    const pwd = document.getElementById('acc_in_password');
+    if (pwd) { pwd.disabled = false; pwd.placeholder = ''; }
+  }
+});
+
+// ============= v1.42: OAuth2 Hızlı Bağlantı =============
+async function connectViaOAuth(provider) {
+  // Önce yapılandırılmış mı kontrol
+  const configured = await window.api.oauth2.isConfigured(provider);
+  if (!configured) {
+    const providerName = provider === 'microsoft' ? 'Microsoft' : 'Google';
+    const portalName = provider === 'microsoft' ? 'Azure Portal' : 'Google Cloud Console';
+    const envVar = provider === 'microsoft' ? 'CODEGA_MS_CLIENT_ID' : 'CODEGA_GOOGLE_CLIENT_ID';
+
+    alert(
+      `${providerName} OAuth2 yapılandırılmamış.\n\n` +
+      `BU UYGULAMAYI GERÇEK KULLANIM İÇİN HAZIRLAMAK İÇİN:\n\n` +
+      `1. ${portalName}'a git\n` +
+      `2. "Public Client" / "Desktop App" tipinde uygulama kayıt et\n` +
+      `3. Redirect URI: http://localhost:${provider === 'microsoft' ? '51842' : '51843'}/callback\n` +
+      `4. ${provider === 'microsoft' ? 'API izinleri: IMAP.AccessAsUser.All, SMTP.Send, offline_access' : 'Scope: https://mail.google.com/'}\n` +
+      `5. CLIENT_ID'yi alıp ${envVar} environment değişkenine yaz\n` +
+      `6. Uygulamayı yeniden başlat\n\n` +
+      `Kısa vadeli alternatif: "App Password" ile manuel kurulum.`
+    );
+    return;
+  }
+
+  setStatus('🔐 ' + (provider === 'microsoft' ? 'Microsoft' : 'Google') + ' giriş penceresi açılıyor...');
+  const result = await window.api.oauth2.startFlow(provider);
+  if (!result.ok) {
+    alert('Giriş başarısız: ' + result.error);
+    setStatus('Giriş iptal edildi', 'error');
+    return;
+  }
+
+  // Form alanlarını OAuth verisiyle doldur
+  document.getElementById('acc_display_name').value = result.displayName || '';
+  document.getElementById('acc_email').value = result.email || '';
+  document.getElementById('acc_in_password').value = ''; // OAuth'ta şifre yok
+  document.getElementById('acc_in_password').placeholder = '🔐 OAuth ile bağlandı (şifre gerekmez)';
+  document.getElementById('acc_in_password').disabled = true;
+
+  // OAuth verilerini state'e geçici sakla (kaydederken kullanılacak)
+  window._oauthPending = {
+    provider: provider,
+    accessToken: result.accessToken,
+    refreshToken: result.refreshToken,
+    expiresAt: result.expiresAt,
+    serverConfig: result.serverConfig
+  };
+
+  // Sunucu ayarlarını otomatik doldur
+  if (result.serverConfig) {
+    document.getElementById('acc_in_host').value = result.serverConfig.imapHost || '';
+    document.getElementById('acc_in_port').value = result.serverConfig.imapPort || 993;
+    document.getElementById('acc_smtp_host').value = result.serverConfig.smtpHost || '';
+    document.getElementById('acc_smtp_port').value = result.serverConfig.smtpPort || 587;
+    document.getElementById('acc_in_username').value = result.email || '';
+    document.getElementById('acc_smtp_username').value = result.email || '';
+    // Protocol kesin IMAP olsun
+    const protSel = document.getElementById('acc_protocol');
+    if (protSel) protSel.value = 'imap';
+  }
+
+  setStatus(`✓ ${result.email} ile giriş başarılı - ayarlar otomatik dolduruldu`);
+}
+
+// Wizard butonlarını bağla
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btnConnectMicrosoft')) {
+    e.preventDefault();
+    connectViaOAuth('microsoft');
+  }
+  if (e.target.closest('#btnConnectGoogle')) {
+    e.preventDefault();
+    connectViaOAuth('google');
+  }
 });

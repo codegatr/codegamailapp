@@ -148,6 +148,11 @@ contextBridge.exposeInMainWorld('api', {
     advanced: (opts) => ipcRenderer.invoke('search:advanced', opts),
     count: (opts) => ipcRenderer.invoke('search:advancedCount', opts)
   },
+  oauth2: {
+    isConfigured: (provider) => ipcRenderer.invoke('oauth2:isConfigured', provider),
+    startFlow: (provider) => ipcRenderer.invoke('oauth2:startFlow', provider),
+    refresh: (accountId) => ipcRenderer.invoke('oauth2:refresh', accountId)
+  },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },
