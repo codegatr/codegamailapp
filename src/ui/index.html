@@ -13,6 +13,12 @@
       <span class="brand-icon" id="brandIcon">✉</span>
       <span class="brand-text" id="brandText">CODEGA Mail</span>
     </div>
+    <!-- v1.40: Outlook tarzı ortalı arama kutusu -->
+    <div class="header-search">
+      <span class="header-search-icon">🔍</span>
+      <input id="searchBox" type="text" placeholder="Ara… (from: subject: has:attachment)" autocomplete="off">
+      <button id="btnAdvancedSearch" class="header-search-filter-btn" title="Gelişmiş arama (filtreler)">▾ Filtrele</button>
+    </div>
     <div class="toolbar-actions">
       <button id="btnCompose" class="btn btn-primary" title="Yeni mesaj (Ctrl+N)">
         <span>✎</span> Yeni Mesaj
@@ -62,10 +68,6 @@
 
     <section class="pane pane-list">
       <div class="list-header">
-        <div style="display:flex;gap:6px;align-items:center;width:100%;">
-          <input id="searchBox" type="text" placeholder="Konu, gönderen, içerik ara… (from: subject: has:attachment)" style="flex:1;" />
-          <button id="btnAdvancedSearch" class="btn btn-ghost" title="Gelişmiş arama (filtreler)" style="font-size:11px;padding:4px 8px;">🔍 Filtrele</button>
-        </div>
         <span id="folderTitle" class="folder-title"></span>
         <div id="quickFilterChips" class="quick-filter-chips"></div>
         <div id="activeFiltersBar" class="active-filters-bar hidden"></div>
