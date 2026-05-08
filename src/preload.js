@@ -105,7 +105,9 @@ contextBridge.exposeInMainWorld('api', {
     add: (c) => ipcRenderer.invoke('contacts:add', c),
     update: (id, u) => ipcRenderer.invoke('contacts:update', id, u),
     delete: (id) => ipcRenderer.invoke('contacts:delete', id),
-    stats: () => ipcRenderer.invoke('contacts:stats')
+    stats: () => ipcRenderer.invoke('contacts:stats'),
+    export: (format) => ipcRenderer.invoke('contacts:export', format),
+    import: () => ipcRenderer.invoke('contacts:import')
   },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)

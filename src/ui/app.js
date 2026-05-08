@@ -4198,6 +4198,24 @@ function bindContactsUI() {
   document.getElementById('btnContactDelete').onclick = deleteCurrentContact;
   document.getElementById('btnContactFav').onclick = toggleFavCurrentContact;
   document.getElementById('btnContactCompose').onclick = composeToCurrentContact;
+
+  // v1.26: Import/Export
+  document.getElementById('btnContactsImport').onclick = importContactsFromFile;
+  document.getElementById('btnContactsExport').onclick = (e) => {
+    e.stopPropagation();
+    document.getElementById('contactsExportMenu').classList.toggle('hidden');
+  };
+  document.querySelectorAll('#contactsExportMenu .dropdown-item').forEach(item => {
+    item.onclick = (e) => {
+      e.stopPropagation();
+      document.getElementById('contactsExportMenu').classList.add('hidden');
+      exportContactsToFile(item.dataset.format);
+    };
+  });
+  // Dışa tıklayınca menüyü kapat
+  document.addEventListener('click', () => {
+    document.getElementById('contactsExportMenu')?.classList.add('hidden');
+  });
 }
 
 async function renderContactsList() {
@@ -4810,6 +4828,12 @@ function buildCommandList() {
 
     { id: 'contacts', label: 'Adres Defteri', icon: '👥',
       action: () => openContacts(), category: 'Modül' },
+    { id: 'contacts-import', label: 'Kişileri içe aktar (vCard/CSV)', icon: '📥',
+      action: () => importContactsFromFile(), category: 'Modül' },
+    { id: 'contacts-export-vcf', label: 'Kişileri dışa aktar (vCard)', icon: '📤',
+      action: () => exportContactsToFile('vcard'), category: 'Modül' },
+    { id: 'contacts-export-csv', label: 'Kişileri dışa aktar (CSV)', icon: '📤',
+      action: () => exportContactsToFile('csv'), category: 'Modül' },
     { id: 'notes', label: 'Notlar (Lotus Notes tarzı)', icon: '📓',
       action: () => openNotes(), category: 'Modül' },
     { id: 'tasks', label: 'Görevler / To-Do', icon: '✅',
@@ -6028,3 +6052,34 @@ async function submitPgpDecrypt() {
 }
 
 // Komut paletine ekle
+
+// ============= v1.26: Contacts Import/Export =============
+async function exportContactsToFile(format) {
+  setStatus('📤 Dışa aktarılıyor...');
+  const r = await window.api.contacts.export(format);
+  if (r.canceled) { setStatus('İptal edildi'); return; }
+  if (r.ok) {
+    setStatus(`✓ ${r.count} kişi dışa aktarıldı: ${r.path}`);
+    alert(`✓ ${r.count} kişi başarıyla dışa aktarıldı.\n\nKonum:\n${r.path}\n\nBu dosyayı Outlook, Apple Contacts, Google Contacts veya başka bir mail uygulamasına içe aktarabilirsiniz.`);
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+async function importContactsFromFile() {
+  const r = await window.api.contacts.import();
+  if (r.canceled) return;
+  if (!r.ok) {
+    alert('İçe aktarma hatası:\n' + r.error);
+    return;
+  }
+  const msg = `İçe aktarma tamamlandı:\n\n` +
+              `📊 Toplam: ${r.total} kişi\n` +
+              `➕ Eklendi: ${r.added}\n` +
+              `🔄 Güncellendi: ${r.updated} (eksik alanlar dolduruldu)\n` +
+              `⏭ Atlandı: ${r.skipped} (zaten dolu)\n\n` +
+              `Kaynak: ${r.path}`;
+  alert(msg);
+  setStatus(`✓ ${r.added} yeni + ${r.updated} güncellenmiş kişi`);
+  await renderContactsList();
+}

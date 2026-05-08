@@ -1323,6 +1323,14 @@
       <div class="modal-header">
         <h2>👥 Adres Defteri <span id="contactsCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
         <div style="flex:1;"></div>
+        <button class="btn" id="btnContactsImport" title="vCard veya CSV dosyasından kişi içe aktar">📥 İçe Aktar</button>
+        <div class="dropdown" style="position:relative;">
+          <button class="btn" id="btnContactsExport" title="Tüm kişileri dışa aktar">📤 Dışa Aktar ▾</button>
+          <div class="dropdown-menu hidden" id="contactsExportMenu">
+            <div class="dropdown-item" data-format="vcard">vCard (.vcf) - Outlook/Apple/Thunderbird</div>
+            <div class="dropdown-item" data-format="csv">CSV (.csv) - Excel/Google Contacts</div>
+          </div>
+        </div>
         <button class="btn btn-primary" id="btnNewContact">+ Yeni Kişi</button>
         <button class="modal-close" data-close="modalContacts" style="margin-left:8px;">×</button>
       </div>

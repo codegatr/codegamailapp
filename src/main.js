@@ -1369,6 +1369,109 @@ ipcMain.handle('pgp:detectInBody', (_, bodyText) => {
 });
 
 // =====================================================================
+// v1.26 IPC: Contacts Import/Export (vCard / CSV)
+// =====================================================================
+const VCardService = require('./services/vcard');
+const ContactsCsvService = require('./services/contacts-csv');
+
+ipcMain.handle('contacts:export', async (_, format) => {
+  const f = (format || 'vcard').toLowerCase();
+  const ext = f === 'csv' ? 'csv' : 'vcf';
+  const filterName = f === 'csv' ? 'CSV (Excel/Google uyumlu)' : 'vCard (Outlook/Apple uyumlu)';
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Kişileri Dışa Aktar',
+    defaultPath: `codega-mail-kisiler-${new Date().toISOString().slice(0, 10)}.${ext}`,
+    filters: [{ name: filterName, extensions: [ext] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  try {
+    const contacts = db.listContacts({ sortBy: 'name' });
+    if (!contacts.length) return { ok: false, error: 'Henüz kişi yok' };
+    const content = (f === 'csv')
+      ? ContactsCsvService.build(contacts)
+      : VCardService.buildMultiple(contacts);
+    fs.writeFileSync(result.filePath, content, 'utf8');
+    return { ok: true, path: result.filePath, count: contacts.length };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('contacts:import', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Kişi Dosyası Seç',
+    properties: ['openFile'],
+    filters: [
+      { name: 'vCard veya CSV', extensions: ['vcf', 'csv'] },
+      { name: 'vCard', extensions: ['vcf'] },
+      { name: 'CSV', extensions: ['csv'] },
+      { name: 'Tüm dosyalar', extensions: ['*'] }
+    ]
+  });
+  if (result.canceled || !result.filePaths.length) return { canceled: true };
+
+  try {
+    const path = result.filePaths[0];
+    const text = fs.readFileSync(path, 'utf8');
+    const ext = path.toLowerCase().split('.').pop();
+
+    let parsed = [];
+    if (ext === 'csv') {
+      parsed = ContactsCsvService.parse(text);
+    } else if (ext === 'vcf') {
+      parsed = VCardService.parse(text);
+    } else {
+      // Otomatik algıla
+      if (text.includes('BEGIN:VCARD')) parsed = VCardService.parse(text);
+      else parsed = ContactsCsvService.parse(text);
+    }
+
+    if (!parsed.length) {
+      return { ok: false, error: 'Dosyada geçerli kişi bulunamadı (email adresi olan)' };
+    }
+
+    // DB'ye ekle (varsa update, yoksa add)
+    let added = 0, updated = 0, skipped = 0;
+    for (const c of parsed) {
+      try {
+        const existing = db.getContactByEmail(c.email);
+        if (existing) {
+          // Sadece boş alanları güncelle
+          const updates = {};
+          if (!existing.name && c.name) updates.name = c.name;
+          if (!existing.phone && c.phone) updates.phone = c.phone;
+          if (!existing.organization && c.organization) updates.organization = c.organization;
+          if (!existing.notes && c.notes) updates.notes = c.notes;
+          if (!existing.tags && c.tags) updates.tags = c.tags;
+          if (Object.keys(updates).length) {
+            db.updateContact(existing.id, updates);
+            updated++;
+          } else {
+            skipped++;
+          }
+        } else {
+          db.addContact({
+            email: c.email,
+            name: c.name,
+            phone: c.phone,
+            organization: c.organization,
+            notes: c.notes,
+            tags: c.tags,
+            is_favorite: c.is_favorite,
+            source: 'imported'
+          });
+          added++;
+        }
+      } catch (e) { skipped++; }
+    }
+    db.save();
+    return { ok: true, total: parsed.length, added, updated, skipped, path };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));
