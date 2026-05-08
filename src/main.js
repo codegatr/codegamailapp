@@ -825,6 +825,69 @@ ipcMain.handle('contacts:delete', (_, id) => {
 ipcMain.handle('contacts:stats', () => db.contactsStats());
 
 // =====================================================================
+// v1.18 IPC: Görevler / To-Do
+// =====================================================================
+ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));
+ipcMain.handle('tasks:get', (_, id) => db.getTask(id));
+ipcMain.handle('tasks:add', (_, task) => {
+  const id = db.addTask(task);
+  db.save();
+  return { ok: true, id };
+});
+ipcMain.handle('tasks:update', (_, id, updates) => {
+  db.updateTask(id, updates);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('tasks:complete', (_, id) => {
+  db.completeTask(id);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('tasks:uncomplete', (_, id) => {
+  db.uncompleteTask(id);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('tasks:delete', (_, id) => {
+  db.deleteTask(id);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('tasks:stats', () => db.taskStats());
+
+// v1.18: Task reminder scheduler - mevcut scheduler loop'una eklenir
+async function processDueTaskReminders() {
+  try {
+    const due = db.getDueTaskReminders();
+    if (!due.length) return;
+    for (const task of due) {
+      try {
+        const dueText = task.due_date
+          ? ` (Bitiş: ${new Date(task.due_date).toLocaleString('tr-TR')})`
+          : '';
+        showNotification(
+          '⏰ Görev Hatırlatması',
+          `${task.title}${dueText}`
+        );
+        // Hatırlatıldı işaretle
+        db.updateTask(task.id, { reminder_sent: 1 });
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('task:reminder', {
+            id: task.id,
+            title: task.title,
+            due_date: task.due_date
+          });
+        }
+      } catch (e) { console.warn('Task reminder hatası:', e.message); }
+    }
+    db.save();
+  } catch (e) {
+    console.warn('processDueTaskReminders error:', e.message);
+  }
+}
+
+// =====================================================================
 // IPC: Spam Kuralları
 // =====================================================================
 ipcMain.handle('spam:list', (_, accountId) => db.listSpamRules(accountId));
@@ -1025,6 +1088,7 @@ function startSchedulerLoop() {
   if (scheduledTimer) clearInterval(scheduledTimer);
   scheduledTimer = setInterval(() => {
     processDueScheduledMessages().catch(e => console.warn('Scheduler error:', e.message));
+    processDueTaskReminders().catch(e => console.warn('Task reminder error:', e.message));
   }, 30 * 1000); // 30 saniye
 }
 

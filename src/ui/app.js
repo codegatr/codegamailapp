@@ -167,6 +167,11 @@ async function init() {
     const fv = document.getElementById('footerVersion');
     if (fv && v) fv.textContent = 'v' + v;
   } catch (_) {}
+
+  // v1.18: Görev badge'ini yenile (acık/geciken görev sayacı)
+  refreshTasksBadge().catch(() => {});
+  // Her dakika yenile
+  setInterval(() => refreshTasksBadge().catch(() => {}), 60 * 1000);
 }
 
 // ============= TEPSİDEN GELEN OLAYLAR =============
@@ -413,6 +418,7 @@ function bindToolbar() {
   document.getElementById('btnTemplates').onclick = openTemplatesManager;
   document.getElementById('btnScheduled').onclick = openScheduledManager;
   document.getElementById('btnNotes').onclick = openNotes;
+  document.getElementById('btnTasks').onclick = openTasks;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -1087,6 +1093,7 @@ async function showMessageContextMenu(e, message) {
       setTimeout(() => showCategorizeMenu(message.id, currentIds, e), 50);
     }},
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
+    { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
     '---',
     ...moveItems,
     '---',
@@ -4155,5 +4162,317 @@ function attachAutocompleteToCompose() {
       el.dataset.acBound = '1';
       new RecipientAutocomplete(el);
     }
+  });
+}
+
+// ============= v1.18: Görevler / To-Do (Lotus Notes Tasks) =============
+let currentTaskId = null;
+let currentTaskFilter = 'open';
+let tasksUIBound = false;
+
+async function openTasks() {
+  document.getElementById('modalTasks').classList.remove('hidden');
+  if (!tasksUIBound) {
+    tasksUIBound = true;
+    bindTasksUI();
+  }
+  await refreshTaskFilterCounts();
+  await renderTasksList();
+}
+
+function bindTasksUI() {
+  document.getElementById('btnNewTask').onclick = createNewTask;
+  document.getElementById('tasksSearchInput').oninput = debounce(renderTasksList, 200);
+
+  // Filtre tıklaması
+  document.querySelectorAll('.task-filter').forEach(el => {
+    el.onclick = () => {
+      document.querySelectorAll('.task-filter').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      currentTaskFilter = el.dataset.filter;
+      renderTasksList();
+    };
+  });
+
+  // Detay form değişiklikleri otomatik kaydedilsin (debounced)
+  const autoFields = ['task_title', 'task_description', 'task_priority', 'task_status',
+                      'task_due_date', 'task_reminder_at', 'task_category', 'task_tags', 'task_color'];
+  for (const id of autoFields) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.addEventListener('change', debounce(saveCurrentTask, 300));
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+      el.addEventListener('blur', () => saveCurrentTask());
+    }
+  }
+
+  // Tamamla checkbox
+  const checkEl = document.getElementById('task_completed_check');
+  if (checkEl) {
+    checkEl.onchange = async () => {
+      if (!currentTaskId) return;
+      if (checkEl.checked) await window.api.tasks.complete(currentTaskId);
+      else await window.api.tasks.uncomplete(currentTaskId);
+      await refreshTaskFilterCounts();
+      await refreshTasksBadge();
+      await renderTasksList();
+      await loadTaskIntoDetail(currentTaskId);
+    };
+  }
+
+  document.getElementById('btnDeleteTask').onclick = deleteCurrentTask;
+}
+
+async function refreshTaskFilterCounts() {
+  const filters = ['open', 'today', 'tomorrow', 'thisWeek', 'overdue', 'highPriority', 'completed', 'all'];
+  for (const f of filters) {
+    try {
+      const list = await window.api.tasks.list({ filter: f });
+      const el = document.getElementById('tf_' + f);
+      if (el) el.textContent = list.length;
+    } catch (_) {}
+  }
+  // Header counter
+  try {
+    const stats = await window.api.tasks.stats();
+    const headerEl = document.getElementById('tasksHeaderCount');
+    if (headerEl && stats) {
+      headerEl.textContent = `(${stats.open || 0} açık · ${stats.completed || 0} tamamlanmış)`;
+    }
+  } catch (_) {}
+}
+
+async function renderTasksList() {
+  const search = document.getElementById('tasksSearchInput').value.trim();
+  const list = await window.api.tasks.list({ filter: currentTaskFilter, search });
+
+  const el = document.getElementById('tasksList');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:40px;">Görev yok</div>';
+    return;
+  }
+
+  const now = Date.now();
+  el.innerHTML = list.map(t => {
+    const isCompleted = t.status === 'completed' || t.status === 'cancelled';
+    const dueDate = t.due_date ? new Date(t.due_date) : null;
+    let dueText = '', dueClass = '';
+    if (dueDate) {
+      const diffMs = dueDate.getTime() - now;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (!isCompleted && diffMs < 0) {
+        dueClass = 'task-overdue';
+        dueText = `🔴 ${Math.abs(diffDays)} gün gecikti`;
+      } else if (diffDays === 0) {
+        dueClass = 'task-today';
+        dueText = `📅 Bugün ${dueDate.toLocaleTimeString('tr-TR', {hour:'2-digit', minute:'2-digit'})}`;
+      } else if (diffDays === 1) {
+        dueClass = 'task-tomorrow';
+        dueText = '⏭ Yarın';
+      } else if (diffDays > 0 && diffDays <= 7) {
+        dueText = `📆 ${diffDays} gün sonra`;
+      } else {
+        dueText = dueDate.toLocaleDateString('tr-TR');
+      }
+    }
+
+    let priorityIcon = '➡', priorityClass = 'priority-normal';
+    if (t.priority === 'urgent') { priorityIcon = '🔥'; priorityClass = 'priority-urgent'; }
+    else if (t.priority === 'high') { priorityIcon = '⬆'; priorityClass = 'priority-high'; }
+    else if (t.priority === 'low') { priorityIcon = '⬇'; priorityClass = 'priority-low'; }
+
+    const reminder = t.reminder_at ? '⏰' : '';
+    const fromMail = t.related_message_id ? '📧' : '';
+
+    return `
+      <div class="task-item ${currentTaskId === t.id ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${dueClass}"
+           data-id="${t.id}" style="border-left:4px solid ${t.color || '#3498db'};">
+        <div class="task-check-col">
+          <input type="checkbox" class="task-check" data-id="${t.id}" ${isCompleted ? 'checked' : ''} onclick="event.stopPropagation();">
+        </div>
+        <div class="task-info">
+          <div class="task-row-1">
+            <span class="${priorityClass}">${priorityIcon}</span>
+            <span class="task-title-text ${isCompleted ? 'strike' : ''}">${escapeHtml(t.title)}</span>
+            ${reminder} ${fromMail}
+          </div>
+          <div class="task-row-2">
+            ${t.category ? `<span class="task-cat">🏷 ${escapeHtml(t.category)}</span>` : ''}
+            ${dueText ? `<span class="task-due">${dueText}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Click handlers
+  el.querySelectorAll('.task-item').forEach(item => {
+    item.onclick = () => loadTaskIntoDetail(parseInt(item.dataset.id, 10));
+  });
+  el.querySelectorAll('.task-check').forEach(cb => {
+    cb.onchange = async () => {
+      const id = parseInt(cb.dataset.id, 10);
+      if (cb.checked) await window.api.tasks.complete(id);
+      else await window.api.tasks.uncomplete(id);
+      await refreshTaskFilterCounts();
+      await refreshTasksBadge();
+      await renderTasksList();
+      if (currentTaskId === id) await loadTaskIntoDetail(id);
+    };
+  });
+}
+
+async function loadTaskIntoDetail(id) {
+  const t = await window.api.tasks.get(id);
+  if (!t) return;
+  currentTaskId = id;
+
+  document.getElementById('tasksEmpty').classList.add('hidden');
+  document.getElementById('tasksDetail').classList.remove('hidden');
+
+  document.getElementById('task_title').value = t.title || '';
+  document.getElementById('task_description').value = t.description || '';
+  document.getElementById('task_priority').value = t.priority || 'normal';
+  document.getElementById('task_status').value = t.status || 'pending';
+  document.getElementById('task_category').value = t.category || '';
+  document.getElementById('task_tags').value = t.tags || '';
+  document.getElementById('task_color').value = t.color || '#3498db';
+  document.getElementById('task_due_date').value = t.due_date ? toLocalDateTimeInput(t.due_date) : '';
+  document.getElementById('task_reminder_at').value = t.reminder_at ? toLocalDateTimeInput(t.reminder_at) : '';
+  document.getElementById('task_completed_check').checked = (t.status === 'completed');
+
+  // İlişkili mesaj/contact bilgisi
+  let relations = '';
+  if (t.related_message_id) {
+    relations += `📧 Bağlı mesaj #${t.related_message_id} `;
+  }
+  if (t.created_at) relations += ` · Oluşturuldu: ${new Date(t.created_at).toLocaleString('tr-TR')}`;
+  if (t.completed_at) relations += ` · Tamamlandı: ${new Date(t.completed_at).toLocaleString('tr-TR')}`;
+  document.getElementById('task_relations').textContent = relations;
+
+  // Aktif item'ı vurgula
+  document.querySelectorAll('.task-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.task-item[data-id="${id}"]`)?.classList.add('active');
+}
+
+function toLocalDateTimeInput(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromLocalDateTimeInput(localStr) {
+  if (!localStr) return null;
+  return new Date(localStr).toISOString();
+}
+
+async function createNewTask() {
+  const r = await window.api.tasks.add({
+    title: 'Yeni Görev',
+    priority: 'normal',
+    status: 'pending'
+  });
+  if (r.ok) {
+    await refreshTaskFilterCounts();
+    await refreshTasksBadge();
+    await renderTasksList();
+    await loadTaskIntoDetail(r.id);
+    setTimeout(() => {
+      const titleEl = document.getElementById('task_title');
+      titleEl.focus();
+      titleEl.select();
+    }, 100);
+  }
+}
+
+async function saveCurrentTask() {
+  if (!currentTaskId) return;
+  const updates = {
+    title: document.getElementById('task_title').value.trim() || 'Başlıksız',
+    description: document.getElementById('task_description').value || null,
+    priority: document.getElementById('task_priority').value,
+    status: document.getElementById('task_status').value,
+    category: document.getElementById('task_category').value.trim() || null,
+    tags: document.getElementById('task_tags').value.trim() || null,
+    color: document.getElementById('task_color').value,
+    due_date: fromLocalDateTimeInput(document.getElementById('task_due_date').value),
+    reminder_at: fromLocalDateTimeInput(document.getElementById('task_reminder_at').value)
+  };
+  // Eğer reminder değiştirildiyse reminder_sent'i sıfırla (tekrar bildirilsin)
+  updates.reminder_sent = updates.reminder_at ? 0 : 0;
+  // Status completed ise completed_at güncelle
+  if (updates.status === 'completed') {
+    const t = await window.api.tasks.get(currentTaskId);
+    if (t && !t.completed_at) updates.completed_at = new Date().toISOString();
+  } else {
+    updates.completed_at = null;
+  }
+  await window.api.tasks.update(currentTaskId, updates);
+  await refreshTaskFilterCounts();
+  await refreshTasksBadge();
+  await renderTasksList();
+}
+
+async function deleteCurrentTask() {
+  if (!currentTaskId) return;
+  if (!confirm('Bu görev silinsin mi?')) return;
+  await window.api.tasks.delete(currentTaskId);
+  currentTaskId = null;
+  document.getElementById('tasksDetail').classList.add('hidden');
+  document.getElementById('tasksEmpty').classList.remove('hidden');
+  await refreshTaskFilterCounts();
+  await refreshTasksBadge();
+  await renderTasksList();
+  setStatus('Görev silindi');
+}
+
+// Toolbar'daki açık görev sayacı
+async function refreshTasksBadge() {
+  try {
+    const stats = await window.api.tasks.stats();
+    const badge = document.getElementById('tasksBadge');
+    if (!badge) return;
+    if (stats && stats.overdue > 0) {
+      badge.textContent = String(stats.overdue);
+      badge.classList.remove('hidden');
+      badge.classList.add('overdue');
+    } else if (stats && stats.todayCount > 0) {
+      badge.textContent = String(stats.todayCount);
+      badge.classList.remove('hidden', 'overdue');
+    } else {
+      badge.classList.add('hidden');
+    }
+  } catch (_) {}
+}
+
+// Mailden görev oluştur (sağ tık menüden)
+async function createTaskFromMessage(msg) {
+  if (!msg) return;
+  const subject = msg.subject || '(Konusuz)';
+  const fromName = msg.from_name || msg.from_addr || '?';
+  const desc = `📧 ${fromName} <${msg.from_addr || ''}>\n📅 ${msg.date ? new Date(msg.date).toLocaleString('tr-TR') : ''}\n📌 ${subject}\n\n${(msg.body_text || '').slice(0, 500)}${msg.body_text && msg.body_text.length > 500 ? '...' : ''}`;
+  const r = await window.api.tasks.add({
+    title: '📧 ' + subject.slice(0, 100),
+    description: desc,
+    priority: 'normal',
+    status: 'pending',
+    category: 'Maillerden',
+    color: '#9b59b6',
+    related_message_id: msg.id
+  });
+  if (r.ok) {
+    await refreshTasksBadge();
+    setStatus('✓ Görev oluşturuldu - Görevler penceresinde');
+    await openTasks();
+    setTimeout(() => loadTaskIntoDetail(r.id), 200);
+  }
+}
+
+// Task reminder bildirim listener
+if (window.api && window.api.on) {
+  window.api.on('task:reminder', () => {
+    refreshTasksBadge();
   });
 }

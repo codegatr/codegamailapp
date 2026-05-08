@@ -340,6 +340,29 @@ class Database {
         CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
         CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
         CREATE INDEX IF NOT EXISTS idx_contacts_use ON contacts(use_count DESC, last_used DESC);
+
+        CREATE TABLE IF NOT EXISTS tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT DEFAULT 'pending',
+          priority TEXT DEFAULT 'normal',
+          due_date TEXT,
+          reminder_at TEXT,
+          reminder_sent INTEGER DEFAULT 0,
+          completed_at TEXT,
+          category TEXT,
+          tags TEXT,
+          color TEXT DEFAULT '#3498db',
+          related_message_id INTEGER,
+          related_contact_id INTEGER,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT,
+          FOREIGN KEY (related_message_id) REFERENCES messages(id) ON DELETE SET NULL,
+          FOREIGN KEY (related_contact_id) REFERENCES contacts(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tasks_status_due ON tasks(status, due_date);
+        CREATE INDEX IF NOT EXISTS idx_tasks_reminder ON tasks(reminder_at, reminder_sent);
       `);
     } catch (_) {}
 
@@ -1396,6 +1419,154 @@ class Database {
     const fav = this.prepare('SELECT COUNT(*) AS c FROM contacts WHERE is_favorite = 1').get().c;
     const auto = this.prepare("SELECT COUNT(*) AS c FROM contacts WHERE source = 'auto'").get().c;
     return { total, favorites: fav, automatic: auto, manual: total - auto };
+  }
+
+  // ====== v1.18: Görevler / To-Do ======
+  listTasks(opts = {}) {
+    let where = '1=1';
+    const params = [];
+
+    const filter = opts.filter || 'all';
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+    const dayAfterTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2).toISOString();
+    const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7).toISOString();
+    const nowIso = now.toISOString();
+
+    if (filter === 'today') {
+      where += " AND status NOT IN ('completed','cancelled') AND due_date >= ? AND due_date < ?";
+      params.push(todayStart, tomorrowStart);
+    } else if (filter === 'tomorrow') {
+      where += " AND status NOT IN ('completed','cancelled') AND due_date >= ? AND due_date < ?";
+      params.push(tomorrowStart, dayAfterTomorrow);
+    } else if (filter === 'thisWeek') {
+      where += " AND status NOT IN ('completed','cancelled') AND due_date >= ? AND due_date < ?";
+      params.push(todayStart, weekEnd);
+    } else if (filter === 'overdue') {
+      where += " AND status NOT IN ('completed','cancelled') AND due_date IS NOT NULL AND due_date < ?";
+      params.push(nowIso);
+    } else if (filter === 'completed') {
+      where += " AND status = 'completed'";
+    } else if (filter === 'highPriority') {
+      where += " AND status NOT IN ('completed','cancelled') AND priority IN ('high','urgent')";
+    } else if (filter === 'open') {
+      where += " AND status NOT IN ('completed','cancelled')";
+    }
+    // 'all' default - hepsi
+
+    if (opts.search) {
+      where += ' AND (title LIKE ? OR description LIKE ?)';
+      const q = '%' + opts.search + '%';
+      params.push(q, q);
+    }
+
+    return this.prepare(`
+      SELECT id, title, description, status, priority, due_date, reminder_at, completed_at,
+             category, tags, color, related_message_id, related_contact_id,
+             created_at, updated_at
+      FROM tasks WHERE ${where}
+      ORDER BY
+        CASE status WHEN 'completed' THEN 1 ELSE 0 END,
+        CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'normal' THEN 3 WHEN 'low' THEN 4 ELSE 5 END,
+        CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
+        due_date ASC,
+        created_at DESC
+    `).all(...params);
+  }
+
+  getTask(id) {
+    return this.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+  }
+
+  addTask(task) {
+    const r = this.prepare(`
+      INSERT INTO tasks (title, description, status, priority, due_date, reminder_at,
+                         category, tags, color, related_message_id, related_contact_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      task.title || 'Yeni Görev',
+      task.description || null,
+      task.status || 'pending',
+      task.priority || 'normal',
+      task.due_date || null,
+      task.reminder_at || null,
+      task.category || null,
+      task.tags || null,
+      task.color || '#3498db',
+      task.related_message_id || null,
+      task.related_contact_id || null
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateTask(id, updates) {
+    const allowed = ['title', 'description', 'status', 'priority', 'due_date', 'reminder_at',
+                     'category', 'tags', 'color', 'completed_at', 'reminder_sent'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (typeof v === 'boolean') v = v ? 1 : 0;
+      return v;
+    });
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE tasks SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  completeTask(id) {
+    const now = new Date().toISOString();
+    this.prepare(`UPDATE tasks SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`)
+      .run(now, now, id);
+  }
+
+  uncompleteTask(id) {
+    this.prepare(`UPDATE tasks SET status = 'pending', completed_at = NULL, updated_at = ? WHERE id = ?`)
+      .run(new Date().toISOString(), id);
+  }
+
+  deleteTask(id) {
+    this.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+  }
+
+  /**
+   * Background scheduler için: hatırlatma vakti gelmiş ve henüz bildirilmemiş görevleri bul
+   */
+  getDueTaskReminders() {
+    const now = new Date().toISOString();
+    return this.prepare(`
+      SELECT * FROM tasks
+      WHERE reminder_at IS NOT NULL
+        AND reminder_sent = 0
+        AND reminder_at <= ?
+        AND status NOT IN ('completed','cancelled')
+      ORDER BY reminder_at ASC
+      LIMIT 10
+    `).all(now);
+  }
+
+  /**
+   * Görev sayıları (badge için)
+   */
+  taskStats() {
+    const stats = {};
+    const filters = {
+      all: '1=1',
+      open: "status NOT IN ('completed','cancelled')",
+      today: "status NOT IN ('completed','cancelled') AND date(due_date) = date('now','localtime')",
+      tomorrow: "status NOT IN ('completed','cancelled') AND date(due_date) = date('now','localtime','+1 day')",
+      thisWeek: "status NOT IN ('completed','cancelled') AND date(due_date) BETWEEN date('now','localtime') AND date('now','localtime','+7 days')",
+      overdue: `status NOT IN ('completed','cancelled') AND due_date IS NOT NULL AND due_date < datetime('now','localtime')`,
+      completed: "status = 'completed'",
+      highPriority: "status NOT IN ('completed','cancelled') AND priority IN ('high','urgent')"
+    };
+    for (const [k, where] of Object.entries(filters)) {
+      try {
+        stats[k] = this.prepare(`SELECT COUNT(*) AS c FROM tasks WHERE ${where}`).get().c;
+      } catch (_) { stats[k] = 0; }
+    }
+    return stats;
   }
 }
 

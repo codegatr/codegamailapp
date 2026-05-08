@@ -107,6 +107,16 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('contacts:delete', id),
     stats: () => ipcRenderer.invoke('contacts:stats')
   },
+  tasks: {
+    list: (opts) => ipcRenderer.invoke('tasks:list', opts),
+    get: (id) => ipcRenderer.invoke('tasks:get', id),
+    add: (task) => ipcRenderer.invoke('tasks:add', task),
+    update: (id, u) => ipcRenderer.invoke('tasks:update', id, u),
+    complete: (id) => ipcRenderer.invoke('tasks:complete', id),
+    uncomplete: (id) => ipcRenderer.invoke('tasks:uncomplete', id),
+    delete: (id) => ipcRenderer.invoke('tasks:delete', id),
+    stats: () => ipcRenderer.invoke('tasks:stats')
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),
@@ -151,7 +161,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);
