@@ -433,13 +433,192 @@ function bindModals() {
 
 function bindKeyboard() {
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openCompose(); }
-    else if (e.key === 'F5') { e.preventDefault(); syncAll(); }
-    else if (e.key === 'Delete' && state.selectedMessage) {
+    // Input/textarea/contenteditable içindeyse tek-harf kısayolları (J/K/R/A vs) çalışmasın
+    const inEditable = isEditableElement(e.target);
+
+    // ===== Genel kısayollar (her yerde) =====
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      openCommandPalette();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      e.preventDefault();
+      document.getElementById('modalKeyboardHelp').classList.remove('hidden');
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+      e.preventDefault();
+      openSettings();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+      e.preventDefault();
+      openCompose();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+      e.preventDefault();
+      const idx = parseInt(e.key, 10) - 1;
+      if (state.accounts && state.accounts[idx]) {
+        selectAccount(state.accounts[idx].id);
+      }
+      return;
+    }
+    if (e.key === 'F5') { e.preventDefault(); syncAll(); return; }
+    if (e.key === 'Escape') hideContextMenu();
+
+    // Düzenlenebilir alandayken (input/textarea/editor) tek harfli kısayolları yakalamayalım
+    if (inEditable) {
+      // Compose'da Ctrl+Enter gönder
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
+        if (composeOpen) { e.preventDefault(); sendMail(); }
+      }
+      return;
+    }
+
+    // ===== Mesaj listesi kısayolları (Gmail tarzı) =====
+    // Açık modal varsa karışmasın
+    const anyModalOpen = !!document.querySelector('.modal:not(.hidden):not(#modalKeyboardHelp):not(#modalCommandPalette)');
+    if (anyModalOpen) return;
+
+    if (e.key === 'j' || e.key === 'ArrowDown') {
+      if (state.messages && state.messages.length) {
+        e.preventDefault();
+        navigateMessage(1);
+      }
+    } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      if (state.messages && state.messages.length) {
+        e.preventDefault();
+        navigateMessage(-1);
+      }
+    } else if ((e.key === 'Enter' || e.key === 'o') && state.selectedMessage) {
+      // Mesajı detay panelinde aç (zaten açık olabilir)
+      // Hiçbir şey yapmayalım - mesaj zaten seçili durumda
+    } else if (e.key === 'r' && state.selectedMessage) {
+      e.preventDefault();
+      openCompose({ replyTo: state.selectedMessage });
+    } else if (e.key === 'a' && state.selectedMessage) {
+      e.preventDefault();
+      openCompose({ replyTo: state.selectedMessage, replyAll: true });
+    } else if (e.key === 'f' && state.selectedMessage) {
+      e.preventDefault();
+      openCompose({ forward: state.selectedMessage });
+    } else if ((e.key === 'Delete' || e.key === '#') && state.selectedMessage) {
+      e.preventDefault();
       if (confirm('Bu mesajı silmek istediğinizden emin misiniz?')) deleteCurrentMessage();
-    } else if (e.key === 'Escape') hideContextMenu();
+    } else if (e.key === 's' && state.selectedMessage) {
+      e.preventDefault();
+      toggleImportantCurrentMessage();
+    } else if (e.key === '!' && state.selectedMessage) {
+      e.preventDefault();
+      markCurrentMessageAsSpam();
+    } else if (e.key === 'u' && state.selectedMessage) {
+      e.preventDefault();
+      toggleReadCurrentMessage();
+    } else if (e.key === 'c' && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      openCompose();
+    } else if (e.key === '/' && !e.ctrlKey) {
+      e.preventDefault();
+      const sb = document.getElementById('searchBox');
+      if (sb) { sb.focus(); sb.select(); }
+    }
   });
   document.addEventListener('click', hideContextMenu);
+}
+
+function isEditableElement(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (el.isContentEditable) return true;
+  // Closest contenteditable kontrolü
+  return !!el.closest && !!el.closest('[contenteditable="true"]');
+}
+
+function navigateMessage(dir) {
+  if (!state.messages || !state.messages.length) return;
+  let idx = -1;
+  if (state.selectedMessage) {
+    idx = state.messages.findIndex(m => m.id === state.selectedMessage.id);
+  }
+  let newIdx = idx + dir;
+  if (newIdx < 0) newIdx = 0;
+  if (newIdx >= state.messages.length) newIdx = state.messages.length - 1;
+  const next = state.messages[newIdx];
+  if (next) {
+    openMessage(next.id);
+    // Kaydır
+    setTimeout(() => {
+      const row = document.querySelector(`.message-item[data-id="${next.id}"]`);
+      if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 50);
+  }
+}
+
+// Mevcut seçili mesaj eylemleri
+async function toggleImportantCurrentMessage() {
+  if (!state.selectedMessage) return;
+  const newVal = !state.selectedMessage.is_important;
+  await window.api.messages.markImportant(state.selectedMessage.id, newVal);
+  state.selectedMessage.is_important = newVal;
+  await loadMessages();
+  setStatus(newVal ? '⭐ Önemli işaretlendi' : 'Önem kaldırıldı');
+}
+
+async function markCurrentMessageAsSpam() {
+  if (!state.selectedMessage) return;
+  await window.api.messages.markSpam(state.selectedMessage.id);
+  setStatus('Spam olarak işaretlendi');
+  await loadMessages();
+}
+
+async function toggleReadCurrentMessage() {
+  if (!state.selectedMessage) return;
+  const newRead = !state.selectedMessage.is_read;
+  await window.api.messages.markRead(state.selectedMessage.id, newRead);
+  state.selectedMessage.is_read = newRead;
+  await loadMessages();
+  setStatus(newRead ? 'Okundu' : 'Okunmadı');
+}
+
+async function markAllRead() {
+  if (!state.messages || !state.messages.length) {
+    setStatus('Klasör boş');
+    return;
+  }
+  const unread = state.messages.filter(m => !m.is_read);
+  if (!unread.length) { setStatus('Tüm mesajlar zaten okunmuş'); return; }
+  if (!confirm(`${unread.length} okunmamış mesaj okundu olarak işaretlensin mi?`)) return;
+  for (const m of unread) {
+    try { await window.api.messages.markRead(m.id, true); } catch (_) {}
+  }
+  setStatus(`✓ ${unread.length} mesaj okundu olarak işaretlendi`);
+  await loadMessages();
+  await loadAccounts();
+}
+
+async function selectAccount(accountId) {
+  // Hesabın inbox/ilk klasörüne geç
+  try {
+    const folders = await window.api.folders.list(accountId);
+    if (!folders || !folders.length) { setStatus('Bu hesap için klasör bulunamadı'); return; }
+    // Inbox bul
+    const inbox = folders.find(f => /inbox|gelen/i.test(f.name) || f.special_use === 'inbox') || folders[0];
+    const folderEl = document.querySelector(`.folder-item[data-folder-id="${inbox.id}"]`);
+    if (folderEl) folderEl.click();
+    else {
+      // Click event yoksa programatik geç
+      state.selectedFolder = inbox;
+      await loadMessages();
+    }
+    const acc = state.accounts.find(a => a.id === accountId);
+    if (acc) setStatus(`📧 ${acc.display_name} hesabına geçildi`);
+  } catch (e) {
+    setStatus('Hesap geçişi hatası: ' + e.message, 'error');
+  }
 }
 
 // ============= İlk Çalıştırma =============
@@ -4549,4 +4728,248 @@ if (window.api && window.api.on) {
   window.api.on('task:reminder', () => {
     refreshTasksBadge();
   });
+}
+
+// ============= v1.21: Komut Paleti (Ctrl+K) =============
+const cmdPaletteState = {
+  commands: [],
+  filtered: [],
+  activeIdx: 0,
+  bound: false
+};
+
+function buildCommandList() {
+  const cmds = [
+    { id: 'compose', label: 'Yeni Mesaj', icon: '✉', shortcut: 'Ctrl+N',
+      action: () => openCompose(), category: 'Mesaj' },
+    { id: 'sync', label: 'Senkronize Et (tüm hesaplar)', icon: '🔄', shortcut: 'F5',
+      action: () => syncAll(), category: 'Mesaj' },
+    { id: 'search', label: 'Arama yap', icon: '🔍', shortcut: 'Ctrl+F',
+      action: () => { const sb = document.getElementById('searchBox'); if (sb) { sb.focus(); sb.select(); } }, category: 'Mesaj' },
+    { id: 'unified-inbox', label: 'Birleşik Gelen Kutusu', icon: '📥',
+      action: () => { const b = document.getElementById('btnUnifiedInbox'); if (b) b.click(); }, category: 'Mesaj' },
+    { id: 'mark-all-read', label: 'Klasördeki tümünü okundu işaretle', icon: '✓✓',
+      action: () => markAllRead(), category: 'Mesaj' },
+
+    { id: 'contacts', label: 'Adres Defteri', icon: '👥',
+      action: () => openContacts(), category: 'Modül' },
+    { id: 'notes', label: 'Notlar (Lotus Notes tarzı)', icon: '📓',
+      action: () => openNotes(), category: 'Modül' },
+    { id: 'tasks', label: 'Görevler / To-Do', icon: '✅',
+      action: () => openTasks(), category: 'Modül' },
+    { id: 'templates', label: 'Şablonlar', icon: '📝',
+      action: () => { const b = document.getElementById('btnTemplates'); if (b) b.click(); }, category: 'Modül' },
+    { id: 'rules', label: 'Filtre Kuralları', icon: '🔧',
+      action: () => { const b = document.getElementById('btnRules'); if (b) b.click(); }, category: 'Modül' },
+    { id: 'trusted', label: 'Güvenilir Göndericiler', icon: '🛡',
+      action: () => openTrustedSenders(), category: 'Modül' },
+
+    { id: 'add-account', label: 'Yeni Mail Hesabı Ekle', icon: '➕',
+      action: () => openAccountModal(), category: 'Hesap' },
+    { id: 'settings', label: 'Ayarlar', icon: '⚙', shortcut: 'Ctrl+,',
+      action: () => openSettings(), category: 'Hesap' },
+
+    { id: 'backup', label: 'Yedekleme - Şifreli Dosya Oluştur', icon: '💾',
+      action: () => doBackup(), category: 'Bakım' },
+    { id: 'restore', label: 'Geri Yükle - Yedek Dosyasından', icon: '📥',
+      action: () => doRestore(), category: 'Bakım' },
+    { id: 'sync-history', label: 'Senkronizasyon İlerleme Penceresi', icon: '📊',
+      action: () => { document.getElementById('modalSyncProgress').classList.remove('hidden'); }, category: 'Bakım' },
+
+    { id: 'kb-help', label: 'Klavye Kısayolları Yardımı', icon: '⌨', shortcut: 'Ctrl+/',
+      action: () => document.getElementById('modalKeyboardHelp').classList.remove('hidden'), category: 'Yardım' },
+    { id: 'about', label: 'Hakkında', icon: 'ℹ',
+      action: () => { const b = document.getElementById('btnAbout'); if (b) b.click(); }, category: 'Yardım' }
+  ];
+
+  // Mevcut mesaj seçili ise mesaj eylemlerini de ekle
+  if (state.selectedMessage) {
+    cmds.unshift(
+      { id: 'reply', label: 'Bu mesajı cevapla', icon: '↩', shortcut: 'R',
+        action: () => openCompose({ replyTo: state.selectedMessage }), category: 'Mevcut Mesaj' },
+      { id: 'reply-all', label: 'Bu mesajı tümüne cevapla', icon: '↩↩', shortcut: 'A',
+        action: () => openCompose({ replyTo: state.selectedMessage, replyAll: true }), category: 'Mevcut Mesaj' },
+      { id: 'forward', label: 'Bu mesajı ilet', icon: '↪', shortcut: 'F',
+        action: () => openCompose({ forward: state.selectedMessage }), category: 'Mevcut Mesaj' },
+      { id: 'delete-msg', label: 'Bu mesajı sil', icon: '🗑', shortcut: 'Delete',
+        action: () => deleteCurrentMessage(), category: 'Mevcut Mesaj' },
+      { id: 'task-from-msg', label: 'Bu mesajdan görev oluştur', icon: '✅',
+        action: () => createTaskFromMessage(state.selectedMessage), category: 'Mevcut Mesaj' },
+      { id: 'note-from-msg', label: 'Bu mesajdan not oluştur', icon: '📓',
+        action: () => createNoteFromMessage(state.selectedMessage), category: 'Mevcut Mesaj' }
+    );
+  }
+
+  // Hesap geçişi komutları
+  if (state.accounts && state.accounts.length) {
+    state.accounts.forEach((acc, i) => {
+      if (i < 9) {
+        cmds.push({
+          id: 'select-acc-' + acc.id,
+          label: `Hesaba geç: ${acc.display_name}`,
+          icon: '📧',
+          shortcut: 'Ctrl+' + (i + 1),
+          action: () => selectAccount(acc.id),
+          category: 'Hesap Geçişi'
+        });
+      }
+    });
+  }
+
+  return cmds;
+}
+
+function openCommandPalette() {
+  const modal = document.getElementById('modalCommandPalette');
+  const input = document.getElementById('cmdPaletteInput');
+
+  cmdPaletteState.commands = buildCommandList();
+  cmdPaletteState.filtered = cmdPaletteState.commands;
+  cmdPaletteState.activeIdx = 0;
+
+  if (!cmdPaletteState.bound) {
+    cmdPaletteState.bound = true;
+    bindCommandPalette();
+  }
+
+  modal.classList.remove('hidden');
+  input.value = '';
+  setTimeout(() => input.focus(), 30);
+  renderCommandPaletteResults();
+}
+
+function bindCommandPalette() {
+  const input = document.getElementById('cmdPaletteInput');
+  const modal = document.getElementById('modalCommandPalette');
+
+  input.addEventListener('input', () => {
+    cmdPaletteState.filtered = filterCommands(cmdPaletteState.commands, input.value);
+    cmdPaletteState.activeIdx = 0;
+    renderCommandPaletteResults();
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      cmdPaletteState.activeIdx = Math.min(cmdPaletteState.filtered.length - 1, cmdPaletteState.activeIdx + 1);
+      renderCommandPaletteResults();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      cmdPaletteState.activeIdx = Math.max(0, cmdPaletteState.activeIdx - 1);
+      renderCommandPaletteResults();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const cmd = cmdPaletteState.filtered[cmdPaletteState.activeIdx];
+      if (cmd) executeCommand(cmd);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      modal.classList.add('hidden');
+    }
+  });
+
+  // Modalın dışına tıklayınca kapat
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  });
+}
+
+function executeCommand(cmd) {
+  document.getElementById('modalCommandPalette').classList.add('hidden');
+  setTimeout(() => {
+    try { cmd.action(); }
+    catch (e) { console.warn('Komut hatası:', e); setStatus('Komut çalıştırılamadı: ' + e.message, 'error'); }
+  }, 50);
+}
+
+function filterCommands(commands, query) {
+  if (!query || !query.trim()) return commands;
+  const q = query.toLowerCase().trim();
+
+  // Basit fuzzy: her karakter sırayla geçiyor mu? + substring bonusu
+  const scored = commands.map(c => {
+    const label = c.label.toLowerCase();
+    const cat = (c.category || '').toLowerCase();
+    let score = 0;
+    if (label.includes(q)) score += 100;
+    if (label.startsWith(q)) score += 50;
+    if (cat.includes(q)) score += 20;
+    // Fuzzy karakter eşleme
+    let qi = 0;
+    for (let i = 0; i < label.length && qi < q.length; i++) {
+      if (label[i] === q[qi]) { score += 1; qi++; }
+    }
+    if (qi < q.length) {
+      // Bütün karakterler bulunamadıysa
+      // category'de de bak
+      qi = 0;
+      for (let i = 0; i < cat.length && qi < q.length; i++) {
+        if (cat[i] === q[qi]) { score += 0.5; qi++; }
+      }
+      if (qi < q.length) score = 0;
+    }
+    return { cmd: c, score };
+  });
+
+  return scored
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.cmd);
+}
+
+function renderCommandPaletteResults() {
+  const el = document.getElementById('cmdPaletteResults');
+  const cmds = cmdPaletteState.filtered;
+
+  if (!cmds.length) {
+    el.innerHTML = '<div class="cmd-empty">Komut bulunamadı</div>';
+    return;
+  }
+
+  // Kategoriye göre grupla
+  const byCategory = {};
+  cmds.forEach(c => {
+    const cat = c.category || 'Diğer';
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(c);
+  });
+
+  let html = '';
+  let runningIdx = 0;
+  for (const [cat, list] of Object.entries(byCategory)) {
+    html += `<div class="cmd-category">${escapeHtml(cat)}</div>`;
+    for (const c of list) {
+      const isActive = runningIdx === cmdPaletteState.activeIdx;
+      html += `
+        <div class="cmd-item ${isActive ? 'active' : ''}" data-idx="${runningIdx}">
+          <span class="cmd-icon">${c.icon || '·'}</span>
+          <span class="cmd-label">${escapeHtml(c.label)}</span>
+          ${c.shortcut ? `<span class="cmd-shortcut">${escapeHtml(c.shortcut)}</span>` : ''}
+        </div>
+      `;
+      runningIdx++;
+    }
+  }
+
+  el.innerHTML = html;
+
+  // Click handlers
+  el.querySelectorAll('.cmd-item').forEach(item => {
+    item.onmousedown = (e) => {
+      e.preventDefault();
+      const idx = parseInt(item.dataset.idx, 10);
+      const cmd = cmdPaletteState.filtered[idx];
+      if (cmd) executeCommand(cmd);
+    };
+    item.onmouseenter = () => {
+      const idx = parseInt(item.dataset.idx, 10);
+      cmdPaletteState.activeIdx = idx;
+      // Aktif sınıfını güncelle (re-render değil, performance)
+      el.querySelectorAll('.cmd-item').forEach(x => x.classList.remove('active'));
+      item.classList.add('active');
+    };
+  });
+
+  // Aktif olanı görünür yap
+  const activeEl = el.querySelector('.cmd-item.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
 }

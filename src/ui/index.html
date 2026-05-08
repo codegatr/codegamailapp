@@ -80,6 +80,67 @@
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
 
+  <!-- ===== v1.21: Komut Paleti (Ctrl+K) ===== -->
+  <div id="modalCommandPalette" class="modal hidden cmd-palette-modal">
+    <div class="cmd-palette">
+      <div class="cmd-palette-header">
+        <span class="cmd-palette-icon">⌘</span>
+        <input type="text" id="cmdPaletteInput" placeholder="Komut ara veya yaz..." autocomplete="off" spellcheck="false">
+        <span class="cmd-palette-hint">Esc kapat · ↑↓ gez · Enter çalıştır</span>
+      </div>
+      <div id="cmdPaletteResults" class="cmd-palette-results"></div>
+      <div class="cmd-palette-footer">
+        <span>v1.21 · Ctrl+/ ile tüm kısayolları gör</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== v1.21: Klavye Kısayolları Yardım (Ctrl+/) ===== -->
+  <div id="modalKeyboardHelp" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>⌨ Klavye Kısayolları</h2>
+        <button class="modal-close" data-close="modalKeyboardHelp">×</button>
+      </div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+        <div class="kbd-section">
+          <h3>🌐 Genel</h3>
+          <div class="kbd-row"><span>Komut paleti</span><kbd>Ctrl</kbd>+<kbd>K</kbd></div>
+          <div class="kbd-row"><span>Yeni mesaj</span><kbd>Ctrl</kbd>+<kbd>N</kbd></div>
+          <div class="kbd-row"><span>Senkronize et</span><kbd>F5</kbd></div>
+          <div class="kbd-row"><span>Arama yap</span><kbd>Ctrl</kbd>+<kbd>F</kbd></div>
+          <div class="kbd-row"><span>Ayarlar</span><kbd>Ctrl</kbd>+<kbd>,</kbd></div>
+          <div class="kbd-row"><span>Bu yardım</span><kbd>Ctrl</kbd>+<kbd>/</kbd></div>
+          <div class="kbd-row"><span>Modal kapat</span><kbd>Esc</kbd></div>
+        </div>
+        <div class="kbd-section">
+          <h3>📬 Mesaj Listesi (Gmail tarzı)</h3>
+          <div class="kbd-row"><span>Sonraki mesaj</span><kbd>J</kbd> veya <kbd>↓</kbd></div>
+          <div class="kbd-row"><span>Önceki mesaj</span><kbd>K</kbd> veya <kbd>↑</kbd></div>
+          <div class="kbd-row"><span>Mesajı aç</span><kbd>Enter</kbd> veya <kbd>O</kbd></div>
+          <div class="kbd-row"><span>Cevapla</span><kbd>R</kbd></div>
+          <div class="kbd-row"><span>Tümüne cevapla</span><kbd>A</kbd></div>
+          <div class="kbd-row"><span>İlet</span><kbd>F</kbd></div>
+          <div class="kbd-row"><span>Sil</span><kbd>#</kbd> veya <kbd>Delete</kbd></div>
+          <div class="kbd-row"><span>Önemli (yıldız)</span><kbd>S</kbd></div>
+          <div class="kbd-row"><span>Spam işaretle</span><kbd>!</kbd></div>
+          <div class="kbd-row"><span>Okundu/Okunmadı</span><kbd>U</kbd></div>
+        </div>
+        <div class="kbd-section">
+          <h3>✉ Yeni Mesaj (Compose)</h3>
+          <div class="kbd-row"><span>Gönder</span><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
+          <div class="kbd-row"><span>Kapat</span><kbd>Esc</kbd></div>
+        </div>
+        <div class="kbd-section">
+          <h3>🔢 Hesap Geçişi</h3>
+          <div class="kbd-row"><span>1. hesaba geç</span><kbd>Ctrl</kbd>+<kbd>1</kbd></div>
+          <div class="kbd-row"><span>2. hesaba geç</span><kbd>Ctrl</kbd>+<kbd>2</kbd></div>
+          <div class="kbd-row"><span>... 9. hesaba kadar</span><kbd>Ctrl</kbd>+<kbd>9</kbd></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== v1.17: Senkronizasyon İlerleme Penceresi (Outlook tarzı) ===== -->
   <div id="modalSyncProgress" class="modal hidden">
     <div class="modal-content modal-md sync-modal">
