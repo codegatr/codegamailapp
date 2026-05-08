@@ -5379,3 +5379,124 @@ html.dark .mdn-banner {
   display: inline-block;
   width: 70px;
 }
+
+/* ============= v1.54: Outlook UI Reorganize ============= */
+
+/* Sort & Group toolbar */
+.list-header-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+}
+.list-sort-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.list-sort-select:hover {
+  border-color: var(--primary);
+}
+#btnGroupToggle.active {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+/* Tarih grupları */
+.msg-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.msg-group-header:hover {
+  background: var(--bg-3);
+}
+.msg-group-toggle {
+  font-size: 9px;
+  color: var(--muted);
+  width: 12px;
+}
+.msg-group-name {
+  flex: 1;
+  color: var(--primary);
+}
+.msg-group-count {
+  background: var(--bg-3);
+  color: var(--text-2);
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.msg-group-header.collapsed .msg-group-count {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+/* Hover quick actions - mail item üstünde */
+.message-item {
+  position: relative;
+}
+.msg-quick-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 10;
+}
+.mqa-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.mqa-btn:hover {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+/* Status bar - detaylı */
+.status-item {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.status-sep {
+  color: var(--muted);
+  font-size: 10px;
+  opacity: 0.5;
+}
+#statusOnline.offline {
+  color: var(--muted);
+}

@@ -1732,11 +1732,29 @@ async function loadMessages() {
 function renderMessageList() {
   const container = document.getElementById('messageList');
   if (!state.messages.length) {
-    container.innerHTML = '<div class="empty-state">Bu klasörde mesaj yok</div>'; return;
+    container.innerHTML = '<div class="empty-state">Bu klasörde mesaj yok</div>';
+    updateStatusBar(); return;
   }
   const isUnified = state.selectedFolder?.unified;
 
-  container.innerHTML = state.messages.map(m => {
+  // v1.54: Sıralama
+  const sortBy = state.sortBy || 'date-desc';
+  const sortedMessages = [...state.messages].sort((a, b) => {
+    switch (sortBy) {
+      case 'date-asc': return (a.date || '').localeCompare(b.date || '');
+      case 'date-desc': return (b.date || '').localeCompare(a.date || '');
+      case 'from': return (a.from_name || a.from_addr || '').localeCompare(b.from_name || b.from_addr || '');
+      case 'subject': return (a.subject || '').localeCompare(b.subject || '');
+      case 'size-desc': return (b.size || 0) - (a.size || 0);
+      case 'unread': return (a.is_read - b.is_read) || (b.date || '').localeCompare(a.date || '');
+      default: return (b.date || '').localeCompare(a.date || '');
+    }
+  });
+
+  // v1.54: Group by Date (sadece tarihe göre sıralıyken)
+  const groupByDate = state.groupByDate !== false && (sortBy === 'date-asc' || sortBy === 'date-desc');
+
+  const renderItem = (m) => {
     const date = m.date ? formatDate(m.date) : '';
     const fromDisplay = m.from_name || m.from_addr || '(bilinmeyen)';
     const spamBadge = m.is_spam ? '<span class="spam-badge">SPAM</span>' : '';
@@ -1787,7 +1805,55 @@ function renderMessageList() {
           </div>
         </div>
       </div>`;
-  }).join('');
+  };
+
+  // v1.54: Tarih grupları (Bugün / Dün / Bu Hafta / Geçen Hafta / Bu Ay / Daha Eski)
+  const getDateGroup = (m) => {
+    if (!m.date) return 'Tarihsiz';
+    const d = new Date(m.date);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const weekStart = new Date(today.getTime() - today.getDay() * 86400000);
+    const lastWeekStart = new Date(weekStart.getTime() - 7 * 86400000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+    if (d >= today) return 'Bugün';
+    if (d >= yesterday) return 'Dün';
+    if (d >= weekStart) return 'Bu Hafta';
+    if (d >= lastWeekStart) return 'Geçen Hafta';
+    if (d >= monthStart) return 'Bu Ay';
+    if (d >= lastMonthStart) return 'Geçen Ay';
+    return 'Daha Eski';
+  };
+
+  if (groupByDate) {
+    const groups = new Map();
+    sortedMessages.forEach(m => {
+      const g = getDateGroup(m);
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(m);
+    });
+    let html = '';
+    const collapsed = state.collapsedGroups || {};
+    for (const [name, msgs] of groups) {
+      const isCollapsed = collapsed[name];
+      html += `<div class="msg-group-header ${isCollapsed ? 'collapsed' : ''}" data-group="${escapeHtml(name)}">
+        <span class="msg-group-toggle">${isCollapsed ? '▶' : '▼'}</span>
+        <span class="msg-group-name">${escapeHtml(name)}</span>
+        <span class="msg-group-count">${msgs.length}</span>
+      </div>`;
+      if (!isCollapsed) {
+        html += `<div class="msg-group-body">${msgs.map(renderItem).join('')}</div>`;
+      }
+    }
+    container.innerHTML = html;
+  } else {
+    container.innerHTML = sortedMessages.map(renderItem).join('');
+  }
+
+  updateStatusBar();
   container.querySelectorAll('.message-item').forEach(el => {
     const id = parseInt(el.dataset.id, 10);
     el.onclick = (e) => {
@@ -10809,3 +10875,138 @@ window.api.on('import:progress', (data) => {
 if (typeof RIBBON_ACTIONS !== 'undefined') {
   RIBBON_ACTIONS['import-mail'] = () => openImportModal();
 }
+
+// ============= v1.54: Outlook UI Reorganize =============
+
+// Sort/Group state
+state.sortBy = state.sortBy || 'date-desc';
+state.groupByDate = true;
+state.collapsedGroups = state.collapsedGroups || {};
+
+// Sort selector handler
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'sortBySelect') {
+    state.sortBy = e.target.value;
+    try { window.api.config.set({ sortBy: state.sortBy }); } catch (_) {}
+    renderMessageList();
+  }
+});
+
+// Group toggle
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btnGroupToggle')) {
+    state.groupByDate = !state.groupByDate;
+    try { window.api.config.set({ groupByDate: state.groupByDate }); } catch (_) {}
+    document.getElementById('btnGroupToggle').classList.toggle('active', state.groupByDate);
+    renderMessageList();
+  }
+  // Group header collapse/expand
+  const groupHeader = e.target.closest('.msg-group-header');
+  if (groupHeader && groupHeader.dataset.group) {
+    const name = groupHeader.dataset.group;
+    state.collapsedGroups[name] = !state.collapsedGroups[name];
+    renderMessageList();
+  }
+});
+
+// İlk yüklemede tercihleri uygula
+(async () => {
+  try {
+    const cfg = await window.api.config.get();
+    if (cfg.sortBy) {
+      state.sortBy = cfg.sortBy;
+      const sel = document.getElementById('sortBySelect');
+      if (sel) sel.value = cfg.sortBy;
+    }
+    if (typeof cfg.groupByDate === 'boolean') {
+      state.groupByDate = cfg.groupByDate;
+      document.getElementById('btnGroupToggle')?.classList.toggle('active', cfg.groupByDate);
+    } else {
+      document.getElementById('btnGroupToggle')?.classList.add('active');
+    }
+  } catch (_) {}
+})();
+
+// Status bar güncelle
+function updateStatusBar() {
+  const total = state.messages?.length || 0;
+  const unread = (state.messages || []).filter(m => !m.is_read).length;
+  const itemEl = document.getElementById('statusItemCount');
+  const unreadEl = document.getElementById('statusUnreadCount');
+  if (itemEl) itemEl.textContent = `${total} öğe`;
+  if (unreadEl) unreadEl.textContent = `${unread} okunmamış`;
+}
+
+// Online/offline tracker
+function updateOnlineStatus() {
+  const el = document.getElementById('statusOnline');
+  if (!el) return;
+  if (navigator.onLine) {
+    el.innerHTML = '🟢 Çevrimiçi';
+    el.classList.remove('offline');
+  } else {
+    el.innerHTML = '⚫ Çevrimdışı';
+    el.classList.add('offline');
+  }
+}
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+setTimeout(updateOnlineStatus, 1000);
+
+// Hover quick actions - mail item üzerinde hover'da reply/delete iconları
+// (mail-item HTML'inde zaten data-id var, JS overlay ekliyor)
+document.addEventListener('mouseenter', (e) => {
+  if (!e.target.classList || !e.target.classList.contains) return;
+  const item = e.target.closest && e.target.closest('.message-item');
+  if (item && !item.querySelector('.msg-quick-actions')) {
+    const id = item.dataset.id;
+    if (!id) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'msg-quick-actions';
+    overlay.innerHTML = `
+      <button class="mqa-btn" data-mqa="reply" data-id="${id}" title="Yanıtla">↩</button>
+      <button class="mqa-btn" data-mqa="archive" data-id="${id}" title="Arşivle">📦</button>
+      <button class="mqa-btn" data-mqa="snooze" data-id="${id}" title="Ertele">💤</button>
+      <button class="mqa-btn" data-mqa="delete" data-id="${id}" title="Sil">🗑</button>
+    `;
+    item.appendChild(overlay);
+  }
+}, true);
+
+document.addEventListener('mouseleave', (e) => {
+  if (!e.target.classList || !e.target.classList.contains) return;
+  const item = e.target.closest && e.target.closest('.message-item');
+  if (item) {
+    const overlay = item.querySelector('.msg-quick-actions');
+    if (overlay) overlay.remove();
+  }
+}, true);
+
+document.addEventListener('click', async (e) => {
+  const mqa = e.target.closest('[data-mqa]');
+  if (!mqa) return;
+  e.stopPropagation();
+  const id = parseInt(mqa.dataset.id, 10);
+  const msg = (state.messages || []).find(m => m.id === id);
+  if (!msg) return;
+
+  switch (mqa.dataset.mqa) {
+    case 'reply':
+      openCompose({ replyTo: msg });
+      break;
+    case 'archive':
+      const r1 = await window.api.archive.archive(id);
+      if (r1.ok) { setStatus('📦 Arşivlendi'); await loadAccounts(); await loadMessages(); }
+      break;
+    case 'snooze':
+      openSnoozeModal(msg);
+      break;
+    case 'delete':
+      if (confirm('Bu maili silmek istediğinizden emin misiniz?')) {
+        await window.api.messages.delete(id);
+        setStatus('🗑 Silindi');
+        await loadAccounts(); await loadMessages();
+      }
+      break;
+  }
+});

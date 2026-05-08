@@ -347,6 +347,18 @@
     <section class="pane pane-list">
       <div class="list-header">
         <span id="folderTitle" class="folder-title"></span>
+        <!-- v1.54: Sort & Group toolbar -->
+        <div class="list-header-actions">
+          <select id="sortBySelect" class="list-sort-select" title="Sıralama">
+            <option value="date-desc">📅 Tarih (Yeni→Eski)</option>
+            <option value="date-asc">📅 Tarih (Eski→Yeni)</option>
+            <option value="from">👤 Gönderen</option>
+            <option value="subject">📝 Konu</option>
+            <option value="size-desc">📊 Boyut (Büyük→Küçük)</option>
+            <option value="unread">📨 Okunmamış Önce</option>
+          </select>
+          <button id="btnGroupToggle" class="btn btn-ghost btn-sm" title="Tarih gruplarını aç/kapat">📋 Grupla</button>
+        </div>
         <div id="quickFilterChips" class="quick-filter-chips"></div>
         <div id="activeFiltersBar" class="active-filters-bar hidden"></div>
       </div>
@@ -366,6 +378,13 @@
     <span id="statusText">Hazır</span>
     <span id="syncProgress"></span>
     <span style="flex:1;"></span>
+    <!-- v1.54: Detaylı Outlook tarzı status -->
+    <span id="statusItemCount" class="status-item">0 öğe</span>
+    <span class="status-sep">|</span>
+    <span id="statusUnreadCount" class="status-item">0 okunmamış</span>
+    <span class="status-sep">|</span>
+    <span id="statusOnline" class="status-item">🟢 Çevrimiçi</span>
+    <span class="status-sep">|</span>
     <span id="footerVersion" class="footer-version" title="CODEGA Mail sürümü">v...</span>
   </footer>
 
