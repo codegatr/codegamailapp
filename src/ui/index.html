@@ -33,27 +33,254 @@
   <!-- Dropdown menüler (her menü item için) -->
   <div id="dropdownContainer" class="dropdown-container hidden"></div>
 
-  <header class="toolbar toolbar-compact">
-    <div class="brand brand-mini">
-      <img id="customLogoImg" class="brand-logo-img hidden" alt="Logo" style="display:none;">
-      <span class="brand-icon" id="brandIcon">✉</span>
-      <span class="brand-text hidden" id="brandText">CODEGA Mail</span>
+  <!-- v1.51: Outlook tarzı Ribbon (şerit) toolbar -->
+  <div class="ribbon" id="ribbon">
+    <div class="ribbon-tabs">
+      <div class="ribbon-tab active" data-rtab="home">Ana Sayfa</div>
+      <div class="ribbon-tab" data-rtab="sendrecv">Gönder/Al</div>
+      <div class="ribbon-tab" data-rtab="folder">Klasör</div>
+      <div class="ribbon-tab" data-rtab="view">Görünüm</div>
+      <div class="ribbon-spacer"></div>
+      <button class="ribbon-collapse" id="ribbonCollapse" title="Şeridi gizle/göster (Ctrl+F1)">▲</button>
     </div>
+    <div class="ribbon-panels">
+      <!-- ANA SAYFA -->
+      <div class="ribbon-panel active" data-rtab="home">
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Yeni</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="compose">
+              <div class="rbn-icon">✎</div><div class="rbn-label">Yeni<br>Mesaj</div>
+            </button>
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="new-account"><span>+</span> Yeni Hesap</button>
+              <button class="ribbon-btn-sm" data-action="new-folder"><span>📁</span> Yeni Klasör</button>
+              <button class="ribbon-btn-sm" data-action="new-task"><span>✅</span> Yeni Görev</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Sil</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="delete-msg" data-needs-msg>
+              <div class="rbn-icon" style="color:var(--danger);">🗑</div><div class="rbn-label">Sil</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="archive-msg" data-needs-msg>
+              <div class="rbn-icon">📦</div><div class="rbn-label">Arşivle</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="mark-spam" data-needs-msg>
+              <div class="rbn-icon">🛡</div><div class="rbn-label">Spam</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Yanıtla</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="reply" data-needs-msg>
+              <div class="rbn-icon">↩</div><div class="rbn-label">Yanıtla</div>
+            </button>
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="reply-all" data-needs-msg><span>↩↩</span> Tümünü Yanıtla</button>
+              <button class="ribbon-btn-sm" data-action="forward" data-needs-msg><span>→</span> İlet</button>
+              <button class="ribbon-btn-sm" data-action="quick-steps"><span>⚡</span> Quick Steps</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Etiketler</div>
+          <div class="ribbon-group-body">
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="toggle-read" data-needs-msg><span>✉</span> Okundu/Okunmadı</button>
+              <button class="ribbon-btn-sm" data-action="toggle-important" data-needs-msg><span>⭐</span> Önemli İşaretle</button>
+              <button class="ribbon-btn-sm" data-action="categories"><span>🏷</span> Kategoriler</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Bul</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="advanced-search">
+              <div class="rbn-icon">🔍</div><div class="rbn-label">Gelişmiş<br>Arama</div>
+            </button>
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="contacts"><span>👥</span> Adres Defteri</button>
+              <button class="ribbon-btn-sm" data-action="rules"><span>⚙</span> Kurallar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- GÖNDER/AL -->
+      <div class="ribbon-panel" data-rtab="sendrecv">
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Gönder/Al</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="sync-all">
+              <div class="rbn-icon">↻</div><div class="rbn-label">Tümünü<br>Senkronize</div>
+            </button>
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="sync-current"><span>↻</span> Bu Klasörü Senkronize</button>
+              <button class="ribbon-btn-sm" data-action="scheduled"><span>⏰</span> Zamanlanmış</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Hesaplar</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="settings">
+              <div class="rbn-icon">⚙</div><div class="rbn-label">Hesap<br>Ayarları</div>
+            </button>
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="oauth-setup"><span>🔐</span> OAuth2 Kurulum</button>
+              <button class="ribbon-btn-sm" data-action="new-account"><span>+</span> Yeni Hesap</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Veri</div>
+          <div class="ribbon-group-body">
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="backup"><span>⬇</span> Yedek Al</button>
+              <button class="ribbon-btn-sm" data-action="restore"><span>⬆</span> Geri Yükle</button>
+              <button class="ribbon-btn-sm" data-action="archive"><span>📦</span> Arşiv</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Güvenlik</div>
+          <div class="ribbon-group-body">
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="pgp"><span>🔐</span> PGP Anahtarları</button>
+              <button class="ribbon-btn-sm" data-action="spam-rules"><span>🛡</span> Spam Kuralları</button>
+              <button class="ribbon-btn-sm" data-action="trusted"><span>✓</span> Güvenilir</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KLASÖR -->
+      <div class="ribbon-panel" data-rtab="folder">
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Yeni</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="new-folder">
+              <div class="rbn-icon">📁</div><div class="rbn-label">Yeni<br>Klasör</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="new-category">
+              <div class="rbn-icon">🏷</div><div class="rbn-label">Yeni<br>Kategori</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Eylemler</div>
+          <div class="ribbon-group-body">
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="rules"><span>⚙</span> Mail Kuralları</button>
+              <button class="ribbon-btn-sm" data-action="quick-steps"><span>⚡</span> Quick Steps</button>
+              <button class="ribbon-btn-sm" data-action="categories"><span>🏷</span> Kategoriler</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Modüller</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="archive">
+              <div class="rbn-icon">📦</div><div class="rbn-label">Arşiv</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="calendar">
+              <div class="rbn-icon">📅</div><div class="rbn-label">Takvim</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="tasks">
+              <div class="rbn-icon">✅</div><div class="rbn-label">Görevler</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="notes">
+              <div class="rbn-icon">📓</div><div class="rbn-label">Notlar</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="contacts">
+              <div class="rbn-icon">👥</div><div class="rbn-label">Kişiler</div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- GÖRÜNÜM -->
+      <div class="ribbon-panel" data-rtab="view">
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Düzen</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="layout-right">
+              <div class="rbn-icon">⫾</div><div class="rbn-label">Sağda<br>Önizleme</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="layout-bottom">
+              <div class="rbn-icon">⊟</div><div class="rbn-label">Altta<br>Önizleme</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="layout-off">
+              <div class="rbn-icon">☐</div><div class="rbn-label">Kapalı</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Yoğunluk & Tema</div>
+          <div class="ribbon-group-body">
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="density-compact"><span>☰</span> Kompakt</button>
+              <button class="ribbon-btn-sm" data-action="density-normal"><span>☰</span> Normal</button>
+              <button class="ribbon-btn-sm" data-action="density-wide"><span>☰</span> Geniş</button>
+            </div>
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="theme-light"><span>☀</span> Açık Tema</button>
+              <button class="ribbon-btn-sm" data-action="theme-dark"><span>🌙</span> Koyu Tema</button>
+              <button class="ribbon-btn-sm" data-action="conversation"><span>💬</span> Konuşma</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Paneller</div>
+          <div class="ribbon-group-body">
+            <button class="ribbon-btn-big" data-action="dashboard">
+              <div class="rbn-icon">📊</div><div class="rbn-label">Gösterge<br>Paneli</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="notifications">
+              <div class="rbn-icon">🔔</div><div class="rbn-label">Bildirim<br>Paneli</div>
+            </button>
+            <button class="ribbon-btn-big" data-action="command-palette">
+              <div class="rbn-icon">⌨</div><div class="rbn-label">Komut<br>Paleti</div>
+            </button>
+          </div>
+        </div>
+
+        <div class="ribbon-group">
+          <div class="ribbon-group-title">Marka</div>
+          <div class="ribbon-group-body">
+            <div class="ribbon-btn-col">
+              <button class="ribbon-btn-sm" data-action="settings"><span>⚙</span> Ayarlar</button>
+              <button class="ribbon-btn-sm" data-action="signature"><span>🎨</span> İmza Şablonu</button>
+              <button class="ribbon-btn-sm" data-action="templates"><span>📝</span> Şablonlar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <header class="toolbar toolbar-search-only">
     <div class="header-search">
       <span class="header-search-icon">🔍</span>
       <input id="searchBox" type="text" placeholder="Ara… (from: subject: has:attachment)" autocomplete="off">
       <button id="btnAdvancedSearch" class="header-search-filter-btn" title="Gelişmiş arama (filtreler)">▾ Filtrele</button>
     </div>
     <div class="toolbar-actions">
-      <button id="btnCompose" class="btn btn-primary" title="Yeni mesaj (Ctrl+N)">
-        <span>✎</span> Yeni Mesaj
-      </button>
-      <button id="btnSyncAll" class="btn" title="Tüm hesapları senkronize et (F5)">
-        <span>↻</span> Senkronize Et
-      </button>
-      <div class="toolbar-spacer"></div>
-      <div id="quickStepsBar" class="quick-steps-bar"></div>
-      <button id="btnDashboard" class="btn btn-ghost" title="Gösterge paneli (Ctrl+Shift+D)">📊</button>
       <button id="btnNotifications" class="btn btn-ghost" title="Bildirimler (Ctrl+Shift+N)" style="position:relative;">
         🔔 <span id="notifBadge" class="notif-badge hidden">0</span>
       </button>
@@ -61,8 +288,12 @@
     </div>
   </header>
 
-  <!-- Eski toolbar butonları gizli (menü için backward compat) -->
+  <!-- Eski toolbar butonları - ribbon yönlendirmeleri için gizli -->
   <div style="display:none;">
+    <button id="btnCompose"></button>
+    <button id="btnSyncAll"></button>
+    <button id="btnDashboard"></button>
+    <button id="quickStepsBar"></button>
     <button id="btnAddAccount"></button>
     <button id="btnNewFolder"></button>
     <button id="btnSpamRules"></button>

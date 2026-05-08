@@ -5089,3 +5089,197 @@ html.dark .mdn-banner {
 @media (max-width: 640px) {
   .notif-panel { width: 100%; }
 }
+
+/* ============= v1.51: Outlook Tarzı Ribbon Toolbar ============= */
+.ribbon {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  position: relative;
+  z-index: 90;
+}
+
+/* Tab başlıkları */
+.ribbon-tabs {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  background: var(--bg-3);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.ribbon-tab {
+  padding: 0 14px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  transition: color 0.1s, background 0.1s;
+}
+.ribbon-tab:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.ribbon-tab.active {
+  background: var(--bg-2);
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+.ribbon-spacer { flex: 1; }
+.ribbon-collapse {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.ribbon-collapse:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+/* Panel containers */
+.ribbon-panels {
+  position: relative;
+  height: 90px;
+  overflow: hidden;
+}
+.ribbon-panel {
+  display: none;
+  height: 100%;
+  padding: 6px 8px;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.ribbon-panel.active {
+  display: flex;
+  animation: ribbonFadeIn 0.15s ease;
+}
+@keyframes ribbonFadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Gruplar */
+.ribbon-group {
+  display: flex;
+  flex-direction: column;
+  padding: 0 10px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ribbon-group:last-child {
+  border-right: none;
+}
+.ribbon-group-body {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+  flex: 1;
+  margin-bottom: 4px;
+}
+.ribbon-group-title {
+  text-align: center;
+  font-size: 9px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+  padding-top: 2px;
+  font-weight: 500;
+}
+
+/* Büyük buton (ikon üstte + label altta) */
+.ribbon-btn-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  min-width: 56px;
+  color: var(--text);
+  font-family: inherit;
+  transition: background 0.1s, border-color 0.1s;
+}
+.ribbon-btn-big:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.ribbon-btn-big:active {
+  background: var(--bg-3);
+}
+.ribbon-btn-big:disabled,
+.ribbon-btn-big[data-needs-msg][data-disabled="1"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.rbn-icon {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.rbn-label {
+  font-size: 10px;
+  text-align: center;
+  line-height: 1.2;
+  color: var(--text-2);
+}
+
+/* Küçük buton kolon */
+.ribbon-btn-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  justify-content: center;
+}
+.ribbon-btn-sm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  white-space: nowrap;
+  text-align: left;
+  min-width: 130px;
+  transition: background 0.1s;
+}
+.ribbon-btn-sm:hover {
+  background: var(--surface);
+}
+.ribbon-btn-sm:disabled,
+.ribbon-btn-sm[data-disabled="1"] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ribbon-btn-sm span {
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Collapsed state */
+.ribbon.collapsed .ribbon-panels { display: none; }
+.ribbon.collapsed .ribbon-collapse { transform: rotate(180deg); }
+
+/* Search-only toolbar */
+.toolbar-search-only {
+  height: 38px;
+  padding: 4px 8px;
+}

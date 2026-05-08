@@ -10391,3 +10391,122 @@ window.api.on('background-sync-done', () => {
   const panel = document.getElementById('notifPanel');
   if (panel && !panel.classList.contains('hidden')) refreshNotifications();
 });
+
+// ============= v1.51: Outlook Tarzı Ribbon Toolbar =============
+const RIBBON_ACTIONS = {
+  // Yeni
+  'compose': () => openCompose(),
+  'new-account': () => document.getElementById('btnAddAccount').click(),
+  'new-folder': () => document.getElementById('btnNewFolder').click(),
+  'new-task': () => { document.getElementById('btnTasks').click(); },
+  'new-category': () => document.getElementById('btnCategories').click(),
+  // Mesaj
+  'reply': () => state.selectedMessage && openCompose({ replyTo: state.selectedMessage }),
+  'reply-all': () => state.selectedMessage && openCompose({ replyTo: state.selectedMessage, replyAll: true }),
+  'forward': () => state.selectedMessage && openCompose({ forward: state.selectedMessage }),
+  'delete-msg': () => deleteCurrentMessage(),
+  'archive-msg': () => document.getElementById('btnArchiveMsg')?.click(),
+  'mark-spam': () => document.getElementById('btnMarkSpam')?.click(),
+  'toggle-read': () => document.getElementById('btnToggleRead')?.click(),
+  'toggle-important': () => document.getElementById('btnToggleImportant')?.click(),
+  // Sync
+  'sync-all': () => document.getElementById('btnSyncAll').click(),
+  'sync-current': () => document.getElementById('btnSyncAll').click(), // basit fallback
+  'scheduled': () => document.getElementById('btnScheduled').click(),
+  // Hesap
+  'oauth-setup': () => openOAuth2Setup(),
+  'settings': () => openSettings(),
+  // Veri
+  'backup': () => { openSettings(); setTimeout(() => document.getElementById('btnSettingsBackup')?.click(), 300); },
+  'restore': () => { openSettings(); setTimeout(() => document.getElementById('btnSettingsRestore')?.click(), 300); },
+  // Modüller
+  'archive': () => document.getElementById('btnArchive').click(),
+  'calendar': () => document.getElementById('btnCalendar').click(),
+  'tasks': () => document.getElementById('btnTasks').click(),
+  'notes': () => document.getElementById('btnNotes').click(),
+  'contacts': () => document.getElementById('btnContacts').click(),
+  // Otomasyon
+  'rules': () => document.getElementById('btnRules').click(),
+  'quick-steps': () => document.getElementById('btnQuickSteps').click(),
+  'templates': () => document.getElementById('btnTemplates').click(),
+  'categories': () => document.getElementById('btnCategories').click(),
+  'signature': () => { openSettings(); setTimeout(() => openSignatureBuilder?.(), 300); },
+  // Güvenlik
+  'pgp': () => document.getElementById('btnPGP').click(),
+  'spam-rules': () => document.getElementById('btnSpamRules').click(),
+  'trusted': () => document.getElementById('btnTrustedSenders').click(),
+  // Görünüm
+  'layout-right': () => setLayout('right'),
+  'layout-bottom': () => setLayout('bottom'),
+  'layout-off': () => setLayout('off'),
+  'density-compact': () => setDensity('compact'),
+  'density-normal': () => setDensity('normal'),
+  'density-wide': () => setDensity('wide'),
+  'theme-light': () => setTheme('light'),
+  'theme-dark': () => setTheme('dark'),
+  'conversation': () => document.getElementById('btnConversationView').click(),
+  // Paneller
+  'dashboard': () => openDashboard(),
+  'notifications': () => openNotifPanel(),
+  'command-palette': () => openCommandPalette(),
+  'advanced-search': () => document.getElementById('btnAdvancedSearch').click()
+};
+
+// Tab değiştirici
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('.ribbon-tab');
+  if (tab) {
+    const target = tab.dataset.rtab;
+    document.querySelectorAll('.ribbon-tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.ribbon-panel').forEach(p => p.classList.toggle('active', p.dataset.rtab === target));
+    return;
+  }
+  // Action butonları
+  const actionBtn = e.target.closest('[data-action]');
+  if (actionBtn && actionBtn.dataset.action) {
+    const fn = RIBBON_ACTIONS[actionBtn.dataset.action];
+    if (fn) {
+      try { fn(); } catch (err) { console.error('Ribbon action failed:', err); }
+    }
+  }
+  // Collapse
+  if (e.target.closest('#ribbonCollapse')) {
+    document.getElementById('ribbon').classList.toggle('collapsed');
+    try { window.api.config.set({ ribbonCollapsed: document.getElementById('ribbon').classList.contains('collapsed') }); } catch (_) {}
+  }
+});
+
+// Ctrl+F1 ile collapse toggle
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'F1') {
+    e.preventDefault();
+    document.getElementById('ribbon')?.classList.toggle('collapsed');
+  }
+});
+
+// Mesaj seçili değilse mesaj-gerektiren butonları disabled
+function refreshRibbonState() {
+  const has = !!state.selectedMessage;
+  document.querySelectorAll('[data-needs-msg]').forEach(btn => {
+    btn.dataset.disabled = has ? '0' : '1';
+    btn.disabled = !has;
+  });
+}
+// State değişikliklerinde otomatik (renderMessageView'in sonuna kanca)
+const _origRenderMessageView = window.renderMessageView;
+if (typeof _origRenderMessageView === 'function') {
+  window.renderMessageView = function(msg) {
+    const r = _origRenderMessageView.apply(this, arguments);
+    refreshRibbonState();
+    return r;
+  };
+}
+setTimeout(refreshRibbonState, 1000);
+
+// İlk açılışta collapse durumu yükle
+(async () => {
+  try {
+    const cfg = await window.api.config.get();
+    if (cfg.ribbonCollapsed) document.getElementById('ribbon')?.classList.add('collapsed');
+  } catch (_) {}
+})();
