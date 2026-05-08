@@ -1472,6 +1472,91 @@ ipcMain.handle('contacts:import', async () => {
 });
 
 // =====================================================================
+// v1.27 IPC: Takvim / Events
+// =====================================================================
+const ICalService = require('./services/ical');
+
+ipcMain.handle('events:list', (_, opts) => db.listEvents(opts || {}));
+ipcMain.handle('events:get', (_, id) => db.getEvent(id));
+ipcMain.handle('events:stats', () => db.eventStats());
+
+ipcMain.handle('events:add', (_, event) => {
+  try {
+    if (!event.start_at) return { ok: false, error: 'Başlangıç tarihi gerekli' };
+    const id = db.addEvent(event);
+    db.save();
+    return { ok: true, id };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('events:update', (_, id, updates) => {
+  try {
+    db.updateEvent(id, updates);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('events:delete', (_, id) => {
+  db.deleteEvent(id);
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('events:parseICalText', (_, text) => {
+  try {
+    const events = ICalService.parse(text);
+    return { ok: true, events };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('events:guessFromText', (_, text) => {
+  return { dateTime: ICalService.guessDateTimeFromText(text) };
+});
+
+ipcMain.handle('events:exportIcs', async (_, id) => {
+  const event = db.getEvent(id);
+  if (!event) return { ok: false, error: 'Etkinlik bulunamadı' };
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Etkinliği Dışa Aktar',
+    defaultPath: `${(event.title || 'etkinlik').slice(0, 50).replace(/[^\w\s-]/g, '')}.ics`,
+    filters: [{ name: 'iCalendar (.ics)', extensions: ['ics'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  try {
+    const content = ICalService.buildEvent(event);
+    fs.writeFileSync(result.filePath, content, 'utf8');
+    return { ok: true, path: result.filePath };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+async function processDueEventReminders() {
+  try {
+    const due = db.getDueEventReminders();
+    if (!due.length) return;
+    for (const ev of due) {
+      try {
+        const startText = ev.start_at ? ` (${new Date(ev.start_at).toLocaleString('tr-TR')})` : '';
+        const locationText = ev.location ? ` - ${ev.location}` : '';
+        showNotification(
+          '📅 Etkinlik Hatırlatması',
+          `${ev.title}${startText}${locationText}`
+        );
+        db.updateEvent(ev.id, { reminder_sent: 1 });
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('event:reminder', {
+            id: ev.id, title: ev.title, start_at: ev.start_at, location: ev.location
+          });
+        }
+      } catch (e) { console.warn('Event reminder hatası:', e.message); }
+    }
+    db.save();
+  } catch (e) { console.warn('processDueEventReminders error:', e.message); }
+}
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));
@@ -1736,6 +1821,7 @@ function startSchedulerLoop() {
   scheduledTimer = setInterval(() => {
     processDueScheduledMessages().catch(e => console.warn('Scheduler error:', e.message));
     processDueTaskReminders().catch(e => console.warn('Task reminder error:', e.message));
+    processDueEventReminders().catch(e => console.warn('Event reminder error:', e.message));
     processAutoArchive().catch(e => console.warn('Auto-archive error:', e.message));
   }, 30 * 1000); // 30 saniye
 }

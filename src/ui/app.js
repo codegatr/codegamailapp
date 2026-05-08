@@ -425,6 +425,7 @@ function bindToolbar() {
   document.getElementById('btnTasks').onclick = openTasks;
   document.getElementById('btnArchive').onclick = openArchive;
   document.getElementById('btnPGP').onclick = openPGP;
+  document.getElementById('btnCalendar').onclick = openCalendar;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -1368,6 +1369,7 @@ async function showMessageContextMenu(e, message) {
     }},
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
     { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
+    { label: '📅 Mesajdan Etkinlik Oluştur', action: () => createEventFromMessage(message) },
     { label: '📦 Arşivle', action: () => archiveMessageFromList(message) },
     '---',
     ...moveItems,
@@ -4842,6 +4844,8 @@ function buildCommandList() {
       action: () => openArchive(), category: 'Modül' },
     { id: 'archive-old', label: 'Eski mesajları toplu arşivle', icon: '📥',
       action: () => openArchiveOldDialog(), category: 'Modül' },
+    { id: 'calendar', label: 'Takvim', icon: '📅',
+      action: () => openCalendar(), category: 'Modül' },
     { id: 'pgp', label: 'PGP Anahtar Yönetimi', icon: '🔐',
       action: () => openPGP(), category: 'Modül' },
     { id: 'templates', label: 'Şablonlar', icon: '📝',
@@ -4886,6 +4890,8 @@ function buildCommandList() {
         action: () => deleteCurrentMessage(), category: 'Mevcut Mesaj' },
       { id: 'task-from-msg', label: 'Bu mesajdan görev oluştur', icon: '✅',
         action: () => createTaskFromMessage(state.selectedMessage), category: 'Mevcut Mesaj' },
+      { id: 'event-from-msg', label: 'Bu mesajdan etkinlik oluştur', icon: '📅',
+        action: () => createEventFromMessage(state.selectedMessage), category: 'Mevcut Mesaj' },
       { id: 'note-from-msg', label: 'Bu mesajdan not oluştur', icon: '📓',
         action: () => createNoteFromMessage(state.selectedMessage), category: 'Mevcut Mesaj' }
     );
@@ -6082,4 +6088,369 @@ async function importContactsFromFile() {
   alert(msg);
   setStatus(`✓ ${r.added} yeni + ${r.updated} güncellenmiş kişi`);
   await renderContactsList();
+}
+
+// ============= v1.27: Takvim / Events =============
+const calState = {
+  currentMonth: new Date(),
+  selectedDate: new Date(),
+  currentEventId: null,
+  bound: false
+};
+
+async function openCalendar() {
+  document.getElementById('modalCalendar').classList.remove('hidden');
+  if (!calState.bound) {
+    calState.bound = true;
+    bindCalendarUI();
+  }
+  await renderCalendarMonth();
+  await renderCalendarDayDetail();
+}
+
+function bindCalendarUI() {
+  document.getElementById('btnCalToday').onclick = () => {
+    calState.currentMonth = new Date();
+    calState.selectedDate = new Date();
+    renderCalendarMonth();
+    renderCalendarDayDetail();
+  };
+  document.getElementById('btnCalPrev').onclick = () => {
+    calState.currentMonth.setMonth(calState.currentMonth.getMonth() - 1);
+    renderCalendarMonth();
+  };
+  document.getElementById('btnCalNext').onclick = () => {
+    calState.currentMonth.setMonth(calState.currentMonth.getMonth() + 1);
+    renderCalendarMonth();
+  };
+  document.getElementById('btnNewEvent').onclick = createNewEvent;
+  document.getElementById('btnSaveEvent').onclick = saveCurrentEvent;
+  document.getElementById('btnDeleteEvent').onclick = deleteCurrentEvent;
+  document.getElementById('btnExportEventIcs').onclick = async () => {
+    if (!calState.currentEventId) return;
+    const r = await window.api.events.exportIcs(calState.currentEventId);
+    if (r.canceled) return;
+    if (r.ok) {
+      setStatus('✓ .ics dosyası kaydedildi: ' + r.path);
+      alert('✓ Etkinlik dışa aktarıldı.\n\nKonum:\n' + r.path);
+    } else alert('Hata: ' + r.error);
+  };
+}
+
+const TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+                   'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+async function renderCalendarMonth() {
+  const month = calState.currentMonth;
+  const year = month.getFullYear();
+  const monthIdx = month.getMonth();
+  document.getElementById('calMonthLabel').textContent = `${TR_MONTHS[monthIdx]} ${year}`;
+
+  // Ayın başı ve sonu
+  const firstDay = new Date(year, monthIdx, 1);
+  const lastDay = new Date(year, monthIdx + 1, 0);
+  // Pazartesi başlangıçlı haftalık layout: 0=Pazar, 1=Pazartesi
+  let startOffset = firstDay.getDay() - 1;
+  if (startOffset < 0) startOffset = 6;
+  const totalDays = lastDay.getDate();
+
+  // Bu ay için tüm event'ler
+  const monthStart = new Date(year, monthIdx, 1).toISOString();
+  const monthEnd = new Date(year, monthIdx + 1, 0, 23, 59, 59).toISOString();
+  const events = await window.api.events.list({ from: monthStart, to: monthEnd });
+
+  // Tarihe göre grupla (yyyy-mm-dd anahtarı)
+  const eventsByDay = {};
+  for (const ev of events) {
+    const key = (ev.start_at || '').slice(0, 10);
+    if (!eventsByDay[key]) eventsByDay[key] = [];
+    eventsByDay[key].push(ev);
+  }
+
+  // Stats - header
+  const stats = await window.api.events.stats();
+  document.getElementById('calHeaderCount').textContent =
+    `(Bugün ${stats.todayCount} · Bu hafta ${stats.weekCount} · Toplam ${stats.total})`;
+
+  // Grid çiz
+  const grid = document.getElementById('calMonthGrid');
+  let html = '';
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const selectedStr = calState.selectedDate.toISOString().slice(0, 10);
+
+  // Önceki ayın günleri
+  for (let i = 0; i < startOffset; i++) {
+    html += '<div class="cal-cell cal-cell-other"></div>';
+  }
+  // Bu ayın günleri
+  for (let d = 1; d <= totalDays; d++) {
+    const dateObj = new Date(year, monthIdx, d);
+    const dateStr = dateObj.toISOString().slice(0, 10);
+    const dayEvents = eventsByDay[dateStr] || [];
+    const isToday = dateStr === todayStr;
+    const isSelected = dateStr === selectedStr;
+    const cls = ['cal-cell'];
+    if (isToday) cls.push('cal-cell-today');
+    if (isSelected) cls.push('cal-cell-selected');
+
+    let evHtml = '';
+    const visibleEvents = dayEvents.slice(0, 3);
+    for (const ev of visibleEvents) {
+      evHtml += `<div class="cal-event-pill" style="background:${ev.color || '#3498db'};" title="${escapeHtml(ev.title)}">${escapeHtml(ev.title)}</div>`;
+    }
+    if (dayEvents.length > 3) {
+      evHtml += `<div class="cal-event-more">+${dayEvents.length - 3} daha</div>`;
+    }
+
+    html += `
+      <div class="${cls.join(' ')}" data-date="${dateStr}">
+        <div class="cal-cell-num">${d}</div>
+        ${evHtml}
+      </div>`;
+  }
+  grid.innerHTML = html;
+
+  // Click handler
+  grid.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
+    cell.onclick = async () => {
+      const dateStr = cell.dataset.date;
+      calState.selectedDate = new Date(dateStr);
+      await renderCalendarMonth();
+      await renderCalendarDayDetail();
+    };
+  });
+}
+
+async function renderCalendarDayDetail() {
+  const date = calState.selectedDate;
+  const dateStr = date.toISOString().slice(0, 10);
+  const header = document.getElementById('calDayHeader');
+  const dayName = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'][date.getDay()];
+  header.textContent = `${date.getDate()} ${TR_MONTHS[date.getMonth()]} ${date.getFullYear()} - ${dayName}`;
+
+  // O günün etkinlikleri
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).toISOString();
+  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).toISOString();
+  const events = await window.api.events.list({ from: dayStart, to: dayEnd });
+
+  const evList = document.getElementById('calDayEvents');
+  if (!events.length) {
+    evList.innerHTML = '<div class="empty-state" style="padding:20px;">Bu güne etkinlik yok</div>';
+  } else {
+    evList.innerHTML = events.map(ev => {
+      const startTime = ev.all_day ? 'Tüm gün' : new Date(ev.start_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+      return `
+        <div class="cal-day-event" data-id="${ev.id}" style="border-left:4px solid ${ev.color || '#3498db'};">
+          <div class="cal-day-event-time">${startTime}</div>
+          <div class="cal-day-event-info">
+            <div class="cal-day-event-title">${escapeHtml(ev.title)}</div>
+            ${ev.location ? `<div class="cal-day-event-loc">📍 ${escapeHtml(ev.location)}</div>` : ''}
+            ${ev.reminder_at ? '<span class="cal-reminder-badge">⏰</span>' : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+    evList.querySelectorAll('.cal-day-event').forEach(el => {
+      el.onclick = () => loadEventIntoDetail(parseInt(el.dataset.id, 10));
+    });
+  }
+
+  // Form gizle (etkinlik tıklayınca açılır)
+  document.getElementById('calEventForm').classList.add('hidden');
+  calState.currentEventId = null;
+}
+
+async function loadEventIntoDetail(id) {
+  const ev = await window.api.events.get(id);
+  if (!ev) return;
+  calState.currentEventId = id;
+  document.getElementById('calEventForm').classList.remove('hidden');
+
+  document.getElementById('ev_title').value = ev.title || '';
+  document.getElementById('ev_description').value = ev.description || '';
+  document.getElementById('ev_location').value = ev.location || '';
+  document.getElementById('ev_color').value = ev.color || '#3498db';
+  document.getElementById('ev_attendees').value = ev.attendees || '';
+  document.getElementById('ev_all_day').checked = !!ev.all_day;
+
+  document.getElementById('ev_start_at').value = ev.start_at ? toLocalDateTimeInput(ev.start_at) : '';
+  document.getElementById('ev_end_at').value = ev.end_at ? toLocalDateTimeInput(ev.end_at) : '';
+  document.getElementById('ev_reminder_at').value = ev.reminder_at ? toLocalDateTimeInput(ev.reminder_at) : '';
+
+  let meta = `Oluşturuldu: ${ev.created_at ? new Date(ev.created_at).toLocaleString('tr-TR') : '-'}`;
+  if (ev.related_message_id) meta += ` · Bağlı mesaj #${ev.related_message_id}`;
+  if (ev.uid) meta += ` · UID: ${ev.uid.slice(0, 30)}`;
+  document.getElementById('ev_meta').textContent = meta;
+}
+
+function createNewEvent() {
+  const date = calState.selectedDate;
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9, 0);
+  const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 10, 0);
+  document.getElementById('calEventForm').classList.remove('hidden');
+  calState.currentEventId = null;
+
+  document.getElementById('ev_title').value = 'Yeni Etkinlik';
+  document.getElementById('ev_description').value = '';
+  document.getElementById('ev_location').value = '';
+  document.getElementById('ev_color').value = '#3498db';
+  document.getElementById('ev_attendees').value = '';
+  document.getElementById('ev_all_day').checked = false;
+  document.getElementById('ev_start_at').value = toLocalDateTimeInput(start.toISOString());
+  document.getElementById('ev_end_at').value = toLocalDateTimeInput(end.toISOString());
+  document.getElementById('ev_reminder_at').value = '';
+  document.getElementById('ev_meta').textContent = 'Yeni etkinlik';
+
+  setTimeout(() => {
+    const t = document.getElementById('ev_title');
+    t.focus();
+    t.select();
+  }, 100);
+}
+
+async function saveCurrentEvent() {
+  const data = {
+    title: document.getElementById('ev_title').value.trim() || 'Başlıksız',
+    description: document.getElementById('ev_description').value || null,
+    location: document.getElementById('ev_location').value.trim() || null,
+    color: document.getElementById('ev_color').value,
+    attendees: document.getElementById('ev_attendees').value.trim() || null,
+    all_day: document.getElementById('ev_all_day').checked,
+    start_at: fromLocalDateTimeInput(document.getElementById('ev_start_at').value),
+    end_at: fromLocalDateTimeInput(document.getElementById('ev_end_at').value),
+    reminder_at: fromLocalDateTimeInput(document.getElementById('ev_reminder_at').value),
+    reminder_sent: 0
+  };
+  if (!data.start_at) {
+    alert('Başlangıç tarihi gerekli');
+    return;
+  }
+
+  let r;
+  if (calState.currentEventId) {
+    r = await window.api.events.update(calState.currentEventId, data);
+  } else {
+    r = await window.api.events.add(data);
+    if (r.ok) calState.currentEventId = r.id;
+  }
+  if (r.ok) {
+    setStatus('✓ Etkinlik kaydedildi');
+    await renderCalendarMonth();
+    await renderCalendarDayDetail();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+async function deleteCurrentEvent() {
+  if (!calState.currentEventId) return;
+  if (!confirm('Bu etkinlik silinsin mi?')) return;
+  await window.api.events.delete(calState.currentEventId);
+  calState.currentEventId = null;
+  document.getElementById('calEventForm').classList.add('hidden');
+  await renderCalendarMonth();
+  await renderCalendarDayDetail();
+  setStatus('Etkinlik silindi');
+}
+
+// ============= Mailden Etkinlik Oluştur =============
+async function createEventFromMessage(message) {
+  if (!message) return;
+
+  // Önce body'de .ics eki var mı diye bak
+  const bodyText = (message.body_text || message.body_html || '');
+  let icalEvent = null;
+
+  if (bodyText.includes('BEGIN:VCALENDAR') && bodyText.includes('BEGIN:VEVENT')) {
+    const r = await window.api.events.parseICal(bodyText);
+    if (r.ok && r.events.length) icalEvent = r.events[0];
+  }
+
+  // .ics yoksa body'den tarih tahmini
+  let guessedStart = null;
+  if (!icalEvent) {
+    const fullText = (message.subject || '') + '\n' + bodyText;
+    const r = await window.api.events.guessFromText(fullText);
+    guessedStart = r.dateTime;
+  }
+
+  // Modali doldur
+  document.getElementById('evfm_source').textContent = `Kaynak: ${message.from_name || message.from_addr || ''} - "${message.subject || ''}"`;
+
+  if (icalEvent) {
+    document.getElementById('evfm_title').value = icalEvent.title || message.subject || '';
+    document.getElementById('evfm_start').value = icalEvent.start_at ? toLocalDateTimeInput(icalEvent.start_at) : '';
+    document.getElementById('evfm_end').value = icalEvent.end_at ? toLocalDateTimeInput(icalEvent.end_at) : '';
+    document.getElementById('evfm_description').value = icalEvent.description ||
+      (icalEvent.location ? `📍 ${icalEvent.location}\n\n` : '') + (bodyText.slice(0, 500));
+    document.getElementById('evfm_ical_notice').classList.remove('hidden');
+  } else {
+    document.getElementById('evfm_title').value = message.subject || 'Yeni Etkinlik';
+    if (guessedStart) {
+      document.getElementById('evfm_start').value = toLocalDateTimeInput(guessedStart);
+      const end = new Date(new Date(guessedStart).getTime() + 60 * 60 * 1000);
+      document.getElementById('evfm_end').value = toLocalDateTimeInput(end.toISOString());
+    } else {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      document.getElementById('evfm_start').value = toLocalDateTimeInput(tomorrow.toISOString());
+      const end = new Date(tomorrow.getTime() + 60 * 60 * 1000);
+      document.getElementById('evfm_end').value = toLocalDateTimeInput(end.toISOString());
+    }
+    const fromName = message.from_name || message.from_addr || '';
+    document.getElementById('evfm_description').value =
+      `📧 ${fromName} <${message.from_addr || ''}>\n` +
+      `📅 ${message.date ? new Date(message.date).toLocaleString('tr-TR') : ''}\n\n` +
+      bodyText.slice(0, 500);
+    document.getElementById('evfm_ical_notice').classList.add('hidden');
+  }
+  document.getElementById('evfm_remind').value = '30';
+
+  // Submit handler
+  document.getElementById('btnEvfmCreate').onclick = async () => {
+    const title = document.getElementById('evfm_title').value.trim() || 'Başlıksız';
+    const startStr = document.getElementById('evfm_start').value;
+    const endStr = document.getElementById('evfm_end').value;
+    const description = document.getElementById('evfm_description').value;
+    const remindMinutes = parseInt(document.getElementById('evfm_remind').value, 10);
+
+    if (!startStr) { alert('Başlangıç tarihi gerekli'); return; }
+    const start_at = fromLocalDateTimeInput(startStr);
+    const end_at = fromLocalDateTimeInput(endStr);
+    let reminder_at = null;
+    if (remindMinutes && start_at) {
+      const remDate = new Date(new Date(start_at).getTime() - remindMinutes * 60 * 1000);
+      reminder_at = remDate.toISOString();
+    }
+    const r = await window.api.events.add({
+      title,
+      description,
+      start_at,
+      end_at,
+      reminder_at,
+      color: '#9b59b6',
+      attendees: icalEvent?.attendees || message.from_addr || '',
+      related_message_id: message.id,
+      uid: icalEvent?.uid
+    });
+    if (r.ok) {
+      document.getElementById('modalEventFromMail').classList.add('hidden');
+      setStatus('✓ Etkinlik oluşturuldu');
+      // Takvimi aç
+      setTimeout(() => openCalendar(), 200);
+    } else {
+      alert('Hata: ' + r.error);
+    }
+  };
+
+  document.getElementById('modalEventFromMail').classList.remove('hidden');
+}
+
+// Event reminder bildirim listener
+if (window.api && window.api.on) {
+  window.api.on('event:reminder', () => {
+    // Sessizce - notification sistemi zaten gösterdi
+  });
 }

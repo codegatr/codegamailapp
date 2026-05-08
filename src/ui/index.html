@@ -31,6 +31,7 @@
       <button id="btnTasks" class="btn btn-ghost" title="Görevler / To-Do">✅ Görevler <span id="tasksBadge" class="tasks-badge hidden">0</span></button>
       <button id="btnArchive" class="btn btn-ghost" title="Arşiv (eski mesajlar)">📦 Arşiv</button>
       <button id="btnPGP" class="btn btn-ghost" title="PGP Anahtarları (uçtan uca şifreleme)">🔐 PGP</button>
+      <button id="btnCalendar" class="btn btn-ghost" title="Takvim - etkinlikler ve hatırlatıcılar">📅 Takvim</button>
       <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
@@ -81,6 +82,133 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.27: Takvim ===== -->
+  <div id="modalCalendar" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>📅 Takvim <span id="calHeaderCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
+        <div style="flex:1;"></div>
+        <button class="btn" id="btnCalToday">📍 Bugün</button>
+        <button class="btn btn-ghost" id="btnCalPrev">◂</button>
+        <span id="calMonthLabel" style="font-weight:600;font-size:15px;padding:0 10px;">—</span>
+        <button class="btn btn-ghost" id="btnCalNext">▸</button>
+        <button class="btn btn-primary" id="btnNewEvent" style="margin-left:14px;">+ Yeni Etkinlik</button>
+        <button class="modal-close" data-close="modalCalendar" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;display:flex;height:calc(90vh - 110px);overflow:hidden;">
+        <!-- Sol: ay görünümü -->
+        <div class="cal-month-pane">
+          <div class="cal-weekdays">
+            <div>Pzt</div><div>Sal</div><div>Çar</div><div>Per</div><div>Cum</div><div>Cmt</div><div>Paz</div>
+          </div>
+          <div id="calMonthGrid" class="cal-month-grid"></div>
+        </div>
+        <!-- Sağ: gün etkinlikleri + form -->
+        <div class="cal-detail-pane">
+          <div class="cal-day-header" id="calDayHeader">—</div>
+          <div id="calDayEvents" class="cal-day-events"></div>
+          <div id="calEventForm" class="cal-event-form hidden">
+            <div class="form-row">
+              <label>Başlık</label>
+              <input type="text" id="ev_title" placeholder="Etkinlik başlığı">
+            </div>
+            <div class="form-row" style="display:flex;gap:8px;">
+              <div style="flex:1;">
+                <label>Başlangıç</label>
+                <input type="datetime-local" id="ev_start_at">
+              </div>
+              <div style="flex:1;">
+                <label>Bitiş</label>
+                <input type="datetime-local" id="ev_end_at">
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="toggle-row">
+                <input type="checkbox" id="ev_all_day"> Tüm gün
+              </label>
+            </div>
+            <div class="form-row">
+              <label>Konum</label>
+              <input type="text" id="ev_location" placeholder="Konya Ofis, Online (Zoom), vs">
+            </div>
+            <div class="form-row" style="display:flex;gap:8px;">
+              <div style="flex:1;">
+                <label>Hatırlatma</label>
+                <input type="datetime-local" id="ev_reminder_at">
+              </div>
+              <div>
+                <label>Renk</label>
+                <input type="color" id="ev_color" value="#3498db" style="height:34px;width:50px;padding:1px;">
+              </div>
+            </div>
+            <div class="form-row">
+              <label>Açıklama</label>
+              <textarea id="ev_description" rows="3" placeholder="Detaylar, gündem maddeleri..."></textarea>
+            </div>
+            <div class="form-row">
+              <label>Katılımcılar</label>
+              <input type="text" id="ev_attendees" placeholder="ali@ex.com, mehmet@ex.com">
+            </div>
+            <div id="ev_meta" style="font-size:11px;color:var(--muted);"></div>
+            <div style="display:flex;gap:8px;margin-top:14px;">
+              <button class="btn btn-primary" id="btnSaveEvent">💾 Kaydet</button>
+              <button class="btn btn-ghost" id="btnExportEventIcs">📤 .ics Dışa Aktar</button>
+              <button class="btn btn-ghost" id="btnDeleteEvent" style="color:var(--danger);margin-left:auto;">🗑 Sil</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== v1.27: Mailden Etkinlik Önerme Diyalog ===== -->
+  <div id="modalEventFromMail" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>📅 Mailden Etkinlik Oluştur</h2>
+        <button class="modal-close" data-close="modalEventFromMail">×</button>
+      </div>
+      <div class="modal-body">
+        <p id="evfm_source" style="font-size:11px;color:var(--muted);"></p>
+        <div class="form-row">
+          <label>Başlık</label>
+          <input type="text" id="evfm_title">
+        </div>
+        <div class="form-row" style="display:flex;gap:8px;">
+          <div style="flex:1;">
+            <label>Başlangıç</label>
+            <input type="datetime-local" id="evfm_start">
+          </div>
+          <div style="flex:1;">
+            <label>Bitiş</label>
+            <input type="datetime-local" id="evfm_end">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Hatırlatma (önceden)</label>
+          <select id="evfm_remind">
+            <option value="">Hatırlatma yok</option>
+            <option value="15">15 dk önce</option>
+            <option value="30" selected>30 dk önce</option>
+            <option value="60">1 saat önce</option>
+            <option value="1440">1 gün önce</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Açıklama</label>
+          <textarea id="evfm_description" rows="3"></textarea>
+        </div>
+        <div id="evfm_ical_notice" class="hidden" style="background:rgba(46,204,113,0.1);padding:8px 12px;border-radius:6px;font-size:12px;color:#2ecc71;margin:8px 0;">
+          ✅ Mailde .ics eki tespit edildi - bilgiler otomatik dolduruldu
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn btn-ghost" data-close="modalEventFromMail">İptal</button>
+          <button class="btn btn-primary" id="btnEvfmCreate">📅 Etkinlik Oluştur</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.25: PGP / OpenPGP Anahtar Yönetimi ===== -->
   <div id="modalPGP" class="modal hidden">

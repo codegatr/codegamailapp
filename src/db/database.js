@@ -413,6 +413,28 @@ class Database {
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_pgp_contacts_email ON pgp_contacts(email);
+
+        CREATE TABLE IF NOT EXISTS events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          description TEXT,
+          location TEXT,
+          start_at TEXT NOT NULL,
+          end_at TEXT,
+          all_day INTEGER DEFAULT 0,
+          color TEXT DEFAULT '#3498db',
+          reminder_at TEXT,
+          reminder_sent INTEGER DEFAULT 0,
+          related_message_id INTEGER,
+          attendees TEXT,
+          uid TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT,
+          FOREIGN KEY (related_message_id) REFERENCES messages(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at);
+        CREATE INDEX IF NOT EXISTS idx_events_reminder ON events(reminder_at, reminder_sent);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_events_uid ON events(uid) WHERE uid IS NOT NULL;
       `);
     } catch (_) {}
 
@@ -1907,6 +1929,107 @@ class Database {
 
   setPgpContactTrust(id, level) {
     this.prepare('UPDATE pgp_contacts SET trust_level = ? WHERE id = ?').run(level, id);
+  }
+
+  // ====== v1.27: Takvim / Events ======
+  listEvents(opts = {}) {
+    let where = '1=1';
+    const params = [];
+    if (opts.from) {
+      where += ' AND (start_at >= ? OR (end_at IS NOT NULL AND end_at >= ?))';
+      params.push(opts.from, opts.from);
+    }
+    if (opts.to) {
+      where += ' AND start_at <= ?';
+      params.push(opts.to);
+    }
+    if (opts.search) {
+      where += ' AND (title LIKE ? OR description LIKE ? OR location LIKE ?)';
+      const q = '%' + opts.search + '%';
+      params.push(q, q, q);
+    }
+    const limit = opts.limit ? `LIMIT ${parseInt(opts.limit, 10)}` : '';
+    return this.prepare(`
+      SELECT id, title, description, location, start_at, end_at, all_day, color,
+             reminder_at, related_message_id, attendees, uid, created_at
+      FROM events WHERE ${where}
+      ORDER BY start_at ASC ${limit}
+    `).all(...params);
+  }
+
+  getEvent(id) {
+    return this.prepare('SELECT * FROM events WHERE id = ?').get(id);
+  }
+
+  getEventByUid(uid) {
+    if (!uid) return null;
+    return this.prepare('SELECT * FROM events WHERE uid = ?').get(uid);
+  }
+
+  addEvent(e) {
+    const r = this.prepare(`
+      INSERT INTO events (title, description, location, start_at, end_at, all_day,
+                          color, reminder_at, related_message_id, attendees, uid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      e.title || 'Yeni Etkinlik',
+      e.description || null,
+      e.location || null,
+      e.start_at,
+      e.end_at || null,
+      e.all_day ? 1 : 0,
+      e.color || '#3498db',
+      e.reminder_at || null,
+      e.related_message_id || null,
+      e.attendees || null,
+      e.uid || null
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateEvent(id, updates) {
+    const allowed = ['title', 'description', 'location', 'start_at', 'end_at', 'all_day',
+                     'color', 'reminder_at', 'reminder_sent', 'attendees'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (typeof v === 'boolean') v = v ? 1 : 0;
+      return v;
+    });
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE events SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteEvent(id) {
+    this.prepare('DELETE FROM events WHERE id = ?').run(id);
+  }
+
+  /**
+   * Background scheduler: hatırlatma vakti gelmiş etkinlikleri bul
+   */
+  getDueEventReminders() {
+    const now = new Date().toISOString();
+    return this.prepare(`
+      SELECT * FROM events
+      WHERE reminder_at IS NOT NULL
+        AND reminder_sent = 0
+        AND reminder_at <= ?
+      ORDER BY reminder_at ASC
+      LIMIT 10
+    `).all(now);
+  }
+
+  eventStats() {
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const tomorrowStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+    const weekEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7).toISOString();
+    const todayCount = this.prepare(`SELECT COUNT(*) AS c FROM events WHERE start_at >= ? AND start_at < ?`).get(todayStart, tomorrowStart)?.c || 0;
+    const weekCount = this.prepare(`SELECT COUNT(*) AS c FROM events WHERE start_at >= ? AND start_at < ?`).get(todayStart, weekEnd)?.c || 0;
+    const total = this.prepare(`SELECT COUNT(*) AS c FROM events`).get()?.c || 0;
+    return { todayCount, weekCount, total };
   }
 }
 

@@ -152,6 +152,17 @@ contextBridge.exposeInMainWorld('api', {
     decrypt: (params) => ipcRenderer.invoke('pgp:decrypt', params),
     detectInBody: (text) => ipcRenderer.invoke('pgp:detectInBody', text)
   },
+  events: {
+    list: (opts) => ipcRenderer.invoke('events:list', opts),
+    get: (id) => ipcRenderer.invoke('events:get', id),
+    stats: () => ipcRenderer.invoke('events:stats'),
+    add: (event) => ipcRenderer.invoke('events:add', event),
+    update: (id, updates) => ipcRenderer.invoke('events:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('events:delete', id),
+    parseICal: (text) => ipcRenderer.invoke('events:parseICalText', text),
+    guessFromText: (text) => ipcRenderer.invoke('events:guessFromText', text),
+    exportIcs: (id) => ipcRenderer.invoke('events:exportIcs', id)
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),
@@ -206,7 +217,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);
