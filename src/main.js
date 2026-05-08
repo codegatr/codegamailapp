@@ -2170,6 +2170,16 @@ ipcMain.handle('search:advancedCount', (_, opts) => {
 });
 
 // =====================================================================
+// v1.45 IPC: Gösterge Paneli İstatistikleri
+// =====================================================================
+ipcMain.handle('stats:overview', () => db.getStatsOverview());
+ipcMain.handle('stats:dailyCounts', (_, days) => db.getDailyMessageCounts(days || 30));
+ipcMain.handle('stats:hourlyDistribution', () => db.getHourlyDistribution());
+ipcMain.handle('stats:topSenders', (_, limit) => db.getTopSenders(limit || 10));
+ipcMain.handle('stats:categoryDistribution', () => db.getCategoryDistribution());
+ipcMain.handle('stats:accountDistribution', () => db.getAccountDistribution());
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));

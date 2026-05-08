@@ -42,6 +42,7 @@
       <button id="btnCalendar" class="btn btn-ghost" title="Takvim - etkinlikler ve hatırlatıcılar">📅 Takvim</button>
       <button id="btnRules" class="btn btn-ghost" title="Mail Kuralları (otomatik klasöre taşıma/etiketleme)">⚙ Kurallar</button>
       <button id="btnQuickSteps" class="btn btn-ghost" title="Quick Steps yönetimi - özelleştirilebilir kestirmeler">⚡ Quick Steps</button>
+      <button id="btnDashboard" class="btn btn-ghost" title="Gösterge paneli - mail istatistikleri ve grafikler">📊 Panel</button>
       <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
@@ -102,6 +103,45 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.45: Gösterge Paneli ===== -->
+  <div id="modalDashboard" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>📊 Gösterge Paneli</h2>
+        <div style="flex:1;"></div>
+        <button class="btn btn-ghost" id="btnDashRefresh" title="Yenile">↻</button>
+        <button class="modal-close" data-close="modalDashboard" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:20px;overflow-y:auto;max-height:calc(90vh - 110px);background:var(--bg-2);">
+        <!-- Özet kartlar -->
+        <div class="dash-cards" id="dashCards"></div>
+        <!-- Grafikler -->
+        <div class="dash-grid">
+          <div class="dash-panel dash-panel-wide">
+            <h3>📈 Son 30 Günlük Aktivite</h3>
+            <div id="dashDailyChart"></div>
+          </div>
+          <div class="dash-panel">
+            <h3>🕐 Saat Bazında Dağılım</h3>
+            <div id="dashHourlyChart"></div>
+          </div>
+          <div class="dash-panel">
+            <h3>👥 En Çok Mail Gönderenler</h3>
+            <div id="dashTopSenders"></div>
+          </div>
+          <div class="dash-panel">
+            <h3>🏷 Kategori Dağılımı</h3>
+            <div id="dashCategoryChart"></div>
+          </div>
+          <div class="dash-panel">
+            <h3>📧 Hesap Dağılımı</h3>
+            <div id="dashAccountChart"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.44: OAuth2 Setup Wizard ===== -->
   <div id="modalOAuth2Setup" class="modal hidden">

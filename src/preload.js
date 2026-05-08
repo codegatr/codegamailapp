@@ -148,6 +148,14 @@ contextBridge.exposeInMainWorld('api', {
     advanced: (opts) => ipcRenderer.invoke('search:advanced', opts),
     count: (opts) => ipcRenderer.invoke('search:advancedCount', opts)
   },
+  stats: {
+    overview: () => ipcRenderer.invoke('stats:overview'),
+    dailyCounts: (days) => ipcRenderer.invoke('stats:dailyCounts', days),
+    hourlyDistribution: () => ipcRenderer.invoke('stats:hourlyDistribution'),
+    topSenders: (limit) => ipcRenderer.invoke('stats:topSenders', limit),
+    categoryDistribution: () => ipcRenderer.invoke('stats:categoryDistribution'),
+    accountDistribution: () => ipcRenderer.invoke('stats:accountDistribution')
+  },
   oauth2: {
     isConfigured: (provider) => ipcRenderer.invoke('oauth2:isConfigured', provider),
     startFlow: (provider) => ipcRenderer.invoke('oauth2:startFlow', provider),

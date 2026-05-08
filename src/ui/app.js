@@ -430,6 +430,8 @@ function bindToolbar() {
   document.getElementById('btnPGP').onclick = openPGP;
   document.getElementById('btnCalendar').onclick = openCalendar;
   document.getElementById('btnQuickSteps').onclick = openQuickSteps;
+  document.getElementById('btnDashboard').onclick = openDashboard;
+  document.getElementById('btnDashRefresh').onclick = refreshDashboard;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -5143,6 +5145,8 @@ function buildCommandList() {
       action: () => { openSettings(); setTimeout(() => openSignatureBuilder(), 300); }, category: 'Modül' },
     { id: 'oauth-setup', label: 'OAuth2 Kurulumu (Microsoft/Google)', icon: '🔐',
       action: () => openOAuth2Setup(), category: 'Modül' },
+    { id: 'dashboard', label: 'Gösterge Paneli', icon: '📊',
+      action: () => openDashboard(), category: 'Modül' },
     { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
       action: async () => {
         const r = await window.api.autoCategorize.all({ onlyUntagged: true });
@@ -9377,3 +9381,253 @@ async function openExternalLink(url) {
 window.openExternalLink = openExternalLink;
 
 // Komut paletine ekle
+
+// ============= v1.45: Gösterge Paneli =============
+async function openDashboard() {
+  document.getElementById('modalDashboard').classList.remove('hidden');
+  await refreshDashboard();
+}
+
+async function refreshDashboard() {
+  // Yükleme göstergesi
+  document.getElementById('dashCards').innerHTML = '<div class="empty-state">Yükleniyor...</div>';
+
+  const [overview, daily, hourly, senders, categories, accounts] = await Promise.all([
+    window.api.stats.overview(),
+    window.api.stats.dailyCounts(30),
+    window.api.stats.hourlyDistribution(),
+    window.api.stats.topSenders(10),
+    window.api.stats.categoryDistribution(),
+    window.api.stats.accountDistribution()
+  ]);
+
+  renderDashCards(overview);
+  renderDailyChart(daily);
+  renderHourlyChart(hourly);
+  renderTopSenders(senders);
+  renderCategoryChart(categories);
+  renderAccountChart(accounts);
+}
+
+function renderDashCards(o) {
+  const sizeMB = (o.attachSize / 1024 / 1024).toFixed(1);
+  document.getElementById('dashCards').innerHTML = `
+    <div class="dash-card"><div class="dash-card-num">${formatNumber(o.total)}</div><div class="dash-card-label">📬 Toplam Mail</div></div>
+    <div class="dash-card dash-card-primary"><div class="dash-card-num">${formatNumber(o.unread)}</div><div class="dash-card-label">📨 Okunmamış</div></div>
+    <div class="dash-card dash-card-warn"><div class="dash-card-num">${formatNumber(o.important)}</div><div class="dash-card-label">⭐ Önemli</div></div>
+    <div class="dash-card dash-card-danger"><div class="dash-card-num">${formatNumber(o.spam)}</div><div class="dash-card-label">🚫 Spam</div></div>
+    <div class="dash-card"><div class="dash-card-num">${formatNumber(o.today)}</div><div class="dash-card-label">📅 Bugün</div></div>
+    <div class="dash-card"><div class="dash-card-num">${formatNumber(o.thisWeek)}</div><div class="dash-card-label">📅 Bu Hafta</div></div>
+    <div class="dash-card"><div class="dash-card-num">${formatNumber(o.withAttachment)}</div><div class="dash-card-label">📎 Ekli Mail</div></div>
+    <div class="dash-card"><div class="dash-card-num">${formatNumber(o.archived)}</div><div class="dash-card-label">📦 Arşiv</div></div>
+    <div class="dash-card"><div class="dash-card-num">${sizeMB} <small>MB</small></div><div class="dash-card-label">💾 Toplam Ek</div></div>
+    <div class="dash-card"><div class="dash-card-num">${o.accountCount}</div><div class="dash-card-label">📧 Hesap</div></div>
+  `;
+}
+
+function formatNumber(n) {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace('.0', '') + 'K';
+  return String(n);
+}
+
+function renderDailyChart(daily) {
+  const w = 700, h = 200, pad = { left: 35, right: 10, top: 10, bottom: 30 };
+  const max = Math.max(...daily.map(d => d.count), 1);
+  const innerW = w - pad.left - pad.right;
+  const innerH = h - pad.top - pad.bottom;
+  const stepX = innerW / (daily.length - 1 || 1);
+
+  const points = daily.map((d, i) => {
+    const x = pad.left + i * stepX;
+    const y = pad.top + innerH - (d.count / max) * innerH;
+    return { x, y, count: d.count, day: d.day };
+  });
+
+  const linePath = points.map((p, i) => (i === 0 ? 'M' : 'L') + p.x + ',' + p.y).join(' ');
+  const areaPath = linePath + ` L${points[points.length - 1].x},${pad.top + innerH} L${points[0].x},${pad.top + innerH} Z`;
+
+  // Y ekseni grid
+  let gridLines = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (innerH / 4) * i;
+    const val = Math.round(max - (max / 4) * i);
+    gridLines += `<line x1="${pad.left}" y1="${y}" x2="${w - pad.right}" y2="${y}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,2"/>`;
+    gridLines += `<text x="${pad.left - 5}" y="${y + 3}" text-anchor="end" fill="var(--muted)" font-size="9">${val}</text>`;
+  }
+
+  // X ekseni labels (her 5 günde bir)
+  let xLabels = '';
+  for (let i = 0; i < points.length; i += 5) {
+    const p = points[i];
+    const dateLabel = p.day.slice(5).replace('-', '/');
+    xLabels += `<text x="${p.x}" y="${h - 8}" text-anchor="middle" fill="var(--muted)" font-size="9">${dateLabel}</text>`;
+  }
+
+  const dotsHtml = points.map(p =>
+    `<circle cx="${p.x}" cy="${p.y}" r="3" fill="var(--primary)" stroke="var(--bg)" stroke-width="1.5">
+       <title>${p.day}: ${p.count} mail</title>
+     </circle>`
+  ).join('');
+
+  document.getElementById('dashDailyChart').innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:200px;">
+      ${gridLines}
+      <path d="${areaPath}" fill="var(--primary)" opacity="0.15"/>
+      <path d="${linePath}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round"/>
+      ${dotsHtml}
+      ${xLabels}
+    </svg>
+  `;
+}
+
+function renderHourlyChart(hourly) {
+  const w = 600, h = 180, pad = { left: 25, right: 10, top: 10, bottom: 24 };
+  const max = Math.max(...hourly.map(h => h.count), 1);
+  const innerW = w - pad.left - pad.right;
+  const innerH = h - pad.top - pad.bottom;
+  const barW = innerW / 24 - 2;
+
+  let bars = '';
+  let xLabels = '';
+  hourly.forEach(item => {
+    const x = pad.left + (innerW / 24) * item.hour + 1;
+    const barH = (item.count / max) * innerH;
+    const y = pad.top + innerH - barH;
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="var(--primary)" opacity="${0.5 + (item.count / max) * 0.5}" rx="2">
+              <title>${item.hour}:00 - ${item.count} mail</title>
+            </rect>`;
+    if (item.hour % 3 === 0) {
+      xLabels += `<text x="${x + barW / 2}" y="${h - 6}" text-anchor="middle" fill="var(--muted)" font-size="9">${item.hour}</text>`;
+    }
+  });
+
+  document.getElementById('dashHourlyChart').innerHTML = `
+    <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:180px;">
+      ${bars}
+      ${xLabels}
+      <text x="${w/2}" y="${h - 1}" text-anchor="middle" fill="var(--muted)" font-size="9">Saat (0-23)</text>
+    </svg>
+  `;
+}
+
+function renderTopSenders(senders) {
+  if (!senders.length) {
+    document.getElementById('dashTopSenders').innerHTML = '<div class="empty-state">Veri yok</div>';
+    return;
+  }
+  const max = Math.max(...senders.map(s => s.count), 1);
+  document.getElementById('dashTopSenders').innerHTML = senders.map(s => {
+    const pct = (s.count / max) * 100;
+    const name = s.name || s.email || '?';
+    const initial = name.trim().charAt(0).toUpperCase();
+    return `
+      <div class="sender-bar-row">
+        <div class="sender-avatar" style="background:${avatarColorForEmail(s.email)};">${escapeHtml(initial)}</div>
+        <div class="sender-info">
+          <div class="sender-name" title="${escapeHtml(s.email || '')}">${escapeHtml(name.slice(0, 30))}</div>
+          <div class="sender-bar"><div class="sender-bar-fill" style="width:${pct}%;"></div></div>
+        </div>
+        <div class="sender-count">${s.count}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function avatarColorForEmail(email) {
+  const colors = ['#3498db', '#9b59b6', '#e74c3c', '#f39c12', '#2ecc71', '#1abc9c', '#e67e22', '#34495e'];
+  let hash = 0;
+  const e = (email || '').toLowerCase();
+  for (let i = 0; i < e.length; i++) hash = e.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function renderCategoryChart(categories) {
+  const filtered = categories.filter(c => c.count > 0);
+  if (!filtered.length) {
+    document.getElementById('dashCategoryChart').innerHTML = '<div class="empty-state">Henüz kategorilenmiş mail yok</div>';
+    return;
+  }
+  // Pie chart SVG
+  const total = filtered.reduce((s, c) => s + c.count, 0);
+  const cx = 80, cy = 80, r = 70;
+  let cumAngle = -Math.PI / 2;
+  let slices = '';
+  let legend = '';
+
+  filtered.forEach(c => {
+    const sliceAngle = (c.count / total) * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(cumAngle);
+    const y1 = cy + r * Math.sin(cumAngle);
+    const x2 = cx + r * Math.cos(cumAngle + sliceAngle);
+    const y2 = cy + r * Math.sin(cumAngle + sliceAngle);
+    const largeArc = sliceAngle > Math.PI ? 1 : 0;
+    slices += `<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${largeArc},1 ${x2},${y2} Z"
+                    fill="${c.color || '#888'}" stroke="var(--bg)" stroke-width="1.5">
+                 <title>${c.name}: ${c.count} (${((c.count / total) * 100).toFixed(1)}%)</title>
+               </path>`;
+    cumAngle += sliceAngle;
+    legend += `<div class="dash-legend-item">
+      <span class="dash-legend-dot" style="background:${c.color || '#888'};"></span>
+      <span class="dash-legend-name">${escapeHtml(c.name)}</span>
+      <span class="dash-legend-val">${c.count}</span>
+    </div>`;
+  });
+
+  document.getElementById('dashCategoryChart').innerHTML = `
+    <div style="display:flex;gap:14px;align-items:center;">
+      <svg viewBox="0 0 160 160" style="width:160px;height:160px;flex-shrink:0;">
+        ${slices}
+      </svg>
+      <div class="dash-legend">${legend}</div>
+    </div>
+  `;
+}
+
+function renderAccountChart(accounts) {
+  const filtered = accounts.filter(a => a.count > 0);
+  if (!filtered.length) {
+    document.getElementById('dashAccountChart').innerHTML = '<div class="empty-state">Henüz mail yok</div>';
+    return;
+  }
+  const total = filtered.reduce((s, a) => s + a.count, 0);
+  const cx = 80, cy = 80, rOuter = 70, rInner = 40;
+  let cumAngle = -Math.PI / 2;
+  let slices = '';
+  let legend = '';
+  const palette = ['#0078d4', '#9b59b6', '#e74c3c', '#f39c12', '#2ecc71', '#1abc9c', '#e67e22', '#34495e'];
+
+  filtered.forEach((a, idx) => {
+    const sliceAngle = (a.count / total) * 2 * Math.PI;
+    const color = palette[idx % palette.length];
+    const x1o = cx + rOuter * Math.cos(cumAngle);
+    const y1o = cy + rOuter * Math.sin(cumAngle);
+    const x2o = cx + rOuter * Math.cos(cumAngle + sliceAngle);
+    const y2o = cy + rOuter * Math.sin(cumAngle + sliceAngle);
+    const x1i = cx + rInner * Math.cos(cumAngle + sliceAngle);
+    const y1i = cy + rInner * Math.sin(cumAngle + sliceAngle);
+    const x2i = cx + rInner * Math.cos(cumAngle);
+    const y2i = cy + rInner * Math.sin(cumAngle);
+    const largeArc = sliceAngle > Math.PI ? 1 : 0;
+    slices += `<path d="M${x1o},${y1o} A${rOuter},${rOuter} 0 ${largeArc},1 ${x2o},${y2o} L${x1i},${y1i} A${rInner},${rInner} 0 ${largeArc},0 ${x2i},${y2i} Z"
+                    fill="${color}" stroke="var(--bg)" stroke-width="1.5">
+                 <title>${a.display_name}: ${a.count} (${((a.count / total) * 100).toFixed(1)}%)</title>
+               </path>`;
+    cumAngle += sliceAngle;
+    legend += `<div class="dash-legend-item">
+      <span class="dash-legend-dot" style="background:${color};"></span>
+      <span class="dash-legend-name" title="${escapeHtml(a.email)}">${escapeHtml(a.display_name)}</span>
+      <span class="dash-legend-val">${a.count}</span>
+    </div>`;
+  });
+
+  document.getElementById('dashAccountChart').innerHTML = `
+    <div style="display:flex;gap:14px;align-items:center;">
+      <svg viewBox="0 0 160 160" style="width:160px;height:160px;flex-shrink:0;">
+        ${slices}
+        <text x="80" y="78" text-anchor="middle" fill="var(--text)" font-size="22" font-weight="700">${total}</text>
+        <text x="80" y="92" text-anchor="middle" fill="var(--muted)" font-size="9">TOPLAM</text>
+      </svg>
+      <div class="dash-legend">${legend}</div>
+    </div>
+  `;
+}

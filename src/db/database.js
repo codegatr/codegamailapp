@@ -2399,6 +2399,129 @@ class Database {
     return this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
   }
 
+  // ====== v1.45: Gösterge Paneli İstatistikleri ======
+  getStatsOverview() {
+    const total = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE is_archived = 0 OR is_archived IS NULL').get()?.c || 0;
+    const unread = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE is_read = 0 AND (is_archived = 0 OR is_archived IS NULL)').get()?.c || 0;
+    const important = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE is_important = 1 AND (is_archived = 0 OR is_archived IS NULL)').get()?.c || 0;
+    const spam = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE is_spam = 1').get()?.c || 0;
+    const archived = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE is_archived = 1').get()?.c || 0;
+    const withAttachment = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE has_attachments = 1').get()?.c || 0;
+
+    // Bugün
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const today = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE date >= ?')
+      .get(todayStart.toISOString())?.c || 0;
+
+    // Bu hafta
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    const thisWeek = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE date >= ?')
+      .get(weekStart.toISOString())?.c || 0;
+
+    // Toplam ek boyutu
+    const attachSize = this.prepare(`
+      SELECT COALESCE(SUM(size), 0) AS s FROM message_attachments
+    `).get()?.s || 0;
+
+    // Hesap sayısı
+    const accountCount = this.prepare('SELECT COUNT(*) AS c FROM accounts').get()?.c || 0;
+
+    return { total, unread, important, spam, archived, withAttachment, today, thisWeek, attachSize, accountCount };
+  }
+
+  /**
+   * Son N gündeki günlük mesaj sayısı (line chart için)
+   */
+  getDailyMessageCounts(days = 30) {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+    const rows = this.prepare(`
+      SELECT DATE(date) AS day, COUNT(*) AS count
+      FROM messages
+      WHERE date >= ? AND date IS NOT NULL
+      GROUP BY DATE(date)
+      ORDER BY day ASC
+    `).all(startDate.toISOString());
+
+    // Eksik günleri 0 ile doldur
+    const result = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - (days - 1 - i));
+      const dayStr = d.toISOString().slice(0, 10);
+      const row = rows.find(r => r.day === dayStr);
+      result.push({ day: dayStr, count: row ? row.count : 0 });
+    }
+    return result;
+  }
+
+  /**
+   * Saat bazında dağılım (0-23) — gönderme/alma yoğunluğu
+   */
+  getHourlyDistribution() {
+    const rows = this.prepare(`
+      SELECT CAST(strftime('%H', date) AS INTEGER) AS hour, COUNT(*) AS count
+      FROM messages
+      WHERE date IS NOT NULL
+      GROUP BY hour
+    `).all();
+    const result = [];
+    for (let h = 0; h < 24; h++) {
+      const r = rows.find(x => x.hour === h);
+      result.push({ hour: h, count: r ? r.count : 0 });
+    }
+    return result;
+  }
+
+  /**
+   * En çok mail gönderen kişiler (top N)
+   */
+  getTopSenders(limit = 10) {
+    return this.prepare(`
+      SELECT
+        COALESCE(from_name, from_addr) AS name,
+        from_addr AS email,
+        COUNT(*) AS count
+      FROM messages
+      WHERE from_addr IS NOT NULL AND from_addr != '' AND (is_archived = 0 OR is_archived IS NULL)
+      GROUP BY from_addr
+      ORDER BY count DESC
+      LIMIT ?
+    `).all(limit);
+  }
+
+  /**
+   * Kategori dağılımı (pie chart için)
+   */
+  getCategoryDistribution() {
+    return this.prepare(`
+      SELECT c.id, c.name, c.color, COUNT(mc.message_id) AS count
+      FROM categories c
+      LEFT JOIN message_categories mc ON mc.category_id = c.id
+      LEFT JOIN messages m ON m.id = mc.message_id
+        AND (m.is_archived = 0 OR m.is_archived IS NULL)
+      GROUP BY c.id
+      ORDER BY count DESC
+    `).all();
+  }
+
+  /**
+   * Hesap bazında mesaj dağılımı
+   */
+  getAccountDistribution() {
+    return this.prepare(`
+      SELECT a.id, a.display_name, a.email, COUNT(m.id) AS count
+      FROM accounts a
+      LEFT JOIN messages m ON m.account_id = a.id
+        AND (m.is_archived = 0 OR m.is_archived IS NULL)
+      GROUP BY a.id
+      ORDER BY count DESC
+    `).all();
+  }
+
   // ====== v1.27: Takvim / Events ======
   listEvents(opts = {}) {
     let where = '1=1';
