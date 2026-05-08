@@ -80,6 +80,30 @@
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
 
+  <!-- ===== v1.23: Kilit Ekranı (Master Password + 2FA) ===== -->
+  <div id="modalLockScreen" class="modal hidden lock-modal">
+    <div class="lock-content">
+      <div class="lock-logo">🔒</div>
+      <h2 class="lock-title">CODEGA Mail Kilitli</h2>
+      <p class="lock-subtitle">Devam etmek için ana şifrenizi girin</p>
+      <form id="lockForm" autocomplete="off">
+        <input type="password" id="lock_password" placeholder="Ana şifre" autocomplete="current-password" autofocus>
+        <div id="lock_2fa_wrap" class="hidden" style="margin-top:10px;">
+          <input type="text" id="lock_2fa_code" placeholder="6 haneli authenticator kodu" maxlength="6" pattern="[0-9]*" inputmode="numeric">
+          <a href="#" id="lock_use_recovery" style="font-size:11px;color:var(--primary);">Authenticator'a erişimim yok - Recovery code kullan</a>
+        </div>
+        <div id="lock_recovery_wrap" class="hidden" style="margin-top:10px;">
+          <input type="text" id="lock_recovery_code" placeholder="Recovery code (örn. ABCD-1234-EF)">
+          <a href="#" id="lock_use_2fa_back" style="font-size:11px;color:var(--primary);">2FA koduna geri dön</a>
+        </div>
+        <button type="submit" class="btn btn-primary lock-submit" id="btnLockSubmit">Kilidi Aç</button>
+      </form>
+      <div id="lock_error" class="lock-error hidden"></div>
+      <div id="lock_lockout" class="lock-lockout hidden"></div>
+      <div class="lock-footer">CODEGA Mail v<span id="lock_version">1.23</span> · Tüm verileriniz yereldedir</div>
+    </div>
+  </div>
+
   <!-- ===== v1.21: Komut Paleti (Ctrl+K) ===== -->
   <div id="modalCommandPalette" class="modal hidden cmd-palette-modal">
     <div class="cmd-palette">
@@ -313,6 +337,95 @@
               <span class="empty-dict">Sözlüğünüze henüz kelime eklemediniz</span>
             </div>
             <small>Sağ tıklayıp "Sözlüğe Ekle" diyerek kişi adı, marka, teknik terim gibi kelimeleri ekleyebilirsiniz.</small>
+          </div>
+        </div>
+
+        <!-- v1.23: Güvenlik (Master Password + 2FA) -->
+        <div class="form-section full" style="margin-top:18px;">🔐 Güvenlik</div>
+        <div class="security-card" id="securityCard">
+          <div id="sec_state_summary" class="sec-summary">Yükleniyor...</div>
+
+          <div id="sec_no_password" class="hidden" style="margin-top:14px;">
+            <p style="font-size:12px;color:var(--text-2);">Uygulamayı her açtığınızda şifre sorulması için ana şifre belirleyin.</p>
+            <button class="btn btn-primary" id="btnSetMasterPassword">🔒 Ana Şifre Belirle</button>
+          </div>
+
+          <div id="sec_has_password" class="hidden" style="margin-top:14px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn" id="btnChangeMasterPassword">🔑 Şifreyi Değiştir</button>
+              <button class="btn btn-ghost" id="btnRemoveMasterPassword" style="color:var(--danger);">🗑 Şifreyi Kaldır</button>
+              <button class="btn btn-ghost" id="btnLockNow">🔒 Şimdi Kilitle</button>
+            </div>
+
+            <hr style="margin:14px 0;border:none;border-top:1px solid var(--border);">
+
+            <div id="sec_2fa_off" class="hidden">
+              <p style="font-size:12px;color:var(--text-2);">2FA (İki Adımlı Doğrulama) - authenticator uygulaması ile ekstra güvenlik.</p>
+              <button class="btn btn-primary" id="btnEnable2FA">📱 2FA Etkinleştir</button>
+            </div>
+
+            <div id="sec_2fa_on" class="hidden">
+              <div class="sec-2fa-active">
+                <span class="sec-2fa-icon">✅</span>
+                <span><strong>2FA aktif</strong> - <span id="sec_recovery_count">0</span> kullanılmamış recovery code</span>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <button class="btn btn-ghost" id="btnRegenRecovery">🔄 Yeni Recovery Code'lar Üret</button>
+                <button class="btn btn-ghost" id="btnDisable2FA" style="color:var(--danger);">🗑 2FA Kapat</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2FA Kurulum Modali (in-line) -->
+        <div id="modal2FASetup" class="modal hidden">
+          <div class="modal-content modal-md">
+            <div class="modal-header">
+              <h2>📱 2FA Kurulumu</h2>
+              <button class="modal-close" data-close="modal2FASetup">×</button>
+            </div>
+            <div class="modal-body">
+              <div id="2fa_step1">
+                <p style="font-size:13px;color:var(--text);">
+                  <strong>Adım 1:</strong> Telefonunuza Google Authenticator, Microsoft Authenticator, Authy gibi bir TOTP uygulaması kurun.
+                </p>
+                <p style="font-size:13px;color:var(--text);margin-top:14px;">
+                  <strong>Adım 2:</strong> Bu QR kodu uygulamayla tarayın:
+                </p>
+                <div id="2fa_qr_container" style="text-align:center;margin:14px 0;">
+                  <img id="2fa_qr_img" src="" alt="QR Kod" style="border:1px solid var(--border);border-radius:8px;">
+                </div>
+                <details style="font-size:11px;color:var(--muted);">
+                  <summary style="cursor:pointer;">QR taranamıyor mu? Manuel kurulum...</summary>
+                  <p style="margin-top:8px;">Authenticator uygulamasında "Manuel giriş" seçeneğini kullanın:</p>
+                  <code id="2fa_secret_text" style="display:block;background:var(--bg-3);padding:8px;border-radius:4px;font-family:monospace;font-size:13px;word-break:break-all;text-align:center;margin-top:6px;letter-spacing:1px;"></code>
+                </details>
+                <p style="font-size:13px;color:var(--text);margin-top:18px;">
+                  <strong>Adım 3:</strong> Authenticator uygulamasındaki 6 haneli kodu girin:
+                </p>
+                <input type="text" id="2fa_verify_code" placeholder="000000" maxlength="6" pattern="[0-9]*" inputmode="numeric"
+                       style="font-size:24px;text-align:center;letter-spacing:8px;font-family:monospace;width:200px;display:block;margin:10px auto;">
+                <div id="2fa_setup_error" class="hidden" style="color:var(--danger);font-size:12px;text-align:center;"></div>
+                <div style="text-align:center;margin-top:14px;">
+                  <button class="btn btn-primary" id="btn2FAVerify">Doğrula ve Etkinleştir</button>
+                </div>
+              </div>
+              <div id="2fa_step2_codes" class="hidden">
+                <p style="font-size:13px;">
+                  <strong style="color:#2ecc71;">✅ 2FA başarıyla etkinleştirildi!</strong>
+                </p>
+                <div style="background:rgba(243,156,18,0.1);border:1px solid #f39c12;padding:12px;border-radius:6px;margin:14px 0;">
+                  <strong style="color:#f39c12;">⚠ Önemli: Bu Recovery Code'ları kaydedin!</strong>
+                  <p style="font-size:12px;margin:6px 0 0;">Telefonunuzu kaybederseniz bu kodlarla giriş yapabilirsiniz. Her kod yalnızca bir kez kullanılabilir. Güvenli bir yere not alın veya yazıcıdan çıkarın.</p>
+                </div>
+                <div id="2fa_recovery_codes_list" class="recovery-codes-grid"></div>
+                <div style="display:flex;gap:8px;margin-top:14px;">
+                  <button class="btn" id="btnCopyRecoveryCodes">📋 Hepsini Kopyala</button>
+                  <button class="btn" id="btnPrintRecoveryCodes">🖨 Yazdır</button>
+                  <button class="btn btn-primary" id="btn2FADone" style="margin-left:auto;">Kaydettim, Tamam</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

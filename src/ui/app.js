@@ -131,6 +131,8 @@ const state = {
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+  // v1.23: Lock screen kontrolü - şifre yoksa veya doğrulandıysa devam
+  await checkLockScreen();
   bindToolbar();
   bindModals();
   bindAccountWizard();
@@ -760,6 +762,9 @@ async function openSettings() {
 
   // v1.22: Yazım denetimi ayarları
   await loadSpellSettings();
+
+  // v1.23: Güvenlik panelini yenile
+  await refreshSecuritySettings();
   // v1.3: Güncelleme tercihi
   const autoUpdEl = document.getElementById('settings_auto_update');
   if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
@@ -4778,6 +4783,10 @@ function buildCommandList() {
       action: () => doRestore(), category: 'Bakım' },
     { id: 'sync-history', label: 'Senkronizasyon İlerleme Penceresi', icon: '📊',
       action: () => { document.getElementById('modalSyncProgress').classList.remove('hidden'); }, category: 'Bakım' },
+    { id: 'lock-app', label: 'Şimdi Kilitle (master şifre gerekli)', icon: '🔒',
+      action: async () => {
+        if (confirm('Uygulama hemen kilitlensin mi?')) await window.api.security.lockApp();
+      }, category: 'Bakım' },
 
     { id: 'kb-help', label: 'Klavye Kısayolları Yardımı', icon: '⌨', shortcut: 'Ctrl+/',
       action: () => document.getElementById('modalKeyboardHelp').classList.remove('hidden'), category: 'Yardım' },
@@ -5078,4 +5087,327 @@ function renderCustomDict(words) {
       setStatus('"' + word + '" kaldırıldı');
     };
   });
+}
+
+// ============= v1.23: Lock Screen + Güvenlik =============
+
+/**
+ * Lock screen göster, kullanıcı şifre girene kadar Promise'i resolve etme
+ */
+async function checkLockScreen() {
+  let status;
+  try {
+    status = await window.api.security.status();
+  } catch (e) {
+    return; // güvenlik IPC yoksa atla
+  }
+  if (!status.hasMasterPassword || status.unlocked) return;
+
+  return new Promise((resolve) => {
+    showLockScreen(resolve, status);
+  });
+}
+
+function showLockScreen(onUnlock, initialStatus) {
+  const modal = document.getElementById('modalLockScreen');
+  modal.classList.remove('hidden');
+  modal.style.zIndex = 99999;
+
+  const has2FA = initialStatus && initialStatus.has2FA;
+  const pwInput = document.getElementById('lock_password');
+  const tfaWrap = document.getElementById('lock_2fa_wrap');
+  const recWrap = document.getElementById('lock_recovery_wrap');
+  const errEl = document.getElementById('lock_error');
+  const lockoutEl = document.getElementById('lock_lockout');
+
+  // Reset
+  document.getElementById('lock_password').value = '';
+  document.getElementById('lock_2fa_code').value = '';
+  document.getElementById('lock_recovery_code').value = '';
+  errEl.classList.add('hidden');
+  lockoutEl.classList.add('hidden');
+
+  if (has2FA) {
+    tfaWrap.classList.remove('hidden');
+    recWrap.classList.add('hidden');
+  } else {
+    tfaWrap.classList.add('hidden');
+    recWrap.classList.add('hidden');
+  }
+
+  setTimeout(() => pwInput.focus(), 100);
+
+  // Recovery code toggle
+  document.getElementById('lock_use_recovery').onclick = (e) => {
+    e.preventDefault();
+    tfaWrap.classList.add('hidden');
+    recWrap.classList.remove('hidden');
+    document.getElementById('lock_recovery_code').focus();
+  };
+  document.getElementById('lock_use_2fa_back').onclick = (e) => {
+    e.preventDefault();
+    recWrap.classList.add('hidden');
+    tfaWrap.classList.remove('hidden');
+    document.getElementById('lock_2fa_code').focus();
+  };
+
+  // Form submit
+  const form = document.getElementById('lockForm');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const password = pwInput.value;
+    const totpCode = document.getElementById('lock_2fa_code').value.trim();
+    const recoveryCode = document.getElementById('lock_recovery_code').value.trim();
+
+    if (!password) {
+      errEl.textContent = 'Şifre girin';
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const result = await window.api.security.verifyMasterPassword({
+      password, totpCode, recoveryCode
+    });
+
+    if (result.ok) {
+      modal.classList.add('hidden');
+      if (result.recoveryUsed && result.unusedRecoveryCodes < 3) {
+        setTimeout(() => alert(`⚠ Sadece ${result.unusedRecoveryCodes} recovery code kaldı. Ayarlar > Güvenlik bölümünden yenilerini üretmenizi öneririz.`), 800);
+      }
+      onUnlock();
+      return;
+    }
+
+    if (result.lockedUntil && result.lockedUntil > Date.now()) {
+      // Lockout - countdown göster
+      lockoutEl.classList.remove('hidden');
+      errEl.classList.add('hidden');
+      const tick = () => {
+        const remaining = Math.max(0, result.lockedUntil - Date.now());
+        if (remaining <= 0) {
+          lockoutEl.classList.add('hidden');
+          return;
+        }
+        const sec = Math.ceil(remaining / 1000);
+        const min = Math.floor(sec / 60);
+        const s = sec % 60;
+        lockoutEl.textContent = `🔒 ${result.error} ${min}:${String(s).padStart(2, '0')}`;
+        setTimeout(tick, 1000);
+      };
+      tick();
+      return;
+    }
+
+    errEl.textContent = result.error + (result.remaining !== undefined ? ` (${result.remaining} deneme hakkı kaldı)` : '');
+    errEl.classList.remove('hidden');
+    if (result.need2FA) {
+      tfaWrap.classList.remove('hidden');
+      document.getElementById('lock_2fa_code').focus();
+    } else {
+      pwInput.select();
+    }
+  };
+}
+
+// Locked event - app çalışırken kilitlendi
+if (window.api && window.api.on) {
+  window.api.on('security:locked', () => {
+    location.reload();  // Yeniden yükle, init lock screen'i göstersin
+  });
+}
+
+// ============= Settings - Güvenlik =============
+async function refreshSecuritySettings() {
+  try {
+    const status = await window.api.security.status();
+    const summary = document.getElementById('sec_state_summary');
+    const noPw = document.getElementById('sec_no_password');
+    const hasPw = document.getElementById('sec_has_password');
+    const tfaOff = document.getElementById('sec_2fa_off');
+    const tfaOn = document.getElementById('sec_2fa_on');
+
+    if (!status.hasMasterPassword) {
+      summary.innerHTML = '🔓 <strong>Ana şifre belirlenmemiş</strong> - Uygulama açılışta şifre sormaz';
+      summary.className = 'sec-summary sec-warn';
+      noPw.classList.remove('hidden');
+      hasPw.classList.add('hidden');
+    } else {
+      noPw.classList.add('hidden');
+      hasPw.classList.remove('hidden');
+      if (status.has2FA) {
+        summary.innerHTML = '🔐 <strong>Ana şifre + 2FA aktif</strong> - En yüksek güvenlik';
+        summary.className = 'sec-summary sec-ok';
+        tfaOff.classList.add('hidden');
+        tfaOn.classList.remove('hidden');
+        document.getElementById('sec_recovery_count').textContent = String(status.unusedRecoveryCodes || 0);
+      } else {
+        summary.innerHTML = '🔒 <strong>Ana şifre aktif</strong> - 2FA önerilir';
+        summary.className = 'sec-summary sec-mid';
+        tfaOff.classList.remove('hidden');
+        tfaOn.classList.add('hidden');
+      }
+    }
+
+    if (!state.securityBound) {
+      state.securityBound = true;
+      bindSecuritySettings();
+    }
+  } catch (e) {
+    console.warn('Security status hatası:', e);
+  }
+}
+
+function bindSecuritySettings() {
+  document.getElementById('btnSetMasterPassword').onclick = async () => {
+    const pw = await promptForPassword('Yeni Ana Şifre Belirle', 'En az 6 karakter olmalı', true);
+    if (!pw) return;
+    const r = await window.api.security.setMasterPassword({ newPassword: pw });
+    if (r.ok) {
+      setStatus('✓ Ana şifre belirlendi');
+      await refreshSecuritySettings();
+    } else {
+      alert('Hata: ' + r.error);
+    }
+  };
+
+  document.getElementById('btnChangeMasterPassword').onclick = async () => {
+    const current = await promptForPassword('Şifre Değiştirme', 'Mevcut ana şifrenizi girin');
+    if (!current) return;
+    const newPw = await promptForPassword('Yeni Şifre', 'Yeni ana şifrenizi girin (en az 6 karakter)', true);
+    if (!newPw) return;
+    const r = await window.api.security.setMasterPassword({ newPassword: newPw, currentPassword: current });
+    if (r.ok) setStatus('✓ Şifre değiştirildi');
+    else alert('Hata: ' + r.error);
+  };
+
+  document.getElementById('btnRemoveMasterPassword').onclick = async () => {
+    if (!confirm('Ana şifre kaldırılacak. 2FA ve recovery code\'lar da silinecek. Devam edilsin mi?')) return;
+    const current = await promptForPassword('Onay', 'Mevcut ana şifrenizi girin');
+    if (!current) return;
+    const r = await window.api.security.removeMasterPassword(current);
+    if (r.ok) {
+      setStatus('Ana şifre kaldırıldı');
+      await refreshSecuritySettings();
+    } else {
+      alert('Hata: ' + r.error);
+    }
+  };
+
+  document.getElementById('btnLockNow').onclick = async () => {
+    if (!confirm('Uygulama hemen kilitlensin mi? Tekrar açmak için ana şifrenizi gireceksiniz.')) return;
+    await window.api.security.lockApp();
+  };
+
+  document.getElementById('btnEnable2FA').onclick = open2FASetup;
+
+  document.getElementById('btnDisable2FA').onclick = async () => {
+    if (!confirm('2FA kapatılacak. Recovery code\'lar da silinecek. Devam?')) return;
+    const current = await promptForPassword('Onay', 'Mevcut ana şifrenizi girin');
+    if (!current) return;
+    const r = await window.api.security.disable2FA(current);
+    if (r.ok) {
+      setStatus('2FA kapatıldı');
+      await refreshSecuritySettings();
+    } else {
+      alert('Hata: ' + r.error);
+    }
+  };
+
+  document.getElementById('btnRegenRecovery').onclick = async () => {
+    if (!confirm('Yeni recovery code\'lar üretilecek. Eski kodlar geçersiz olacak. Devam?')) return;
+    const current = await promptForPassword('Onay', 'Mevcut ana şifrenizi girin');
+    if (!current) return;
+    const r = await window.api.security.regenerateRecoveryCodes(current);
+    if (r.ok) {
+      showRecoveryCodes(r.recoveryCodes);
+      await refreshSecuritySettings();
+    } else {
+      alert('Hata: ' + r.error);
+    }
+  };
+}
+
+function promptForPassword(title, message, isNew = false) {
+  return new Promise((resolve) => {
+    const pw = prompt(`${title}\n\n${message}`);
+    resolve(pw);
+  });
+}
+
+async function open2FASetup() {
+  // Kullanıcı email seç (ilk hesap)
+  const email = state.accounts && state.accounts[0] ? state.accounts[0].email : 'user@codega.com.tr';
+  const r = await window.api.security.start2FASetup({ email });
+  if (!r.ok) { alert('Hata: ' + r.error); return; }
+
+  document.getElementById('2fa_qr_img').src = r.qrDataUrl || '';
+  document.getElementById('2fa_secret_text').textContent = r.secret;
+  document.getElementById('2fa_verify_code').value = '';
+  document.getElementById('2fa_setup_error').classList.add('hidden');
+  document.getElementById('2fa_step1').classList.remove('hidden');
+  document.getElementById('2fa_step2_codes').classList.add('hidden');
+
+  document.getElementById('modal2FASetup').classList.remove('hidden');
+  setTimeout(() => document.getElementById('2fa_verify_code').focus(), 100);
+
+  if (!state.tfaSetupBound) {
+    state.tfaSetupBound = true;
+    document.getElementById('btn2FAVerify').onclick = async () => {
+      const code = document.getElementById('2fa_verify_code').value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        alert('6 haneli kod girin');
+        return;
+      }
+      const cr = await window.api.security.confirm2FASetup({ code });
+      if (!cr.ok) {
+        const errEl = document.getElementById('2fa_setup_error');
+        errEl.textContent = cr.error;
+        errEl.classList.remove('hidden');
+        return;
+      }
+      // Recovery codes göster
+      document.getElementById('2fa_step1').classList.add('hidden');
+      document.getElementById('2fa_step2_codes').classList.remove('hidden');
+      renderRecoveryCodesInModal(cr.recoveryCodes);
+    };
+    document.getElementById('btn2FADone').onclick = async () => {
+      document.getElementById('modal2FASetup').classList.add('hidden');
+      await refreshSecuritySettings();
+    };
+  }
+}
+
+function renderRecoveryCodesInModal(codes) {
+  const grid = document.getElementById('2fa_recovery_codes_list');
+  grid.innerHTML = codes.map(c => `<div class="recovery-code">${escapeHtml(c)}</div>`).join('');
+  document.getElementById('btnCopyRecoveryCodes').onclick = () => {
+    navigator.clipboard.writeText(codes.join('\n'));
+    setStatus('✓ Recovery code\'lar kopyalandı');
+  };
+  document.getElementById('btnPrintRecoveryCodes').onclick = () => {
+    const w = window.open('', '_blank', 'width=600,height=600');
+    w.document.write(`
+      <html><head><title>CODEGA Mail - Recovery Codes</title>
+      <style>body{font-family:sans-serif;padding:30px;}
+      h1{font-size:18px;}
+      .codes{font-family:monospace;font-size:18px;line-height:2.2;}
+      .warn{background:#fff3cd;padding:10px;border-left:4px solid #ffc107;margin-bottom:14px;}
+      </style></head>
+      <body>
+      <h1>🔐 CODEGA Mail - Recovery Codes</h1>
+      <div class="warn">⚠ Her kod yalnızca BİR KEZ kullanılabilir. Güvenli bir yere saklayın.</div>
+      <p>Tarih: ${new Date().toLocaleString('tr-TR')}</p>
+      <div class="codes">${codes.map(c => '• ' + c).join('<br>')}</div>
+      </body></html>
+    `);
+    setTimeout(() => w.print(), 500);
+  };
+}
+
+function showRecoveryCodes(codes) {
+  // Yeniden üretilen kodlar - aynı modali kullan
+  document.getElementById('2fa_step1').classList.add('hidden');
+  document.getElementById('2fa_step2_codes').classList.remove('hidden');
+  document.getElementById('modal2FASetup').classList.remove('hidden');
+  renderRecoveryCodesInModal(codes);
 }

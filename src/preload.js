@@ -116,6 +116,17 @@ contextBridge.exposeInMainWorld('api', {
     setEnabled: (enabled) => ipcRenderer.invoke('spell:setEnabled', enabled),
     removeWord: (word) => ipcRenderer.invoke('spell:removeWord', word)
   },
+  security: {
+    status: () => ipcRenderer.invoke('security:status'),
+    setMasterPassword: (params) => ipcRenderer.invoke('security:setMasterPassword', params),
+    removeMasterPassword: (pw) => ipcRenderer.invoke('security:removeMasterPassword', pw),
+    verifyMasterPassword: (params) => ipcRenderer.invoke('security:verifyMasterPassword', params),
+    start2FASetup: (params) => ipcRenderer.invoke('security:start2FASetup', params),
+    confirm2FASetup: (params) => ipcRenderer.invoke('security:confirm2FASetup', params),
+    disable2FA: (pw) => ipcRenderer.invoke('security:disable2FA', pw),
+    regenerateRecoveryCodes: (pw) => ipcRenderer.invoke('security:regenerateRecoveryCodes', pw),
+    lockApp: () => ipcRenderer.invoke('security:lockApp')
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),
@@ -170,7 +181,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

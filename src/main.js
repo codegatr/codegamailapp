@@ -952,6 +952,194 @@ ipcMain.handle('spell:removeWord', (_, word) => {
 });
 
 // =====================================================================
+// v1.23 IPC: Güvenlik (Master Password + 2FA)
+// =====================================================================
+const Security = require('./services/security');
+
+// Brute force protection state (in-memory)
+const securityRuntime = {
+  failedAttempts: 0,
+  lockedUntil: 0,
+  unlocked: false  // App içine girildi mi?
+};
+
+ipcMain.handle('security:status', () => ({
+  hasMasterPassword: db.hasMasterPassword(),
+  has2FA: db.has2FA(),
+  unlocked: securityRuntime.unlocked,
+  unusedRecoveryCodes: db.unusedRecoveryCodeCount(),
+  failedAttempts: securityRuntime.failedAttempts,
+  lockedUntil: securityRuntime.lockedUntil
+}));
+
+ipcMain.handle('security:setMasterPassword', (_, { newPassword, currentPassword }) => {
+  // Eğer master password zaten varsa, mevcut şifre doğrulanmadan değiştirilemez
+  if (db.hasMasterPassword()) {
+    const hash = db.getSecurityMeta('mp_hash');
+    const salt = db.getSecurityMeta('mp_salt');
+    if (!Security.verifyPassword(currentPassword || '', hash, salt)) {
+      return { ok: false, error: 'Mevcut şifre yanlış' };
+    }
+  }
+  if (!newPassword || newPassword.length < 6) {
+    return { ok: false, error: 'Şifre en az 6 karakter olmalı' };
+  }
+  const r = Security.hashPassword(newPassword);
+  db.setSecurityMeta('mp_hash', r.hash);
+  db.setSecurityMeta('mp_salt', r.salt);
+  db.save();
+  securityRuntime.unlocked = true;
+  return { ok: true };
+});
+
+ipcMain.handle('security:removeMasterPassword', (_, currentPassword) => {
+  if (!db.hasMasterPassword()) return { ok: true };
+  const hash = db.getSecurityMeta('mp_hash');
+  const salt = db.getSecurityMeta('mp_salt');
+  if (!Security.verifyPassword(currentPassword || '', hash, salt)) {
+    return { ok: false, error: 'Mevcut şifre yanlış' };
+  }
+  db.setSecurityMeta('mp_hash', null);
+  db.setSecurityMeta('mp_salt', null);
+  // 2FA'yı da kaldır
+  db.setSecurityMeta('totp_secret', null);
+  db.setSecurityMeta('totp_enabled', '0');
+  db.exec('DELETE FROM recovery_codes');
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('security:verifyMasterPassword', (_, { password, totpCode, recoveryCode }) => {
+  // Lockout kontrolü
+  const now = Date.now();
+  if (securityRuntime.lockedUntil > now) {
+    const remainingSec = Math.ceil((securityRuntime.lockedUntil - now) / 1000);
+    return { ok: false, error: `Çok fazla yanlış deneme. ${remainingSec} saniye sonra tekrar deneyin.`, lockedUntil: securityRuntime.lockedUntil };
+  }
+
+  const hash = db.getSecurityMeta('mp_hash');
+  const salt = db.getSecurityMeta('mp_salt');
+
+  if (!hash || !salt) {
+    securityRuntime.unlocked = true;
+    return { ok: true, noPassword: true };
+  }
+
+  // Master password doğrula
+  if (!Security.verifyPassword(password || '', hash, salt)) {
+    securityRuntime.failedAttempts++;
+    if (securityRuntime.failedAttempts >= Security.MAX_FAILED_ATTEMPTS) {
+      securityRuntime.lockedUntil = now + Security.LOCKOUT_MS;
+      return { ok: false, error: 'Çok fazla yanlış deneme. 5 dakika kilitlendi.', lockedUntil: securityRuntime.lockedUntil };
+    }
+    return { ok: false, error: 'Şifre yanlış', remaining: Security.MAX_FAILED_ATTEMPTS - securityRuntime.failedAttempts };
+  }
+
+  // 2FA kontrolü (eğer aktifse)
+  if (db.has2FA()) {
+    const secret = db.getSecurityMeta('totp_secret');
+
+    // Kullanıcı recovery kod kullanıyor olabilir
+    if (recoveryCode && recoveryCode.trim()) {
+      const cleaned = recoveryCode.trim().toUpperCase().replace(/\s+/g, '');
+      const codeHash = Security.hashRecoveryCode(cleaned);
+      if (db.consumeRecoveryCode(codeHash)) {
+        db.save();
+        securityRuntime.failedAttempts = 0;
+        securityRuntime.unlocked = true;
+        return { ok: true, recoveryUsed: true, unusedRecoveryCodes: db.unusedRecoveryCodeCount() };
+      }
+      return { ok: false, error: 'Recovery code geçersiz veya zaten kullanılmış' };
+    }
+
+    if (!totpCode || !Security.verifyTotpCode(secret, totpCode)) {
+      securityRuntime.failedAttempts++;
+      if (securityRuntime.failedAttempts >= Security.MAX_FAILED_ATTEMPTS) {
+        securityRuntime.lockedUntil = now + Security.LOCKOUT_MS;
+        return { ok: false, error: 'Çok fazla yanlış deneme. 5 dakika kilitlendi.', lockedUntil: securityRuntime.lockedUntil };
+      }
+      return { ok: false, error: '2FA kodu yanlış', need2FA: true, remaining: Security.MAX_FAILED_ATTEMPTS - securityRuntime.failedAttempts };
+    }
+  }
+
+  // Başarılı
+  securityRuntime.failedAttempts = 0;
+  securityRuntime.unlocked = true;
+  return { ok: true };
+});
+
+ipcMain.handle('security:start2FASetup', async (_, { email }) => {
+  if (!db.hasMasterPassword()) {
+    return { ok: false, error: '2FA için önce master şifre belirleyin' };
+  }
+  const secret = Security.generateTotpSecret();
+  const uri = Security.buildOtpauthUri(secret, email || 'user', 'CODEGA Mail');
+  // QR kod üret
+  let qrDataUrl = null;
+  try {
+    const QRCode = require('qrcode');
+    qrDataUrl = await QRCode.toDataURL(uri, { errorCorrectionLevel: 'M', margin: 1, width: 240 });
+  } catch (e) {
+    console.warn('QR kod üretilemedi:', e.message);
+  }
+  // Geçici secret - kullanıcı doğrulayana kadar kaydedilmiyor
+  securityRuntime.pendingTotpSecret = secret;
+  return { ok: true, secret, uri, qrDataUrl };
+});
+
+ipcMain.handle('security:confirm2FASetup', (_, { code }) => {
+  const secret = securityRuntime.pendingTotpSecret;
+  if (!secret) return { ok: false, error: '2FA kurulumu başlatılmamış' };
+  if (!Security.verifyTotpCode(secret, code)) {
+    return { ok: false, error: 'Kod yanlış. Authenticator app\'inizdeki kodu doğru girdiğinizden emin olun.' };
+  }
+  // Doğrulandı - kalıcı kaydet
+  db.setSecurityMeta('totp_secret', secret);
+  db.setSecurityMeta('totp_enabled', '1');
+  // Recovery codes üret
+  const codes = Security.generateRecoveryCodes(10);
+  const hashes = codes.map(c => Security.hashRecoveryCode(c));
+  db.storeRecoveryCodes(hashes);
+  db.save();
+  securityRuntime.pendingTotpSecret = null;
+  return { ok: true, recoveryCodes: codes };
+});
+
+ipcMain.handle('security:disable2FA', (_, currentPassword) => {
+  const hash = db.getSecurityMeta('mp_hash');
+  const salt = db.getSecurityMeta('mp_salt');
+  if (!Security.verifyPassword(currentPassword || '', hash, salt)) {
+    return { ok: false, error: 'Mevcut şifre yanlış' };
+  }
+  db.setSecurityMeta('totp_secret', null);
+  db.setSecurityMeta('totp_enabled', '0');
+  db.exec('DELETE FROM recovery_codes');
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('security:regenerateRecoveryCodes', (_, currentPassword) => {
+  const hash = db.getSecurityMeta('mp_hash');
+  const salt = db.getSecurityMeta('mp_salt');
+  if (!Security.verifyPassword(currentPassword || '', hash, salt)) {
+    return { ok: false, error: 'Mevcut şifre yanlış' };
+  }
+  const codes = Security.generateRecoveryCodes(10);
+  const hashes = codes.map(c => Security.hashRecoveryCode(c));
+  db.storeRecoveryCodes(hashes);
+  db.save();
+  return { ok: true, recoveryCodes: codes };
+});
+
+ipcMain.handle('security:lockApp', () => {
+  securityRuntime.unlocked = false;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('security:locked');
+  }
+  return { ok: true };
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));

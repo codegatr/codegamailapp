@@ -2586,3 +2586,135 @@ body { display: flex; flex-direction: column; }
 .dict-word:hover .dict-remove {
   opacity: 1;
 }
+
+/* ============= v1.23: Lock Screen + Güvenlik ============= */
+.lock-modal {
+  background: linear-gradient(135deg, #1e1e2e 0%, #11111b 100%);
+  z-index: 99999;
+}
+.lock-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px;
+  max-width: 420px;
+  margin: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.lock-logo {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.lock-title {
+  font-size: 22px;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.lock-subtitle {
+  color: var(--text-2);
+  font-size: 13px;
+  margin: 0 0 22px;
+}
+.lock-content form {
+  width: 100%;
+}
+.lock-content input[type="password"],
+.lock-content input[type="text"] {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 15px;
+  margin-bottom: 8px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+.lock-content input:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+.lock-submit {
+  width: 100%;
+  padding: 12px;
+  font-size: 14px;
+  margin-top: 14px;
+}
+.lock-error {
+  color: var(--danger);
+  font-size: 12px;
+  background: rgba(231,76,60,0.1);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+  width: 100%;
+  text-align: center;
+}
+.lock-lockout {
+  color: #f39c12;
+  font-size: 12px;
+  background: rgba(243,156,18,0.1);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+  width: 100%;
+  text-align: center;
+  font-family: monospace;
+}
+.lock-footer {
+  margin-top: 22px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.security-card {
+  padding: 16px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.sec-summary {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.sec-summary.sec-ok { background: rgba(46,204,113,0.1); border-left: 3px solid #2ecc71; }
+.sec-summary.sec-mid { background: rgba(243,156,18,0.1); border-left: 3px solid #f39c12; }
+.sec-summary.sec-warn { background: rgba(231,76,60,0.1); border-left: 3px solid var(--danger); }
+
+.sec-2fa-active {
+  background: rgba(46,204,113,0.08);
+  padding: 10px 14px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.sec-2fa-icon {
+  font-size: 16px;
+}
+
+.recovery-codes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 14px 0;
+}
+.recovery-code {
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  padding: 8px 12px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: center;
+  letter-spacing: 1px;
+  font-weight: 600;
+  user-select: all;
+}

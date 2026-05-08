@@ -368,6 +368,18 @@ class Database {
           word TEXT PRIMARY KEY COLLATE NOCASE,
           added_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS security_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS recovery_codes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          code_hash TEXT NOT NULL UNIQUE,
+          used_at TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
       `);
     } catch (_) {}
 
@@ -1594,6 +1606,51 @@ class Database {
       } catch (_) { stats[k] = 0; }
     }
     return stats;
+  }
+
+  // ====== v1.23: Master Password + 2FA ======
+  getSecurityMeta(key) {
+    try {
+      const row = this.prepare('SELECT value FROM security_meta WHERE key = ?').get(key);
+      return row ? row.value : null;
+    } catch (_) { return null; }
+  }
+
+  setSecurityMeta(key, value) {
+    if (value === null || value === undefined) {
+      this.prepare('DELETE FROM security_meta WHERE key = ?').run(key);
+    } else {
+      this.prepare('INSERT OR REPLACE INTO security_meta (key, value) VALUES (?, ?)')
+        .run(key, String(value));
+    }
+  }
+
+  hasMasterPassword() {
+    return !!(this.getSecurityMeta('mp_hash') && this.getSecurityMeta('mp_salt'));
+  }
+
+  has2FA() {
+    return this.getSecurityMeta('totp_enabled') === '1';
+  }
+
+  storeRecoveryCodes(hashedCodes) {
+    this.exec('DELETE FROM recovery_codes');
+    const stmt = this.prepare('INSERT INTO recovery_codes (code_hash) VALUES (?)');
+    for (const h of hashedCodes) stmt.run(h);
+  }
+
+  consumeRecoveryCode(hash) {
+    const row = this.prepare('SELECT id, used_at FROM recovery_codes WHERE code_hash = ?').get(hash);
+    if (!row || row.used_at) return false;
+    this.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ?')
+      .run(new Date().toISOString(), row.id);
+    return true;
+  }
+
+  unusedRecoveryCodeCount() {
+    try {
+      return this.prepare('SELECT COUNT(*) AS c FROM recovery_codes WHERE used_at IS NULL').get().c;
+    } catch (_) { return 0; }
   }
 }
 
