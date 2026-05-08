@@ -11139,3 +11139,208 @@ document.addEventListener('click', async (e) => {
 if (typeof RIBBON_ACTIONS !== 'undefined') {
   RIBBON_ACTIONS['sweep'] = () => state.selectedMessage && openSweepModal(state.selectedMessage);
 }
+
+// ============= v1.56: Mail Merge =============
+let _mergeData = { rows: [], headers: [], step: 1 };
+
+async function openMergeWizard() {
+  document.getElementById('modalMerge').classList.remove('hidden');
+  _mergeData = { rows: [], headers: [], step: 1 };
+  goToMergeStep(1);
+
+  // Hesap listesi
+  const sel = document.getElementById('mergeAccount');
+  sel.innerHTML = '';
+  for (const acc of state.accounts) {
+    if (acc.protocol === 'local') continue;
+    const opt = document.createElement('option');
+    opt.value = acc.id;
+    opt.textContent = `${acc.display_name} <${acc.email}>`;
+    sel.appendChild(opt);
+  }
+
+  // Step indicator click
+  document.querySelectorAll('.merge-step').forEach(s => {
+    s.onclick = () => {
+      const target = parseInt(s.dataset.step, 10);
+      if (target <= _mergeData.step || (target === 4 && _mergeData.rows.length)) goToMergeStep(target);
+    };
+  });
+
+  // Şablon değişiklik → değişken listesi güncelle
+  ['mergeSubject', 'mergeBody'].forEach(id => {
+    document.getElementById(id).oninput = updateMergeVarList;
+  });
+  updateMergeVarList();
+}
+
+async function updateMergeVarList() {
+  const subj = document.getElementById('mergeSubject').value;
+  const body = document.getElementById('mergeBody').value;
+  const all = new Set([
+    ...await window.api.merge.extractVars(subj),
+    ...await window.api.merge.extractVars(body)
+  ]);
+  const el = document.getElementById('mergeVarList');
+  if (!all.size) {
+    el.innerHTML = '<small style="color:var(--muted);">Henüz değişken kullanılmadı. Örnek: <code>{{ad}}</code></small>';
+    return;
+  }
+  el.innerHTML = '<strong style="font-size:11px;color:var(--text-2);">Tespit edilen değişkenler:</strong> ' +
+    [...all].map(v => `<span class="merge-var-chip">{{${escapeHtml(v)}}}</span>`).join(' ');
+}
+
+function goToMergeStep(n) {
+  _mergeData.step = n;
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById('mergeStep' + i).classList.toggle('hidden', i !== n);
+    document.querySelectorAll('.merge-step')[i - 1]?.classList.toggle('active', i === n);
+    document.querySelectorAll('.merge-step')[i - 1]?.classList.toggle('completed', i < n);
+  }
+
+  document.getElementById('mergeBack').style.display = n > 1 && n < 4 ? '' : 'none';
+  document.getElementById('mergeNext').style.display = n < 4 ? '' : 'none';
+  document.getElementById('mergeAbort').style.display = n === 4 ? '' : 'none';
+
+  document.getElementById('mergeNext').textContent =
+    n === 1 ? 'İleri (Veri Seç) →' :
+    n === 2 ? 'İleri (Önizleme) →' :
+    n === 3 ? '🚀 Göndermeyi Başlat' : 'İleri';
+
+  if (n === 3) renderMergePreview();
+}
+
+async function renderMergePreview() {
+  const subj = document.getElementById('mergeSubject').value;
+  const body = document.getElementById('mergeBody').value;
+  const r = await window.api.merge.preview(subj, body, _mergeData.rows, 3);
+  if (!r.ok) return alert(r.error);
+  const c = document.getElementById('mergePreviewList');
+  c.innerHTML = r.preview.map((p, i) => `
+    <div class="merge-preview-card">
+      <div class="merge-preview-num">#${i + 1} → <strong>${escapeHtml(p.to)}</strong></div>
+      <div class="merge-preview-subj"><span style="color:var(--muted);">Konu:</span> ${escapeHtml(p.subject)}</div>
+      <pre class="merge-preview-body">${escapeHtml(p.body)}</pre>
+    </div>
+  `).join('') + (_mergeData.rows.length > 3 ? `<div style="text-align:center;color:var(--muted);font-size:11px;margin-top:8px;">... ve ${_mergeData.rows.length - 3} mail daha</div>` : '');
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('#mergeNext')) {
+    if (_mergeData.step === 1) {
+      const subj = document.getElementById('mergeSubject').value.trim();
+      const body = document.getElementById('mergeBody').value.trim();
+      if (!subj || !body) return alert('Konu ve mesaj içeriği zorunlu');
+      goToMergeStep(2);
+    } else if (_mergeData.step === 2) {
+      if (!_mergeData.rows.length) return alert('Önce CSV verisini yükleyip parse edin');
+      const hasEmail = _mergeData.rows.some(r => Object.keys(r).some(k => k.toLowerCase().includes('email') || k.toLowerCase().includes('eposta')));
+      if (!hasEmail) return alert('CSV\'de "email" sütunu bulunmalı');
+      goToMergeStep(3);
+    } else if (_mergeData.step === 3) {
+      goToMergeStep(4);
+      await startMergeSend();
+    }
+  }
+  if (e.target.closest('#mergeBack')) {
+    if (_mergeData.step > 1) goToMergeStep(_mergeData.step - 1);
+  }
+  if (e.target.closest('#mergeUploadBtn')) {
+    const r = await window.api.merge.uploadCsv();
+    if (r.canceled) return;
+    if (r.error) return alert(r.error);
+    _mergeData.rows = r.rows;
+    _mergeData.headers = r.headers;
+    showMergeDataPreview();
+  }
+  if (e.target.closest('#mergeParseBtn')) {
+    const text = document.getElementById('mergeCsvText').value.trim();
+    if (!text) return alert('CSV içeriği boş');
+    const r = await window.api.merge.parseText(text);
+    if (!r.ok) return alert(r.error);
+    _mergeData.rows = r.rows;
+    _mergeData.headers = r.headers;
+    showMergeDataPreview();
+  }
+  if (e.target.closest('#mergeAbort')) {
+    if (confirm('Gönderimi durdurmak istediğinizden emin misiniz?')) {
+      await window.api.merge.abort();
+    }
+  }
+});
+
+function showMergeDataPreview() {
+  const el = document.getElementById('mergeDataPreview');
+  if (!_mergeData.rows.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="merge-data-info">
+      <strong style="color:var(--success);">✓ ${_mergeData.rows.length} satır parse edildi</strong>
+      <div style="margin-top:6px;font-size:11px;">Sütunlar: ${_mergeData.headers.map(h => `<span class="merge-var-chip">${escapeHtml(h)}</span>`).join(' ')}</div>
+    </div>
+    <table class="merge-data-table">
+      <thead><tr>${_mergeData.headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+      <tbody>
+        ${_mergeData.rows.slice(0, 5).map(row =>
+          `<tr>${_mergeData.headers.map(h => `<td>${escapeHtml(row[h] || '')}</td>`).join('')}</tr>`
+        ).join('')}
+      </tbody>
+    </table>
+    ${_mergeData.rows.length > 5 ? `<small style="color:var(--muted);">... ${_mergeData.rows.length - 5} satır daha</small>` : ''}
+  `;
+}
+
+async function startMergeSend() {
+  const accountId = parseInt(document.getElementById('mergeAccount').value, 10);
+  const subj = document.getElementById('mergeSubject').value;
+  const body = document.getElementById('mergeBody').value;
+  const html = document.getElementById('mergeHtml').checked;
+  const rateLimit = parseInt(document.getElementById('mergeRateLimit').value, 10);
+
+  document.getElementById('mergeProgress').innerHTML = `
+    <div class="merge-progress-bar">
+      <div class="merge-progress-fill" style="width:0%"></div>
+    </div>
+    <div class="merge-progress-stats">⏳ Başlatılıyor...</div>
+  `;
+  document.getElementById('mergeResults').innerHTML = '';
+
+  const r = await window.api.merge.send({
+    accountId, subjectTpl: subj, bodyTpl: body, rows: _mergeData.rows, rateLimit, htmlBody: html
+  });
+
+  if (r.ok) {
+    setStatus(`📧 Mail Merge tamamlandı: ${r.stats.success} başarılı, ${r.stats.error} hata`);
+    document.getElementById('mergeAbort').style.display = 'none';
+    document.getElementById('mergeProgress').innerHTML += `
+      <div style="background:rgba(46,204,113,0.1);border-left:3px solid var(--success);padding:10px;margin-top:10px;border-radius:4px;">
+        <strong>✓ Tamamlandı:</strong> ${r.stats.success} başarılı, ${r.stats.error} hata
+      </div>
+    `;
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+window.api.on('merge:progress', (p) => {
+  const pct = p.total ? Math.round((p.sent / p.total) * 100) : 0;
+  const fill = document.querySelector('.merge-progress-fill');
+  const stats = document.querySelector('.merge-progress-stats');
+  if (fill) fill.style.width = pct + '%';
+  if (stats) stats.innerHTML = `📧 ${p.sent}/${p.total} (${pct}%) · ✓ ${p.success} başarılı · ⚠ ${p.error} hata`;
+
+  // Son 5 sonucu göster
+  const last = p.results.slice(-5);
+  const resultEl = document.getElementById('mergeResults');
+  if (resultEl && last.length) {
+    resultEl.innerHTML = '<strong style="font-size:12px;">Son sonuçlar:</strong>' + last.reverse().map(res => `
+      <div class="merge-result-row ${res.success ? 'ok' : 'err'}">
+        ${res.success ? '✓' : '⚠'} ${escapeHtml(res.to || '?')}${res.error ? ' - ' + escapeHtml(res.error) : ''}
+      </div>
+    `).join('');
+  }
+});
+
+// Ribbon + menu entegrasyonu
+if (typeof RIBBON_ACTIONS !== 'undefined') {
+  RIBBON_ACTIONS['mail-merge'] = () => openMergeWizard();
+}

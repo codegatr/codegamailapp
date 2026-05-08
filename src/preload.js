@@ -175,6 +175,14 @@ contextBridge.exposeInMainWorld('api', {
     preview: (sender, opts) => ipcRenderer.invoke('sweep:preview', sender, opts),
     execute: (sender, action, opts) => ipcRenderer.invoke('sweep:execute', sender, action, opts)
   },
+  merge: {
+    uploadCsv: () => ipcRenderer.invoke('mergeUploadCsv'),
+    parseText: (text) => ipcRenderer.invoke('mergeParseCsvText', text),
+    preview: (subjectTpl, bodyTpl, rows, count) => ipcRenderer.invoke('mergePreview', subjectTpl, bodyTpl, rows, count),
+    extractVars: (tpl) => ipcRenderer.invoke('mergeExtractVars', tpl),
+    send: (opts) => ipcRenderer.invoke('mergeSend', opts),
+    abort: () => ipcRenderer.invoke('mergeAbort')
+  },
   readReceipt: {
     send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
     ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),
@@ -316,7 +324,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup', 'snooze:matured', 'import:progress'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup', 'snooze:matured', 'import:progress', 'merge:progress'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

@@ -2372,6 +2372,70 @@ ipcMain.handle('sweep:execute', async (_, senderEmail, action, opts) => {
 });
 
 // =====================================================================
+// v1.56 IPC: Mail Merge (Şablon + CSV Toplu Gönderme)
+// =====================================================================
+const MailMergeService = require('./services/mail-merge');
+const mailMergeService = new MailMergeService(mailService);
+let _activeMergeJob = null;
+
+ipcMain.handle('mergeUploadCsv', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'CSV Dosyası Seç',
+    filters: [{ name: 'CSV', extensions: ['csv', 'txt'] }, { name: 'Tüm', extensions: ['*'] }],
+    properties: ['openFile']
+  });
+  if (r.canceled || !r.filePaths.length) return { canceled: true };
+  try {
+    const content = require('fs').readFileSync(r.filePaths[0], 'utf8');
+    const parsed = mailMergeService.parseCsv(content);
+    return { canceled: false, fileName: require('path').basename(r.filePaths[0]), ...parsed };
+  } catch (e) { return { canceled: false, error: e.message }; }
+});
+
+ipcMain.handle('mergeParseCsvText', (_, text) => {
+  try { return { ok: true, ...mailMergeService.parseCsv(text) }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('mergePreview', (_, subjectTpl, bodyTpl, rows, count) => {
+  try {
+    return { ok: true, preview: mailMergeService.preview(subjectTpl, bodyTpl, rows, count || 3) };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('mergeExtractVars', (_, template) => {
+  return mailMergeService.extractVariables(template);
+});
+
+ipcMain.handle('mergeSend', async (_, opts) => {
+  if (_activeMergeJob) return { ok: false, error: 'Zaten aktif bir mail merge görevi var' };
+  try {
+    _activeMergeJob = { aborted: false };
+    const stats = await mailMergeService.sendBatch({
+      ...opts,
+      // Abort flag dışarıdan
+    }, (progress) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('merge:progress', progress);
+      }
+      if (_activeMergeJob && _activeMergeJob.aborted) {
+        progress.aborted = true;
+      }
+    });
+    _activeMergeJob = null;
+    return { ok: true, stats };
+  } catch (e) {
+    _activeMergeJob = null;
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('mergeAbort', () => {
+  if (_activeMergeJob) { _activeMergeJob.aborted = true; return { ok: true }; }
+  return { ok: false, error: 'Aktif görev yok' };
+});
+
+// =====================================================================
 // v1.46 IPC: Read Receipt (RFC 3798 MDN)
 // =====================================================================
 const ReadReceiptService = require('./services/read-receipt');

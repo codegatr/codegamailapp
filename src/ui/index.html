@@ -56,6 +56,7 @@
               <button class="ribbon-btn-sm" data-action="new-account"><span>+</span> Yeni Hesap</button>
               <button class="ribbon-btn-sm" data-action="new-folder"><span>📁</span> Yeni Klasör</button>
               <button class="ribbon-btn-sm" data-action="new-task"><span>✅</span> Yeni Görev</button>
+              <button class="ribbon-btn-sm" data-action="mail-merge"><span>📧</span> Mail Merge</button>
             </div>
           </div>
         </div>
@@ -393,6 +394,95 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.56: Mail Merge (Şablon Doldurma + Toplu Gönderme) ===== -->
+  <div id="modalMerge" class="modal hidden">
+    <div class="modal-content" style="max-width:780px;">
+      <div class="modal-header">
+        <h2>📧 Mail Merge - Toplu Şablon Gönderim</h2>
+        <button class="modal-close" data-close="modalMerge">×</button>
+      </div>
+      <div class="modal-body" style="padding:20px;max-height:65vh;overflow-y:auto;">
+        <!-- Step indicator -->
+        <div class="merge-steps">
+          <div class="merge-step active" data-step="1"><span>1</span> Şablon</div>
+          <div class="merge-step" data-step="2"><span>2</span> Veri</div>
+          <div class="merge-step" data-step="3"><span>3</span> Önizleme</div>
+          <div class="merge-step" data-step="4"><span>4</span> Gönder</div>
+        </div>
+
+        <!-- ADIM 1: ŞABLON -->
+        <div id="mergeStep1" class="merge-step-content">
+          <p style="color:var(--text-2);font-size:12px;margin-top:0;">
+            Mail şablonunu yaz. Değişkenler için <code>{{ad}}</code>, <code>{{firma}}</code>, <code>{{email}}</code> gibi süslü parantez kullan. Gerçek değerler 2. adımda CSV'den okunacak.
+          </p>
+
+          <label style="font-size:12px;font-weight:600;color:var(--text-2);">Hesap (Gönderen)</label>
+          <select id="mergeAccount" class="merge-input"></select>
+
+          <label style="font-size:12px;font-weight:600;color:var(--text-2);margin-top:10px;">Konu</label>
+          <input type="text" id="mergeSubject" class="merge-input" placeholder="Sayın {{ad}}, {{firma}} için teklifimiz hazır">
+
+          <label style="font-size:12px;font-weight:600;color:var(--text-2);margin-top:10px;">Mesaj İçeriği</label>
+          <textarea id="mergeBody" class="merge-input" rows="9" placeholder="Sayın {{ad}} {{soyad}},&#10;&#10;{{firma}} adına {{tarih}} tarihli görüşmemizin ardından aşağıdaki teklifimizi sunarız:&#10;&#10;Tutar: {{tutar}}&#10;&#10;İyi günler dileriz.&#10;{{imza}}"></textarea>
+
+          <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;">
+            <input type="checkbox" id="mergeHtml"> HTML içerik (zengin biçimli)
+          </label>
+
+          <div id="mergeVarList" class="merge-vars" style="margin-top:10px;"></div>
+        </div>
+
+        <!-- ADIM 2: VERİ -->
+        <div id="mergeStep2" class="merge-step-content hidden">
+          <p style="color:var(--text-2);font-size:12px;margin-top:0;">
+            CSV dosyası yükle ya da aşağıya yapıştır. <strong>email</strong> sütunu zorunlu. Diğer sütunlar şablonda <code>{{kolon_adi}}</code> olarak kullanılır.
+          </p>
+
+          <button class="btn btn-primary" id="mergeUploadBtn" style="margin-bottom:10px;">📁 CSV Dosyası Yükle</button>
+          <span style="margin:0 8px;color:var(--muted);">veya</span>
+
+          <label style="font-size:12px;font-weight:600;color:var(--text-2);">CSV Veri (yapıştır)</label>
+          <textarea id="mergeCsvText" class="merge-input" rows="6" placeholder="email,ad,soyad,firma,tutar&#10;ahmet@example.com,Ahmet,Yılmaz,ABC AŞ,15.000 TL&#10;mehmet@example.com,Mehmet,Demir,XYZ Ltd,25.000 TL"></textarea>
+          <button class="btn btn-sm" id="mergeParseBtn" style="margin-top:6px;">Veri Parse Et</button>
+
+          <div id="mergeDataPreview" style="margin-top:14px;"></div>
+        </div>
+
+        <!-- ADIM 3: ÖNİZLEME -->
+        <div id="mergeStep3" class="merge-step-content hidden">
+          <p style="color:var(--text-2);font-size:12px;margin-top:0;">
+            İlk 3 mailin önizlemesi. Tüm değişkenler doldurulmuş halde görünür.
+          </p>
+          <div id="mergePreviewList"></div>
+
+          <div style="background:var(--bg-2);border:1px solid var(--border);padding:12px;border-radius:6px;margin-top:14px;">
+            <label style="font-size:12px;font-weight:600;color:var(--text-2);">⏱ Hız Limiti</label>
+            <select id="mergeRateLimit" class="merge-input">
+              <option value="1">Hızlı (mail başı 1 sn)</option>
+              <option value="2" selected>Normal (mail başı 2 sn)</option>
+              <option value="5">Yavaş (mail başı 5 sn)</option>
+              <option value="10">Çok yavaş (mail başı 10 sn)</option>
+            </select>
+            <p style="font-size:11px;color:var(--muted);margin-top:6px;">Hızlı gönderim spam filtresine takılabilir. Önemli kampanyalar için "Normal" veya "Yavaş" önerilir.</p>
+          </div>
+        </div>
+
+        <!-- ADIM 4: GÖNDER -->
+        <div id="mergeStep4" class="merge-step-content hidden">
+          <h3 style="margin-top:0;">📤 Gönderim Devam Ediyor</h3>
+          <div id="mergeProgress"></div>
+          <div id="mergeResults" style="margin-top:14px;max-height:200px;overflow-y:auto;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="modalMerge">Kapat</button>
+        <button class="btn" id="mergeBack" style="display:none;">← Geri</button>
+        <button class="btn btn-primary" id="mergeNext">İleri →</button>
+        <button class="btn btn-danger" id="mergeAbort" style="display:none;">⛔ Durdur</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.55: Sweep (Süpür) Modal ===== -->
   <div id="modalSweep" class="modal hidden">
