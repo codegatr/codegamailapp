@@ -219,6 +219,7 @@ function bindUpdater() {
   if (autoEl) {
     autoEl.addEventListener('change', async () => {
       await window.api.config.updatePrefs({ autoUpdateCheck: autoEl.checked });
+      flashSettingsSavedIndicator();
       setStatus('Otomatik güncelleme ' + (autoEl.checked ? 'açıldı' : 'kapatıldı'));
     });
   }
@@ -402,8 +403,6 @@ function bindToolbar() {
   document.getElementById('btnAddAccount').onclick = () => openAccountModal();
   document.getElementById('btnSyncAll').onclick = syncAll;
   document.getElementById('btnCompose').onclick = () => openCompose();
-  document.getElementById('btnBackup').onclick = doBackup;
-  document.getElementById('btnRestore').onclick = doRestore;
   document.getElementById('btnSettings').onclick = openSettings;
   document.getElementById('btnSpamRules').onclick = openSpamRules;
   document.getElementById('btnNewFolder').onclick = openNewFolder;
@@ -486,9 +485,16 @@ function bindSettings() {
                    : type === 'number' ? parseInt(el.value, 10)
                    : el.value;
       await window.api.config.updatePrefs({ [key]: value });
+      flashSettingsSavedIndicator();
       setStatus('Ayar kaydedildi');
     });
   }
+
+  // v1.13.1: Settings içindeki Yedekleme butonları
+  const sBackup = document.getElementById('btnSettingsBackup');
+  const sRestore = document.getElementById('btnSettingsRestore');
+  if (sBackup) sBackup.onclick = doBackup;
+  if (sRestore) sRestore.onclick = doRestore;
 
   document.getElementById('btnTestNotif').onclick = async () => {
     const r = await window.api.config.testNotification();
@@ -3368,6 +3374,7 @@ function bindVirusTotalSettings() {
     await window.api.config.updatePrefs({ virustotalApiKey: v });
     statusEl.textContent = v ? 'Kayıtlı (Test ile doğrulayın)' : 'Boş - VT entegrasyonu devre dışı';
     statusEl.style.color = v ? 'var(--text-2)' : 'var(--muted)';
+    flashSettingsSavedIndicator();
   });
 
   btnTest.onclick = async () => {
@@ -3413,4 +3420,22 @@ function bindVirusTotalSettings() {
       window.api.app.openExternal('https://www.virustotal.com/gui/join-us');
     };
   }
+}
+
+// ============= v1.13.1: Settings save indicator flash =============
+let _saveFlashTimeout = null;
+function flashSettingsSavedIndicator() {
+  const el = document.getElementById('settingsSaveIndicator');
+  if (!el) return;
+  el.textContent = '✓ Kaydedildi';
+  el.style.color = '#2ecc71';
+  el.style.fontWeight = '700';
+  el.classList.add('save-flash');
+  if (_saveFlashTimeout) clearTimeout(_saveFlashTimeout);
+  _saveFlashTimeout = setTimeout(() => {
+    el.textContent = '✓ Tüm değişiklikler otomatik kaydedilir';
+    el.style.color = 'var(--text-2)';
+    el.style.fontWeight = 'normal';
+    el.classList.remove('save-flash');
+  }, 2200);
 }
