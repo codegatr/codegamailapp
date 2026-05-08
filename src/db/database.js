@@ -266,10 +266,22 @@ class Database {
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_threshold INTEGER DEFAULT 50');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN sort_order INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN signature_data TEXT'); // v1.38: imza şablonu JSON
+    // v1.46: Read receipt
+    this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_requested INTEGER DEFAULT 0');     // alınan: gönderici onay istiyor mu
+    this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_responded INTEGER DEFAULT 0');     // alınan: yanıt verildi mi
+    this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_notification_to TEXT');            // alınan: Disposition-Notification-To
+    this._safeAlter('ALTER TABLE messages ADD COLUMN request_read_receipt INTEGER DEFAULT 0'); // gönderilen: onay istendi
+    this._safeAlter('ALTER TABLE messages ADD COLUMN read_receipt_received INTEGER DEFAULT 0'); // gönderilen: onay geldi mi
+    this._safeAlter('ALTER TABLE messages ADD COLUMN read_receipt_at TEXT');                   // gönderilen: ne zaman okundu
     this._safeAlter('ALTER TABLE accounts ADD COLUMN auth_type TEXT DEFAULT \'password\''); // v1.42: 'password' | 'oauth2_microsoft' | 'oauth2_google'
     this._safeAlter('ALTER TABLE accounts ADD COLUMN oauth_access_token TEXT');   // encrypted
     this._safeAlter('ALTER TABLE accounts ADD COLUMN oauth_refresh_token TEXT');  // encrypted
     this._safeAlter('ALTER TABLE accounts ADD COLUMN oauth_expires_at TEXT');     // ISO timestamp
+    this._safeAlter('ALTER TABLE accounts ADD COLUMN read_receipt_policy TEXT DEFAULT \'ask\''); // v1.46: 'ask' | 'always_send' | 'never_send'
+    this._safeAlter('ALTER TABLE messages ADD COLUMN requested_read_receipt INTEGER DEFAULT 0'); // v1.46
+    this._safeAlter('ALTER TABLE messages ADD COLUMN read_receipt_to TEXT'); // v1.46: kime MDN gönderilecek
+    this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_sent INTEGER DEFAULT 0'); // v1.46: MDN gönderildi mi
+    this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_declined INTEGER DEFAULT 0'); // v1.46: kullanıcı reddetti mi
     this._safeAlter('ALTER TABLE folders ADD COLUMN is_local INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN reply_to_addr TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_spam INTEGER DEFAULT 0');
@@ -291,6 +303,10 @@ class Database {
     // v1.24: Mesaj arşivleme
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_archived INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN archived_at TEXT');
+    // v1.46: Read receipt
+    this._safeAlter('ALTER TABLE messages ADD COLUMN read_receipt_to TEXT'); // istek varsa hangi adrese
+    this._safeAlter('ALTER TABLE messages ADD COLUMN read_receipt_sent INTEGER DEFAULT 0'); // MDN gönderildi mi
+    this._safeAlter('ALTER TABLE messages ADD COLUMN read_receipt_skipped INTEGER DEFAULT 0'); // bir daha sorma
     try {
       this.exec('CREATE INDEX IF NOT EXISTS idx_msg_archived ON messages(is_archived, account_id, date)');
     } catch (_) {}
@@ -657,7 +673,8 @@ class Database {
       'in_password', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_username',
       'smtp_password', 'pop3_leave_on_server', 'signature', 'signature_data',
       'spam_enabled', 'spam_threshold', 'sort_order',
-      'auth_type', 'oauth_access_token', 'oauth_refresh_token', 'oauth_expires_at'];
+      'auth_type', 'oauth_access_token', 'oauth_refresh_token', 'oauth_expires_at',
+      'read_receipt_policy'];
     const fields = Object.keys(updates).filter(k => allowed.includes(k));
     if (!fields.length) return;
     const setClause = fields.map(f => `${f} = ?`).join(', ');
@@ -868,8 +885,9 @@ class Database {
         subject, date, body_text, body_html, flags,
         is_read, is_flagged, is_spam, spam_score,
         size, has_attachments,
-        in_reply_to, msg_references, thread_id, subject_normalized
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        in_reply_to, msg_references, thread_id, subject_normalized,
+        read_receipt_to
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       msg.account_id, msg.folder_id, msg.uid || null, msg.uidl || null, msg.message_id || null,
       msg.from_addr || null, msg.from_name || null, msg.reply_to_addr || null,
@@ -881,7 +899,8 @@ class Database {
       msg.is_spam ? 1 : 0, msg.spam_score || 0,
       msg.size || 0, msg.has_attachments ? 1 : 0,
       msg.in_reply_to || null, msg.msg_references || null,
-      threadId, subjectNormalized
+      threadId, subjectNormalized,
+      msg.read_receipt_to || null
     );
     return r.lastInsertRowid;
   }
@@ -913,6 +932,21 @@ class Database {
     if (!msg) return;
     this.prepare('UPDATE messages SET is_read = ? WHERE id = ?').run(isRead ? 1 : 0, id);
     this.updateFolderCounts(msg.folder_id);
+  }
+
+  // v1.46: Generic update (read receipt vb için)
+  updateMessage(id, updates) {
+    const allowed = ['mdn_requested', 'mdn_responded', 'mdn_notification_to',
+                     'request_read_receipt', 'read_receipt_received', 'read_receipt_at',
+                     'requested_read_receipt', 'read_receipt_to'];
+    const sets = [];
+    const vals = [];
+    Object.keys(updates).forEach(k => {
+      if (allowed.includes(k)) { sets.push(`${k} = ?`); vals.push(updates[k]); }
+    });
+    if (!sets.length) return;
+    vals.push(id);
+    this.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
   }
 
   moveMessage(messageId, newFolderId) {

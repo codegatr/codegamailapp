@@ -2084,6 +2084,27 @@ function renderMessageView(msg) {
     </div>
     ${spamBanner}
     ${securityBanner}
+    ${(() => {
+      // v1.46: Read receipt isteği var mı banner'ı
+      const requested = msg.requested_read_receipt || msg.mdn_requested;
+      const responded = msg.mdn_responded;
+      if (!requested || responded) return '';
+      // Yapılandırma kontrolü ihmal - basit olarak banner göster
+      return `
+        <div class="mdn-banner" id="mdnBanner">
+          <span style="font-size:18px;">📬</span>
+          <div style="flex:1;">
+            <strong>Bu mailin göndericisi okundu onayı istiyor</strong>
+            <div style="font-size:11px;opacity:0.8;margin-top:2px;">
+              Onayı gönderirseniz <code>${escapeHtml(msg.read_receipt_to || msg.from_addr || '')}</code> bu maili açtığınızı öğrenecek.
+            </div>
+          </div>
+          <button class="btn btn-primary" id="btnSendMDN">✓ Gönder</button>
+          <button class="btn btn-ghost" id="btnRejectMDN">🗑 Reddet</button>
+          <button class="btn btn-ghost" id="btnIgnoreMDN" title="Bu kişi bir daha onay isterse otomatik gizle">🔇 Asla sorma</button>
+        </div>
+      `;
+    })()}
     <div class="msg-view-actions msg-view-actions-outlook">
       <button class="btn" id="btnReply" title="Yanıtla (R)"><span style="font-size:16px;">↩</span> Yanıtla</button>
       <button class="btn" id="btnReplyAll" title="Tümünü Yanıtla"><span style="font-size:16px;">↩↩</span> Tümünü</button>
@@ -2135,6 +2156,44 @@ function renderMessageView(msg) {
     await loadAccounts(); await loadMessages();
   };
   document.getElementById('btnOpenInWindow').onclick = () => window.api.messages.openInWindow(msg.id);
+
+  // v1.46: MDN banner butonları
+  const btnSendMDN = document.getElementById('btnSendMDN');
+  if (btnSendMDN) {
+    btnSendMDN.onclick = async () => {
+      btnSendMDN.disabled = true;
+      btnSendMDN.textContent = '...';
+      const r = await window.api.readReceipt.send(msg.id);
+      if (r.ok) {
+        setStatus('✓ Okundu onayı gönderildi');
+        document.getElementById('mdnBanner').remove();
+        msg.mdn_responded = 1;
+      } else {
+        alert('Onay gönderilemedi: ' + r.error);
+        btnSendMDN.disabled = false;
+        btnSendMDN.textContent = '✓ Gönder';
+      }
+    };
+  }
+  const btnRejectMDN = document.getElementById('btnRejectMDN');
+  if (btnRejectMDN) {
+    btnRejectMDN.onclick = async () => {
+      await window.api.readReceipt.markResponded(msg.id);
+      msg.mdn_responded = 1;
+      document.getElementById('mdnBanner').remove();
+      setStatus('Onay reddedildi');
+    };
+  }
+  const btnIgnoreMDN = document.getElementById('btnIgnoreMDN');
+  if (btnIgnoreMDN) {
+    btnIgnoreMDN.onclick = async () => {
+      await window.api.readReceipt.ignore(msg.from_addr || '');
+      await window.api.readReceipt.markResponded(msg.id);
+      msg.mdn_responded = 1;
+      document.getElementById('mdnBanner').remove();
+      setStatus('Bu gönderici için bir daha sorulmayacak');
+    };
+  }
   if (msg.is_spam) {
     document.getElementById('btnNotSpam').onclick = async () => {
       await window.api.messages.markNotSpam(msg.id);
@@ -2636,6 +2695,15 @@ function openCompose(opts = {}) {
   state.composeAttachments = [];
   renderAttachmentList();
 
+  // v1.46: Read receipt default
+  (async () => {
+    try {
+      const cfg = await window.api.config.get();
+      const cb = document.getElementById('compose_request_receipt');
+      if (cb) cb.checked = !!cfg.readReceiptRequestDefault;
+    } catch (_) {}
+  })();
+
   // v1.16: Autocomplete bağla
   attachAutocompleteToCompose();
 
@@ -2765,7 +2833,8 @@ async function sendMail() {
     await window.api.mail.send(accountId, {
       to: to || undefined, cc: cc || undefined, bcc: bcc || undefined, subject,
       text: finalText, html: finalHtml,
-      attachments: attachments.length ? attachments : undefined
+      attachments: attachments.length ? attachments : undefined,
+      requestReadReceipt: document.getElementById('compose_request_receipt')?.checked || false
     });
     document.getElementById('modalCompose').classList.add('hidden');
     setStatus('Mesaj gönderildi ✓' + (attachments.length ? ` (${attachments.length} ek)` : '') + (pgpEncrypt && pgpEncrypt.checked ? ' [🔐 PGP]' : ''));

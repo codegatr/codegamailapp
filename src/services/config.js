@@ -8,7 +8,7 @@ class Config {
     this.data = {
       dataPath: defaultDir,
       firstRun: true,
-      version: '1.45.0',
+      version: '1.46.0',
       // v1.2 yeni ayarlar
       notificationsEnabled: true,
       backgroundSyncMinutes: 5,    // 0 = devre dışı
@@ -27,6 +27,10 @@ class Config {
       // v1.44: OAuth2 client ID'leri (UI'dan kullanıcı doldurur)
       oauth2MicrosoftClientId: '',
       oauth2GoogleClientId: '',
+      // v1.46: Read receipt (RFC 3798 MDN)
+      readReceiptRequestDefault: false,    // Compose'da varsayılan açık mı
+      readReceiptResponsePolicy: 'ask',    // 'always' | 'never' | 'ask'
+      readReceiptIgnoredSenders: [],       // 'asla sorma' işaretli adresler
     };
     this.load();
   }

@@ -156,6 +156,11 @@ contextBridge.exposeInMainWorld('api', {
     categoryDistribution: () => ipcRenderer.invoke('stats:categoryDistribution'),
     accountDistribution: () => ipcRenderer.invoke('stats:accountDistribution')
   },
+  readReceipt: {
+    send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
+    ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),
+    markResponded: (messageId) => ipcRenderer.invoke('readReceipt:markResponded', messageId)
+  },
   oauth2: {
     isConfigured: (provider) => ipcRenderer.invoke('oauth2:isConfigured', provider),
     startFlow: (provider) => ipcRenderer.invoke('oauth2:startFlow', provider),

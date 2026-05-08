@@ -174,7 +174,22 @@ class ImapService {
                   is_read: flags.includes('\\Seen'),
                   is_flagged: flags.includes('\\Flagged'),
                   size: raw.length,
-                  has_attachments: parsed.attachments && parsed.attachments.length > 0
+                  has_attachments: parsed.attachments && parsed.attachments.length > 0,
+                  // v1.46: Read receipt isteği var mı? (Disposition-Notification-To header)
+                  read_receipt_to: (() => {
+                    const h = parsed.headers;
+                    if (!h) return null;
+                    const dnt = h.get ? h.get('disposition-notification-to') : h['disposition-notification-to'];
+                    if (!dnt) return null;
+                    // String veya { text: '...' } olabilir
+                    return typeof dnt === 'string' ? dnt : (dnt.text || dnt.value?.[0]?.address || null);
+                  })(),
+                  requested_read_receipt: (() => {
+                    const h = parsed.headers;
+                    if (!h) return 0;
+                    const dnt = h.get ? h.get('disposition-notification-to') : h['disposition-notification-to'];
+                    return dnt ? 1 : 0;
+                  })()
                 };
 
                 // Spam değerlendirmesi - ama hâlihazırda Junk klasöründe gelen maile yapma

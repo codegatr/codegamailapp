@@ -4506,3 +4506,44 @@ html.theme-light .header-search:focus-within {
   .dash-grid { grid-template-columns: 1fr; }
   .dash-panel-wide { grid-column: span 1; }
 }
+
+/* ============= v1.46: Read Receipt MDN Banner ============= */
+.mdn-banner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+  border: 1px solid #f0c674;
+  border-left: 4px solid #f5a623;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  color: #533f03;
+}
+.mdn-banner code {
+  background: rgba(0,0,0,0.08);
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-family: monospace;
+  font-size: 11px;
+}
+.mdn-banner button {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.mdn-banner .btn-primary {
+  background: #f5a623;
+  color: white;
+  border-color: #d68910;
+}
+.mdn-banner .btn-primary:hover {
+  background: #d68910;
+}
+
+/* Dark mode tweak */
+html.dark .mdn-banner {
+  background: linear-gradient(135deg, #4a3a1c, #5c4626);
+  color: #ffd99b;
+  border-color: #8a6d3b;
+}

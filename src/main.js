@@ -2180,6 +2180,55 @@ ipcMain.handle('stats:categoryDistribution', () => db.getCategoryDistribution())
 ipcMain.handle('stats:accountDistribution', () => db.getAccountDistribution());
 
 // =====================================================================
+// v1.46 IPC: Read Receipt (RFC 3798 MDN)
+// =====================================================================
+const ReadReceiptService = require('./services/read-receipt');
+
+ipcMain.handle('readReceipt:send', async (_, messageId) => {
+  try {
+    const msg = db.getMessage(messageId);
+    if (!msg) return { ok: false, error: 'Mesaj bulunamadı' };
+    if (!msg.read_receipt_to && !msg.from_addr) return { ok: false, error: 'Hedef adres yok' };
+    if (msg.mdn_responded) return { ok: false, error: 'Zaten yanıtlandı' };
+
+    const acc = db.getAccount(msg.account_id);
+    if (!acc) return { ok: false, error: 'Hesap bulunamadı' };
+
+    // OAuth ise async token, değilse sync decrypt
+    let smtpPwd;
+    if (acc.auth_type && acc.auth_type.startsWith('oauth2_')) {
+      smtpPwd = await mailService._ensureValidOAuthToken(acc);
+    } else {
+      smtpPwd = crypto.decrypt(acc.smtp_password || acc.in_password);
+    }
+
+    const result = await ReadReceiptService.sendMDN(acc, smtpPwd, msg);
+    db.updateMessage(messageId, { mdn_responded: 1 });
+    db.save();
+    return result;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('readReceipt:ignore', (_, senderEmail) => {
+  try {
+    const list = appConfig.get('readReceiptIgnoredSenders') || [];
+    if (!list.includes(senderEmail)) {
+      list.push(senderEmail);
+      appConfig.set('readReceiptIgnoredSenders', list);
+    }
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('readReceipt:markResponded', (_, messageId) => {
+  db.updateMessage(messageId, { mdn_responded: 1 });
+  db.save();
+  return { ok: true };
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));
