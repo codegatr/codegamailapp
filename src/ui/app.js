@@ -156,6 +156,8 @@ async function init() {
     document.getElementById('firstRunPath').value = cfg.dataPath;
     document.getElementById('modalFirstRun').classList.remove('hidden');
   }
+  // v1.20: Kullanıcının tercih ettiği varsayılan protokol
+  state.defaultProtocol = cfg.defaultProtocol || 'imap';
 
   await loadAccounts();
   await updateStorageInfo();
@@ -482,6 +484,7 @@ function bindSettings() {
     ['settings_close_to_tray', 'closeToTray', 'checkbox'],
     ['settings_auto_start', 'autoStart', 'checkbox'],
     ['settings_start_minimized', 'startMinimized', 'checkbox'],
+    ['settings_default_protocol', 'defaultProtocol', 'string'],
     ['vt_autoScan', 'virustotalAutoScan', 'checkbox'],
     ['url_scanWithVt', 'urlScanWithVt', 'checkbox']
   ];
@@ -571,6 +574,10 @@ async function openSettings() {
   document.getElementById('settings_close_to_tray').checked = cfg.closeToTray !== false;
   document.getElementById('settings_auto_start').checked = !!cfg.autoStart;
   document.getElementById('settings_start_minimized').checked = !!cfg.startMinimized;
+  // v1.20: Varsayılan protokol
+  const dpEl = document.getElementById('settings_default_protocol');
+  if (dpEl) dpEl.value = cfg.defaultProtocol || 'imap';
+  state.defaultProtocol = cfg.defaultProtocol || 'imap';
   // v1.3: Güncelleme tercihi
   const autoUpdEl = document.getElementById('settings_auto_update');
   if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
@@ -665,12 +672,18 @@ function bindAccountWizard() {
     const isPop3 = e.target.value === 'pop3';
     const provider = state.detectedProvider;
     const portField = document.getElementById('acc_in_port');
+    const hostField = document.getElementById('acc_in_host');
+    const secureField = document.getElementById('acc_in_secure');
     if (isPop3) {
-      portField.value = (provider && provider.pop3) ? provider.pop3.port : 995;
-      if (provider && provider.pop3) document.getElementById('acc_in_host').value = provider.pop3.host;
+      const cfg = (provider && provider.pop3) || { host: hostField.value.replace(/^imap\./, 'pop.'), port: 995, secure: true };
+      portField.value = cfg.port;
+      hostField.value = cfg.host;
+      secureField.value = cfg.secure ? '1' : '0';
     } else {
-      portField.value = (provider && provider.imap) ? provider.imap.port : 993;
-      if (provider && provider.imap) document.getElementById('acc_in_host').value = provider.imap.host;
+      const cfg = (provider && provider.imap) || { host: hostField.value.replace(/^pop\./, 'imap.'), port: 993, secure: true };
+      portField.value = cfg.port;
+      hostField.value = cfg.host;
+      secureField.value = cfg.secure ? '1' : '0';
     }
     document.getElementById('pop3OptionsWrap').style.display = isPop3 ? 'flex' : 'none';
   };
@@ -782,14 +795,27 @@ function applyProviderConfig(email) {
 
   state.detectedProvider = provider;
   document.getElementById('acc_in_username').value = email;
-  document.getElementById('acc_in_host').value = provider.imap.host;
-  document.getElementById('acc_in_port').value = provider.imap.port;
-  document.getElementById('acc_in_secure').value = provider.imap.secure ? '1' : '0';
+
+  // v1.20: Kullanıcı POP3 tercih ediyorsa ve provider POP3 destekliyorsa onu uygula
+  const preferProtocol = state.defaultProtocol || 'imap';
+  const usePop3 = (preferProtocol === 'pop3' && provider.pop3);
+
+  if (usePop3) {
+    document.getElementById('acc_in_host').value = provider.pop3.host;
+    document.getElementById('acc_in_port').value = provider.pop3.port;
+    document.getElementById('acc_in_secure').value = provider.pop3.secure ? '1' : '0';
+    document.getElementById('acc_protocol').value = 'pop3';
+    document.getElementById('pop3OptionsWrap').style.display = 'flex';
+  } else {
+    document.getElementById('acc_in_host').value = provider.imap.host;
+    document.getElementById('acc_in_port').value = provider.imap.port;
+    document.getElementById('acc_in_secure').value = provider.imap.secure ? '1' : '0';
+    document.getElementById('acc_protocol').value = 'imap';
+    document.getElementById('pop3OptionsWrap').style.display = 'none';
+  }
   document.getElementById('acc_smtp_host').value = provider.smtp.host;
   document.getElementById('acc_smtp_port').value = provider.smtp.port;
   document.getElementById('acc_smtp_secure').value = provider.smtp.secure ? '1' : '0';
-  document.getElementById('acc_protocol').value = 'imap';
-  document.getElementById('pop3OptionsWrap').style.display = 'none';
   renderProviderCard(provider);
   renderAutoConfigSummary(provider);
 }

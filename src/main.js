@@ -483,7 +483,8 @@ ipcMain.handle('config:get', () => ({
   closeToTray: appConfig.get('closeToTray') !== false,
   startMinimized: !!appConfig.get('startMinimized'),
   autoStart: !!appConfig.get('autoStart'),
-  autoUpdateCheck: appConfig.get('autoUpdateCheck') !== false
+  autoUpdateCheck: appConfig.get('autoUpdateCheck') !== false,
+  defaultProtocol: appConfig.get('defaultProtocol') || 'imap'
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
