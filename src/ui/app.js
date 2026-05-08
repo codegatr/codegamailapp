@@ -651,11 +651,14 @@ async function renderSettingsAccountList() {
 // ============= HESAP WIZARD =============
 function bindAccountWizard() {
   const emailInput = document.getElementById('acc_email');
-  emailInput.addEventListener('input', updateProviderHint);
+  // v1.19: Email yazılırken anlık (yerel), bittiğinde async (DNS/ISPDB)
+  emailInput.addEventListener('input', debounce(updateProviderHint, 500));
   emailInput.addEventListener('blur', () => {
     const email = emailInput.value.trim();
     const usernameField = document.getElementById('acc_in_username');
     if (email.includes('@') && !usernameField.value) usernameField.value = email;
+    // Tam autoconfig çalıştır (yerelde yoksa ISPDB+MX)
+    updateProviderHint();
   });
 
   document.getElementById('acc_protocol').onchange = (e) => {
@@ -678,20 +681,44 @@ function bindAccountWizard() {
   document.getElementById('btnSaveAccount').onclick = saveAccount;
 }
 
-function updateProviderHint() {
+async function updateProviderHint() {
   const email = document.getElementById('acc_email').value.trim();
   const hint = document.getElementById('providerHint');
   if (!email.includes('@')) { hint.innerHTML = ''; hint.className = 'provider-hint'; return; }
-  const provider = detectProvider(email);
-  if (provider) {
-    hint.innerHTML = `<span style="color:${provider.color};">${provider.icon}</span> <strong>${provider.name}</strong> tespit edildi · ayarlar otomatik doldurulacak`;
+
+  // Önce yerel veritabanı kontrol (anlık)
+  const local = detectProvider(email);
+  if (local) {
+    hint.innerHTML = `<span style="color:${local.color};">${local.icon}</span> <strong>${local.name}</strong> tespit edildi · ayarlar otomatik doldurulacak`;
     hint.className = 'provider-hint detected';
-  } else {
-    const domain = email.split('@')[1];
-    if (domain) {
-      hint.innerHTML = `📂 <strong>Özel sunucu</strong> · <code>mail.${escapeHtml(domain)}</code> denenecek`;
+    return;
+  }
+
+  // Yerelde yoksa: DNS MX + ISPDB sorgusu (1-2 sn sürebilir)
+  hint.innerHTML = `<span class="ac-spinner">↻</span> <em>${escapeHtml(email.split('@')[1])} sağlayıcısı tespit ediliyor...</em>`;
+  hint.className = 'provider-hint detecting';
+
+  try {
+    const r = await window.api.autoconfig.detect(email);
+    if (r && r.ok && r.imap) {
+      // Cache'le state'e
+      state.autoconfigResult = r;
+      const sourceLabel = r.source === 'mx' ? 'MX kaydı' :
+                          r.source === 'ispdb' ? 'Mozilla veritabanı' :
+                          r.source === 'domain-autoconfig' ? 'domain autoconfig' : '';
+      hint.innerHTML = `<span style="color:${r.color || '#2ecc71'};">${r.icon || '🌐'}</span> <strong>${escapeHtml(r.providerName)}</strong> tespit edildi · <small style="color:var(--muted);">${sourceLabel}${r.mxRecord ? ': ' + escapeHtml(r.mxRecord) : ''}</small>`;
+      hint.className = 'provider-hint detected';
+    } else {
+      const domain = email.split('@')[1];
+      hint.innerHTML = `📂 <strong>Özel sunucu</strong> · <code>mail.${escapeHtml(domain)}</code> denenecek<br><small style="color:var(--muted);">Sağlayıcı otomatik tanınamadı (MX/ISPDB sonuç vermedi)</small>`;
       hint.className = 'provider-hint custom';
+      state.autoconfigResult = null;
     }
+  } catch (e) {
+    const domain = email.split('@')[1];
+    hint.innerHTML = `📂 <strong>Özel sunucu</strong> · <code>mail.${escapeHtml(domain)}</code> denenecek`;
+    hint.className = 'provider-hint custom';
+    state.autoconfigResult = null;
   }
 }
 
@@ -731,7 +758,28 @@ function wizardNext() {
 function wizardBack() { if (state.wizardStep > 1) setWizardStep(state.wizardStep - 1); }
 
 function applyProviderConfig(email) {
-  const provider = detectProvider(email) || customProvider(email.split('@')[1]);
+  // v1.19: Önce yerel, yoksa autoconfig sonucu, yoksa fallback
+  let provider = detectProvider(email);
+  if (!provider && state.autoconfigResult && state.autoconfigResult.imap) {
+    // Autoconfig sonucundan provider objesi oluştur
+    const ac = state.autoconfigResult;
+    provider = {
+      name: ac.providerName,
+      icon: ac.icon || '🌐',
+      color: ac.color || '#3498db',
+      key: ac.provider,
+      domain: ac.domain,
+      imap: ac.imap,
+      pop3: ac.pop3,
+      smtp: ac.smtp,
+      notes: ac.notes,
+      helpUrl: ac.helpUrl,
+      detectionSource: ac.source,
+      mxRecord: ac.mxRecord
+    };
+  }
+  if (!provider) provider = customProvider(email.split('@')[1]);
+
   state.detectedProvider = provider;
   document.getElementById('acc_in_username').value = email;
   document.getElementById('acc_in_host').value = provider.imap.host;

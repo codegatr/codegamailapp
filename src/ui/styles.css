@@ -2389,3 +2389,16 @@ body { display: flex; flex-direction: column; }
   animation: critical-pulse 2s infinite;
 }
 .tasks-badge.hidden { display: none; }
+
+/* ============= v1.19: Autoconfig - tespit ediliyor ============= */
+.provider-hint.detecting {
+  color: var(--text-2);
+  background: rgba(52,152,219,0.06);
+  border-color: rgba(52,152,219,0.3);
+}
+.ac-spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+  font-weight: 700;
+  color: var(--primary);
+}

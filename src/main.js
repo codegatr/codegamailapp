@@ -825,6 +825,19 @@ ipcMain.handle('contacts:delete', (_, id) => {
 ipcMain.handle('contacts:stats', () => db.contactsStats());
 
 // =====================================================================
+// v1.19 IPC: AutoConfig (DNS MX + Mozilla ISPDB)
+// =====================================================================
+const AutoConfig = require('./services/autoconfig');
+ipcMain.handle('autoconfig:detect', async (_, email) => {
+  try {
+    const r = await AutoConfig.detect(email);
+    return r ? { ok: true, ...r } : { ok: false, reason: 'not_found' };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));
