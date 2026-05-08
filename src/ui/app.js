@@ -1759,18 +1759,30 @@ function renderMessageList() {
     const threadCount = (state.conversationView && m.thread_count > 1)
       ? `<span class="thread-count" title="${m.thread_count} mesaj zincirde${m.thread_unread ? ' (' + m.thread_unread + ' okunmamış)' : ''}">💬 ${m.thread_count}</span>`
       : '';
+    // v1.43: Gönderici avatarı (renkli daire + ilk harf)
+    const senderEmail = (m.from_addr || '').toLowerCase();
+    const senderName = m.from_name || senderEmail.split('@')[0] || '?';
+    const initial = senderName.trim().charAt(0).toUpperCase() || '?';
+    const avatarColors = ['#3498db', '#9b59b6', '#e74c3c', '#f39c12', '#2ecc71', '#1abc9c', '#e67e22', '#34495e', '#16a085', '#27ae60', '#2980b9', '#8e44ad'];
+    let hash = 0;
+    for (let i = 0; i < senderEmail.length; i++) hash = senderEmail.charCodeAt(i) + ((hash << 5) - hash);
+    const avatarColor = avatarColors[Math.abs(hash) % avatarColors.length];
+
     return `
       <div class="message-item ${m.is_read ? '' : 'unread'} ${m.is_spam ? 'is-spam' : ''} ${m.is_important ? 'is-important' : ''} ${state.selectedMessage?.id === m.id ? 'active' : ''}"
            data-id="${m.id}">
-        <div class="msg-line1">
-          <span class="msg-from">${importantStar}${accBadge}${escapeHtml(fromDisplay)}${threadCount}</span>
-          <span class="msg-date">${date}</span>
-        </div>
-        <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
-        ${catDots}
-        <div class="msg-preview">
-          <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}</span>
-          ${escapeHtml((m.preview || '').replace(/\s+/g, ' ').slice(0, 100))}
+        <div class="msg-avatar" style="background:${avatarColor};" title="${escapeHtml(senderEmail)}">${escapeHtml(initial)}</div>
+        <div class="msg-content">
+          <div class="msg-line1">
+            <span class="msg-from">${importantStar}${accBadge}${escapeHtml(fromDisplay)}${threadCount}</span>
+            <span class="msg-date">${date}</span>
+          </div>
+          <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
+          ${catDots}
+          <div class="msg-preview">
+            <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}</span>
+            ${escapeHtml((m.preview || '').replace(/\s+/g, ' ').slice(0, 100))}
+          </div>
         </div>
       </div>`;
   }).join('');
@@ -2047,22 +2059,43 @@ function renderMessageView(msg) {
     <div class="msg-view-header">
       <div class="msg-view-subject">${escapeHtml(msg.subject || '(Konu yok)')}</div>
       ${categoriesHtml}
-      <div class="msg-view-meta">
-        <strong>Gönderen:</strong><span>${fromDisplay}</span>
-        <strong>Alıcı:</strong><span>${toDisplay}</span>
-        ${ccDisplay ? `<strong>CC:</strong><span>${ccDisplay}</span>` : ''}
-        <strong>Tarih:</strong><span>${date}</span>
+      <div class="msg-view-meta-grid">
+        <div class="msg-sender-block">
+          <div class="msg-sender-avatar" style="background:${(() => {
+            const colors = ['#3498db','#9b59b6','#e74c3c','#f39c12','#2ecc71','#1abc9c','#e67e22','#34495e'];
+            const e = (msg.from_addr || '').toLowerCase();
+            let h = 0;
+            for (let i = 0; i < e.length; i++) h = e.charCodeAt(i) + ((h << 5) - h);
+            return colors[Math.abs(h) % colors.length];
+          })()};">${escapeHtml((msg.from_name || msg.from_addr || '?').charAt(0).toUpperCase())}</div>
+          <div class="msg-sender-info">
+            <div class="msg-sender-name"><strong>${escapeHtml(msg.from_name || msg.from_addr || '')}</strong></div>
+            ${msg.from_name ? `<div class="msg-sender-email">&lt;${escapeHtml(msg.from_addr || '')}&gt;</div>` : ''}
+            <div class="msg-sender-meta">
+              <span>Kime: ${toDisplay}</span>
+              ${ccDisplay ? `<span>CC: ${ccDisplay}</span>` : ''}
+            </div>
+          </div>
+          <div class="msg-date-block">${date}</div>
+        </div>
       </div>
     </div>
     ${spamBanner}
     ${securityBanner}
-    <div class="msg-view-actions">
-      <button class="btn" id="btnReply">↩ Yanıtla</button>
-      <button class="btn" id="btnForward">↪ İlet</button>
+    <div class="msg-view-actions msg-view-actions-outlook">
+      <button class="btn" id="btnReply" title="Yanıtla (R)"><span style="font-size:16px;">↩</span> Yanıtla</button>
+      <button class="btn" id="btnReplyAll" title="Tümünü Yanıtla"><span style="font-size:16px;">↩↩</span> Tümünü</button>
+      <button class="btn" id="btnForward" title="İlet (F)"><span style="font-size:16px;">→</span> İlet</button>
+      <div class="msg-actions-sep"></div>
+      <button class="btn btn-ghost" id="btnArchiveMsg" title="Arşivle (E)"><span style="font-size:14px;">📦</span></button>
+      <button class="btn btn-ghost" id="btnToggleImportant" title="Önemli işaretle">${msg.is_important ? '<span style="color:#f5a623;">⭐</span>' : '☆'}</button>
+      <button class="btn btn-ghost" id="btnToggleRead" title="${msg.is_read ? 'Okunmadı işaretle' : 'Okundu işaretle'}">${msg.is_read ? '📨' : '✉'}</button>
       ${msg.is_spam
-        ? '<button class="btn" id="btnNotSpam">✓ Spam Değil</button>'
-        : '<button class="btn" id="btnMarkSpam">🛡 Bu Spam</button>'}
-      <button class="btn btn-danger" id="btnDelete">🗑 Sil</button>
+        ? '<button class="btn btn-ghost" id="btnNotSpam" title="Spam değil">✓ Spam değil</button>'
+        : '<button class="btn btn-ghost" id="btnMarkSpam" title="Spam olarak işaretle">🛡</button>'}
+      <button class="btn btn-ghost" id="btnOpenInWindow" title="Yeni pencerede aç">🪟</button>
+      <div class="msg-actions-sep"></div>
+      <button class="btn btn-ghost" id="btnDelete" title="Sil (Del)" style="color:var(--danger);"><span style="font-size:14px;">🗑</span></button>
     </div>
     <div class="msg-view-body">${bodyHtml}</div>
     ${attachmentsHtml}
@@ -2079,6 +2112,27 @@ function renderMessageView(msg) {
   document.getElementById('btnReply').onclick = () => openCompose({ replyTo: msg });
   document.getElementById('btnForward').onclick = () => openCompose({ forward: msg });
   document.getElementById('btnDelete').onclick = deleteCurrentMessage;
+  // v1.43: Yeni Outlook tarzı butonlar
+  document.getElementById('btnReplyAll').onclick = () => openCompose({ replyTo: msg, replyAll: true });
+  document.getElementById('btnArchiveMsg').onclick = async () => {
+    const r = await window.api.archive.archive(msg.id);
+    if (r.ok) { setStatus('📦 Arşivlendi'); state.selectedMessage = null; document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>'; await loadAccounts(); await loadMessages(); }
+  };
+  document.getElementById('btnToggleImportant').onclick = async () => {
+    await window.api.messages.markImportant(msg.id, !msg.is_important);
+    setStatus(msg.is_important ? '☆ Önemli kaldırıldı' : '⭐ Önemli işaretlendi');
+    msg.is_important = !msg.is_important;
+    renderMessageView(msg);
+    await loadMessages();
+  };
+  document.getElementById('btnToggleRead').onclick = async () => {
+    await window.api.messages.markRead(msg.id, !msg.is_read);
+    msg.is_read = !msg.is_read;
+    setStatus(msg.is_read ? '✓ Okundu' : '📨 Okunmadı');
+    renderMessageView(msg);
+    await loadAccounts(); await loadMessages();
+  };
+  document.getElementById('btnOpenInWindow').onclick = () => window.api.messages.openInWindow(msg.id);
   if (msg.is_spam) {
     document.getElementById('btnNotSpam').onclick = async () => {
       await window.api.messages.markNotSpam(msg.id);

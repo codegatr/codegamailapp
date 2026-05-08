@@ -4106,3 +4106,134 @@ html.theme-light .header-search:focus-within {
   overflow-y: auto;
   min-height: 0;
 }
+
+/* ============= v1.43: Outlook 3-Pane İyileştirmeleri ============= */
+
+/* Mail item layout - avatar + content */
+.message-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.msg-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  user-select: none;
+  text-transform: uppercase;
+}
+.msg-content {
+  flex: 1;
+  min-width: 0; /* truncate için */
+}
+.message-item.unread .msg-from {
+  font-weight: 700;
+}
+.message-item.unread .msg-subject {
+  font-weight: 600;
+  color: var(--text);
+}
+.message-item.unread .msg-avatar {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
+/* Reading pane - Outlook tarzı sender block */
+.msg-view-meta-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.msg-sender-block {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.msg-sender-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 18px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.msg-sender-info {
+  flex: 1;
+  min-width: 0;
+}
+.msg-sender-name {
+  font-size: 14px;
+  color: var(--text);
+}
+.msg-sender-email {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.msg-sender-meta {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.msg-sender-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-date-block {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Outlook tarzı toolbar */
+.msg-view-actions-outlook {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 8px 0;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.msg-view-actions-outlook .btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg-view-actions-outlook .btn-ghost {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.msg-actions-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+/* Eski msg-view-meta'yı gizle (yeni meta-grid kullanılıyor) */
+.msg-view-header .msg-view-meta {
+  display: none;
+}
