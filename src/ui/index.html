@@ -287,6 +287,35 @@
           </div>
         </div>
 
+        <!-- v1.22: Yazım Denetimi -->
+        <div class="form-section full" style="margin-top:18px;">📝 Yazım Denetimi</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_spell_enabled">
+              <span>Yeni mesaj yazarken yazım denetimi yap</span>
+            </label>
+            <small>Yanlış yazılmış kelimeler kırmızı dalgalı çizgiyle altı çizilir. Sağ tıklayarak öneri görebilir veya sözlüğe ekleyebilirsiniz.</small>
+          </div>
+          <div class="form-group full">
+            <label>Diller</label>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+              <label class="toggle-row" style="margin:0;"><input type="checkbox" id="spell_lang_tr" value="tr"><span>🇹🇷 Türkçe</span></label>
+              <label class="toggle-row" style="margin:0;"><input type="checkbox" id="spell_lang_en" value="en-US"><span>🇬🇧 İngilizce</span></label>
+              <label class="toggle-row" style="margin:0;"><input type="checkbox" id="spell_lang_de" value="de"><span>🇩🇪 Almanca</span></label>
+              <label class="toggle-row" style="margin:0;"><input type="checkbox" id="spell_lang_fr" value="fr"><span>🇫🇷 Fransızca</span></label>
+            </div>
+            <small id="spell_lang_status" style="display:block;margin-top:4px;color:var(--muted);">Birden çok dil seçilirse her ikisi de aynı anda kontrol edilir.</small>
+          </div>
+          <div class="form-group full">
+            <label>Özel Sözlüğüm</label>
+            <div id="customDictList" class="custom-dict-list">
+              <span class="empty-dict">Sözlüğünüze henüz kelime eklemediniz</span>
+            </div>
+            <small>Sağ tıklayıp "Sözlüğe Ekle" diyerek kişi adı, marka, teknik terim gibi kelimeleri ekleyebilirsiniz.</small>
+          </div>
+        </div>
+
         <!-- Güncellemeler -->
         <div class="form-section full" style="margin-top:18px;">🚀 Güncellemeler</div>
         <div class="updater-card">
@@ -624,7 +653,7 @@
         <div class="form-group"><label>Gönderen Hesap</label><select id="compose_from"></select></div>
         <div class="form-group"><label>Kime</label><input type="text" id="compose_to" placeholder="ornek@adres.com"></div>
         <div class="form-group"><label>CC</label><input type="text" id="compose_cc"></div>
-        <div class="form-group"><label>Konu</label><input type="text" id="compose_subject"></div>
+        <div class="form-group"><label>Konu</label><input type="text" id="compose_subject" spellcheck="true"></div>
         <div class="form-group">
           <label>Ekler (Drag-Drop / Tıkla / Yapıştır)</label>
           <div id="attachmentDropZone" class="drop-zone">

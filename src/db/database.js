@@ -363,6 +363,11 @@ class Database {
         );
         CREATE INDEX IF NOT EXISTS idx_tasks_status_due ON tasks(status, due_date);
         CREATE INDEX IF NOT EXISTS idx_tasks_reminder ON tasks(reminder_at, reminder_sent);
+
+        CREATE TABLE IF NOT EXISTS custom_dictionary (
+          word TEXT PRIMARY KEY COLLATE NOCASE,
+          added_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
       `);
     } catch (_) {}
 
@@ -1419,6 +1424,28 @@ class Database {
     const fav = this.prepare('SELECT COUNT(*) AS c FROM contacts WHERE is_favorite = 1').get().c;
     const auto = this.prepare("SELECT COUNT(*) AS c FROM contacts WHERE source = 'auto'").get().c;
     return { total, favorites: fav, automatic: auto, manual: total - auto };
+  }
+
+  // ====== v1.22: Custom Dictionary (Yazım Denetimi Özel Sözlüğü) ======
+  listCustomDictionary() {
+    try {
+      const rows = this.prepare('SELECT word FROM custom_dictionary ORDER BY word COLLATE NOCASE ASC').all();
+      return rows.map(r => r.word);
+    } catch (_) { return []; }
+  }
+
+  addCustomDictionaryWord(word) {
+    if (!word || !word.trim()) return;
+    const w = word.trim();
+    try {
+      this.prepare('INSERT OR IGNORE INTO custom_dictionary (word) VALUES (?)').run(w);
+    } catch (_) {}
+  }
+
+  removeCustomDictionaryWord(word) {
+    try {
+      this.prepare('DELETE FROM custom_dictionary WHERE word = ? COLLATE NOCASE').run(word);
+    } catch (_) {}
   }
 
   // ====== v1.18: Görevler / To-Do ======

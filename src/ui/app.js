@@ -757,6 +757,9 @@ async function openSettings() {
   const dpEl = document.getElementById('settings_default_protocol');
   if (dpEl) dpEl.value = cfg.defaultProtocol || 'imap';
   state.defaultProtocol = cfg.defaultProtocol || 'imap';
+
+  // v1.22: Yazım denetimi ayarları
+  await loadSpellSettings();
   // v1.3: Güncelleme tercihi
   const autoUpdEl = document.getElementById('settings_auto_update');
   if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
@@ -4972,4 +4975,107 @@ function renderCommandPaletteResults() {
   // Aktif olanı görünür yap
   const activeEl = el.querySelector('.cmd-item.active');
   if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+}
+
+// ============= v1.22: Yazım Denetimi =============
+async function loadSpellSettings() {
+  try {
+    const info = await window.api.spell.getInfo();
+
+    document.getElementById('settings_spell_enabled').checked = info.enabled;
+
+    const langCheckboxes = {
+      'spell_lang_tr': 'tr',
+      'spell_lang_en': 'en-US',
+      'spell_lang_de': 'de',
+      'spell_lang_fr': 'fr'
+    };
+    for (const [domId, langCode] of Object.entries(langCheckboxes)) {
+      const el = document.getElementById(domId);
+      if (el) {
+        el.checked = info.current.includes(langCode);
+        // Desteklenmiyorsa disable
+        if (!info.available.includes(langCode)) {
+          el.disabled = true;
+          el.parentElement.style.opacity = '0.4';
+          el.parentElement.title = 'Bu dil bu sistemde desteklenmiyor';
+        }
+      }
+    }
+
+    // Status
+    const statusEl = document.getElementById('spell_lang_status');
+    if (statusEl) {
+      const supported = info.available.length;
+      statusEl.textContent = `${info.current.length} dil aktif · sistemde ${supported} dil mevcut · birden çok dil seçilirse hepsi aynı anda kontrol edilir`;
+    }
+
+    // Custom dictionary listesi
+    renderCustomDict(info.customWords || []);
+
+    // Event listener'lar (sadece bir kez bağla)
+    if (!state.spellBound) {
+      state.spellBound = true;
+      bindSpellSettings();
+    }
+  } catch (e) {
+    console.warn('Spell settings yükleme hatası:', e);
+  }
+}
+
+function bindSpellSettings() {
+  document.getElementById('settings_spell_enabled').addEventListener('change', async (e) => {
+    await window.api.spell.setEnabled(e.target.checked);
+    flashSettingsSavedIndicator();
+    setStatus('Yazım denetimi ' + (e.target.checked ? 'açık' : 'kapalı'));
+  });
+
+  const langIds = ['spell_lang_tr', 'spell_lang_en', 'spell_lang_de', 'spell_lang_fr'];
+  for (const id of langIds) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', applySpellLanguages);
+    }
+  }
+}
+
+async function applySpellLanguages() {
+  const langs = [];
+  if (document.getElementById('spell_lang_tr').checked) langs.push('tr');
+  if (document.getElementById('spell_lang_en').checked) langs.push('en-US');
+  if (document.getElementById('spell_lang_de').checked) langs.push('de');
+  if (document.getElementById('spell_lang_fr').checked) langs.push('fr');
+  const r = await window.api.spell.setLanguages(langs);
+  if (r && r.ok) {
+    flashSettingsSavedIndicator();
+    setStatus(`✓ ${r.applied.length} dil aktif`);
+  } else {
+    setStatus('Dil değişikliği başarısız', 'error');
+  }
+  // Re-render status
+  await loadSpellSettings();
+}
+
+function renderCustomDict(words) {
+  const el = document.getElementById('customDictList');
+  if (!el) return;
+  if (!words.length) {
+    el.innerHTML = '<span class="empty-dict">Sözlüğünüze henüz kelime eklemediniz</span>';
+    return;
+  }
+  el.innerHTML = words.map(w => `
+    <span class="dict-word" data-word="${escapeHtml(w)}" title="Tıkla: kaldır">
+      ${escapeHtml(w)} <span class="dict-remove">×</span>
+    </span>
+  `).join('');
+
+  el.querySelectorAll('.dict-word').forEach(elem => {
+    elem.onclick = async () => {
+      const word = elem.dataset.word;
+      if (!confirm(`"${word}" özel sözlükten kaldırılsın mı?`)) return;
+      await window.api.spell.removeWord(word);
+      await loadSpellSettings();
+      setStatus('"' + word + '" kaldırıldı');
+    };
+  });
 }

@@ -2542,3 +2542,47 @@ body { display: flex; flex-direction: column; }
   margin: 0 2px;
   box-shadow: 0 2px 0 var(--border);
 }
+
+/* ============= v1.22: Yazım Denetimi (Custom Dictionary UI) ============= */
+.custom-dict-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-height: 50px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.empty-dict {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+.dict-word {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dict-word:hover {
+  background: rgba(231,76,60,0.15);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.dict-remove {
+  font-size: 14px;
+  font-weight: 700;
+  opacity: 0.5;
+}
+.dict-word:hover .dict-remove {
+  opacity: 1;
+}

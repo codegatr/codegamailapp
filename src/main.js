@@ -98,12 +98,16 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      spellcheck: true
     }
   });
 
   mainWindow.loadFile(path.join(__dirname, 'ui', 'index.html'));
   mainWindow.setMenuBarVisibility(false);
+
+  // v1.22: Yazım denetimi - dilleri ayarla, custom sözlükten yükle
+  setupSpellChecker();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -112,6 +116,38 @@ function createWindow() {
 
   mainWindow.webContents.on('render-process-gone', (_, details) => {
     logError('render-process-gone', new Error(JSON.stringify(details)));
+  });
+
+  // v1.22: Yazım denetimi sağ tık menüsü (öneriler + sözlüğe ekle)
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    if (!params.misspelledWord) return;
+    const enabled = appConfig.get('spellCheckEnabled') !== false;
+    if (!enabled) return;
+    const { Menu, MenuItem } = require('electron');
+    const menu = new Menu();
+    const suggestions = (params.dictionarySuggestions || []).slice(0, 6);
+    if (!suggestions.length) {
+      menu.append(new MenuItem({ label: '(öneri yok)', enabled: false }));
+    } else {
+      for (const s of suggestions) {
+        menu.append(new MenuItem({
+          label: s,
+          click: () => mainWindow.webContents.replaceMisspelling(s)
+        }));
+      }
+    }
+    menu.append(new MenuItem({ type: 'separator' }));
+    menu.append(new MenuItem({
+      label: `"${params.misspelledWord}" Sözlüğe Ekle`,
+      click: () => {
+        try {
+          mainWindow.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord);
+          db.addCustomDictionaryWord(params.misspelledWord);
+          db.save();
+        } catch (e) { console.warn('Sözlük ekleme hatası:', e.message); }
+      }
+    }));
+    menu.popup({ window: mainWindow });
   });
 
   // Kapat tuşuna basıldığında: tepsiye küçült (config açıksa)
@@ -484,7 +520,9 @@ ipcMain.handle('config:get', () => ({
   startMinimized: !!appConfig.get('startMinimized'),
   autoStart: !!appConfig.get('autoStart'),
   autoUpdateCheck: appConfig.get('autoUpdateCheck') !== false,
-  defaultProtocol: appConfig.get('defaultProtocol') || 'imap'
+  defaultProtocol: appConfig.get('defaultProtocol') || 'imap',
+  spellCheckEnabled: appConfig.get('spellCheckEnabled') !== false,
+  spellCheckLanguages: appConfig.get('spellCheckLanguages') || ['tr', 'en-US']
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
@@ -826,7 +864,7 @@ ipcMain.handle('contacts:delete', (_, id) => {
 ipcMain.handle('contacts:stats', () => db.contactsStats());
 
 // =====================================================================
-// v1.19 IPC: AutoConfig (DNS MX + Mozilla ISPDB)
+// v1.22 IPC: AutoConfig (DNS MX + Mozilla ISPDB)
 // =====================================================================
 const AutoConfig = require('./services/autoconfig');
 ipcMain.handle('autoconfig:detect', async (_, email) => {
@@ -836,6 +874,81 @@ ipcMain.handle('autoconfig:detect', async (_, email) => {
   } catch (e) {
     return { ok: false, error: e.message };
   }
+});
+
+// =====================================================================
+// v1.22 IPC: Yazım Denetimi (Spell Check)
+// =====================================================================
+function setupSpellChecker() {
+  if (!mainWindow) return;
+  const session = mainWindow.webContents.session;
+  const enabled = appConfig.get('spellCheckEnabled') !== false;
+  const langs = appConfig.get('spellCheckLanguages') || ['tr', 'en-US'];
+
+  try {
+    session.setSpellCheckerEnabled(enabled);
+    if (enabled) {
+      const available = session.availableSpellCheckerLanguages || [];
+      // Sadece desteklenen dilleri filtrele
+      const supported = langs.filter(l => available.includes(l));
+      if (supported.length) {
+        session.setSpellCheckerLanguages(supported);
+      } else if (available.includes('en-US')) {
+        session.setSpellCheckerLanguages(['en-US']);
+      }
+    }
+    // Custom sözlükten kelimeleri yükle
+    if (db && typeof db.listCustomDictionary === 'function') {
+      const words = db.listCustomDictionary();
+      for (const w of words) {
+        try { session.addWordToSpellCheckerDictionary(w); } catch (_) {}
+      }
+    }
+  } catch (e) {
+    console.warn('Spell checker setup hatası:', e.message);
+  }
+}
+
+ipcMain.handle('spell:getInfo', () => {
+  if (!mainWindow) return { available: [], current: [], enabled: false };
+  const s = mainWindow.webContents.session;
+  return {
+    available: s.availableSpellCheckerLanguages || [],
+    current: s.getSpellCheckerLanguages ? s.getSpellCheckerLanguages() : [],
+    enabled: s.isSpellCheckerEnabled ? s.isSpellCheckerEnabled() : false,
+    customWords: db.listCustomDictionary()
+  };
+});
+
+ipcMain.handle('spell:setLanguages', (_, langs) => {
+  try {
+    const s = mainWindow.webContents.session;
+    const available = s.availableSpellCheckerLanguages || [];
+    const supported = (langs || []).filter(l => available.includes(l));
+    s.setSpellCheckerLanguages(supported);
+    appConfig.set('spellCheckLanguages', supported);
+    return { ok: true, applied: supported };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('spell:setEnabled', (_, enabled) => {
+  try {
+    mainWindow.webContents.session.setSpellCheckerEnabled(!!enabled);
+    appConfig.set('spellCheckEnabled', !!enabled);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('spell:removeWord', (_, word) => {
+  try {
+    const s = mainWindow.webContents.session;
+    if (s.removeWordFromSpellCheckerDictionary) {
+      s.removeWordFromSpellCheckerDictionary(word);
+    }
+    db.removeCustomDictionaryWord(word);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 // =====================================================================

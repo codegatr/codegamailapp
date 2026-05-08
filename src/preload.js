@@ -110,6 +110,12 @@ contextBridge.exposeInMainWorld('api', {
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },
+  spell: {
+    getInfo: () => ipcRenderer.invoke('spell:getInfo'),
+    setLanguages: (langs) => ipcRenderer.invoke('spell:setLanguages', langs),
+    setEnabled: (enabled) => ipcRenderer.invoke('spell:setEnabled', enabled),
+    removeWord: (word) => ipcRenderer.invoke('spell:removeWord', word)
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),
