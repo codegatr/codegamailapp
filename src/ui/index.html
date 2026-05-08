@@ -726,6 +726,25 @@
           </div>
         </div>
 
+        <!-- v1.29: Otomatik Kategorize -->
+        <div class="form-section full" style="margin-top:18px;">🏷 Otomatik Kategorize</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_auto_categorize">
+              <span>Yeni mailleri otomatik kategorize et</span>
+            </label>
+            <small>
+              Heuristic kurallarla mailler şu kategorilere ayrılır: <strong>💰 Finans · 🛒 Alışveriş · 🚚 Kargo · ✈️ Seyahat · 📰 Bülten · 👥 Sosyal Medya · 🏛️ Resmi · 📅 Etkinlik</strong>.
+              Mevcut etiketler korunur, sadece etiketsiz mailler taranır. Manuel olarak istediğiniz zaman değiştirebilirsiniz.
+            </small>
+          </div>
+          <div class="form-group full">
+            <button class="btn" id="btnAutoCategorizeAll">⚡ Mevcut tüm etiketsiz maillere uygula</button>
+            <small id="autoCategorizeResult" style="margin-top:6px;"></small>
+          </div>
+        </div>
+
         <!-- v1.22: Yazım Denetimi -->
         <div class="form-section full" style="margin-top:18px;">📝 Yazım Denetimi</div>
         <div class="form-grid" style="grid-template-columns:1fr 1fr;">

@@ -163,6 +163,11 @@ contextBridge.exposeInMainWorld('api', {
     guessFromText: (text) => ipcRenderer.invoke('events:guessFromText', text),
     exportIcs: (id) => ipcRenderer.invoke('events:exportIcs', id)
   },
+  autoCategorize: {
+    seedBuiltin: () => ipcRenderer.invoke('autocategorize:seedBuiltin'),
+    single: (messageId) => ipcRenderer.invoke('autocategorize:single', messageId),
+    all: (opts) => ipcRenderer.invoke('autocategorize:all', opts)
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),

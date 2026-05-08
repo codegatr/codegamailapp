@@ -418,6 +418,13 @@ async function runBackgroundSync(forceUiRefresh = false) {
     isBackgroundSyncing = false;
   }
 
+  // v1.29: Yeni mailleri otomatik kategorize et (eğer açıksa)
+  if (allNew.length > 0) {
+    try {
+      autoCategorizeNewMessages(allNew.map(m => m.id));
+    } catch (e) { console.warn('Auto-categorize sync hook:', e.message); }
+  }
+
   // Bildirim göster (1 mesaj → tek bildirim, çoklu → toplu)
   if (allNew.length === 1) {
     const m = allNew[0];
@@ -526,7 +533,8 @@ ipcMain.handle('config:get', () => ({
   autoArchiveEnabled: !!appConfig.get('autoArchiveEnabled'),
   autoArchiveMonths: appConfig.get('autoArchiveMonths') || 6,
   autoLockEnabled: !!appConfig.get('autoLockEnabled'),
-  autoLockMinutes: appConfig.get('autoLockMinutes') || 15
+  autoLockMinutes: appConfig.get('autoLockMinutes') || 15,
+  autoCategorizeEnabled: appConfig.get('autoCategorizeEnabled') !== false  // default açık
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
@@ -1556,6 +1564,136 @@ async function processDueEventReminders() {
     }
     db.save();
   } catch (e) { console.warn('processDueEventReminders error:', e.message); }
+}
+
+// =====================================================================
+// v1.29 IPC: Otomatik Mail Kategorileme
+// =====================================================================
+const AutoCategorizer = require('./services/auto-categorize');
+
+/**
+ * Yerleşik kategorileri DB'de seed et (sadece eksikleri ekler)
+ * @returns {object} - { seeded: ekleneN, skipped: zatenVarOlan }
+ */
+function seedBuiltinCategories() {
+  const builtins = AutoCategorizer.getBuiltinCategories();
+  const existing = db.listCategories();
+  const existingNames = new Set(existing.map(c => c.name));
+  let seeded = 0;
+  for (const c of builtins) {
+    if (!existingNames.has(c.name)) {
+      db.addCategory(c);
+      seeded++;
+    }
+  }
+  if (seeded > 0) db.save();
+  return { seeded, skipped: builtins.length - seeded };
+}
+
+/**
+ * Tek bir mesajı kategorize et (sync sonrası kullanılır)
+ * @returns {Array<string>} - eklenen kategori isimleri
+ */
+function autoCategorizeMessage(messageId) {
+  try {
+    const msg = db.getMessage(messageId);
+    if (!msg) return [];
+    const matchNames = AutoCategorizer.categorize(msg);
+    if (!matchNames.length) return [];
+
+    // Kategori adlarından ID'leri bul
+    const allCats = db.listCategories();
+    const catByName = {};
+    for (const c of allCats) catByName[c.name] = c.id;
+
+    const added = [];
+    for (const name of matchNames) {
+      const cid = catByName[name];
+      if (cid) {
+        if (db.addMessageCategory(messageId, cid)) added.push(name);
+      }
+    }
+    return added;
+  } catch (e) {
+    console.warn('autoCategorizeMessage hatası:', e.message);
+    return [];
+  }
+}
+
+ipcMain.handle('autocategorize:seedBuiltin', () => {
+  return seedBuiltinCategories();
+});
+
+ipcMain.handle('autocategorize:single', (_, messageId) => {
+  const added = autoCategorizeMessage(messageId);
+  db.save();
+  return { ok: true, added };
+});
+
+/**
+ * Tüm hesabın mesajlarını toplu kategorize et
+ * - Yalnızca hiç kategorisi olmayan mesajları (henüz manuel etiketlenmemiş) hedefler
+ *   (Mevcut etiketleri ezmemek için)
+ */
+ipcMain.handle('autocategorize:all', async (_, opts) => {
+  try {
+    const onlyUntagged = opts?.onlyUntagged !== false;
+    const accountId = opts?.accountId;
+
+    // Önce yerleşik kategorileri seed et
+    seedBuiltinCategories();
+
+    // Mesajları al
+    let where = '1=1';
+    const params = [];
+    if (accountId) {
+      where += ' AND m.account_id = ?';
+      params.push(accountId);
+    }
+    if (onlyUntagged) {
+      where += ' AND NOT EXISTS (SELECT 1 FROM message_categories mc WHERE mc.message_id = m.id)';
+    }
+    // Sadece son 5000 mesaj (performans için)
+    const messages = db.prepare(`
+      SELECT m.id FROM messages m
+      WHERE ${where}
+      ORDER BY m.id DESC LIMIT 5000
+    `).all(...params);
+
+    let categorized = 0;
+    let totalLabels = 0;
+    for (const m of messages) {
+      const added = autoCategorizeMessage(m.id);
+      if (added.length) {
+        categorized++;
+        totalLabels += added.length;
+      }
+    }
+    db.save();
+    return { ok: true, scanned: messages.length, categorized, totalLabels };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// Sync sonrası tetikleme: yeni gelen mesajlar otomatik kategorize edilsin
+function autoCategorizeNewMessages(messageIds) {
+  if (!appConfig.get('autoCategorizeEnabled')) return;
+  if (!Array.isArray(messageIds) || !messageIds.length) return;
+  try {
+    // İlk çağrıda yerleşik kategoriler eksikse seed et
+    const exists = db.listCategories();
+    const builtinNames = new Set(AutoCategorizer.getBuiltinCategories().map(c => c.name));
+    const seedNeeded = AutoCategorizer.getBuiltinCategories().some(c => !exists.find(e => e.name === c.name));
+    if (seedNeeded) seedBuiltinCategories();
+
+    let count = 0;
+    for (const id of messageIds) {
+      const added = autoCategorizeMessage(id);
+      if (added.length) count++;
+    }
+    if (count > 0) db.save();
+  } catch (e) { console.warn('autoCategorizeNewMessages error:', e.message); }
 }
 
 // =====================================================================

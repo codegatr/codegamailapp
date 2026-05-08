@@ -676,6 +676,7 @@ function bindSettings() {
     ['settings_auto_archive_months', 'autoArchiveMonths', 'number'],
     ['settings_auto_lock', 'autoLockEnabled', 'checkbox'],
     ['settings_auto_lock_minutes', 'autoLockMinutes', 'number'],
+    ['settings_auto_categorize', 'autoCategorizeEnabled', 'checkbox'],
     ['vt_autoScan', 'virustotalAutoScan', 'checkbox'],
     ['url_scanWithVt', 'urlScanWithVt', 'checkbox']
   ];
@@ -794,6 +795,36 @@ async function openSettings() {
       else warnEl.classList.remove('hidden');
     }
   } catch (_) {}
+
+  // v1.29: Otomatik kategorize
+  const acEl = document.getElementById('settings_auto_categorize');
+  if (acEl) acEl.checked = cfg.autoCategorizeEnabled !== false;
+  const btnAcAll = document.getElementById('btnAutoCategorizeAll');
+  if (btnAcAll && !btnAcAll.dataset.bound) {
+    btnAcAll.dataset.bound = '1';
+    btnAcAll.onclick = async () => {
+      const resultEl = document.getElementById('autoCategorizeResult');
+      btnAcAll.disabled = true;
+      btnAcAll.textContent = '⏳ Taranıyor...';
+      resultEl.textContent = '';
+      try {
+        const r = await window.api.autoCategorize.all({ onlyUntagged: true });
+        if (r.ok) {
+          resultEl.innerHTML = `✅ <strong>${r.scanned}</strong> mail tarandı, <strong>${r.categorized}</strong> mail kategorize edildi (toplam ${r.totalLabels} etiket eklendi).`;
+          resultEl.style.color = '#2ecc71';
+          setStatus(`✓ ${r.categorized} mail kategorize edildi`);
+          // Mesajları yenile
+          if (state.selectedFolder) await loadMessages();
+        } else {
+          resultEl.textContent = '❌ Hata: ' + r.error;
+          resultEl.style.color = 'var(--danger)';
+        }
+      } finally {
+        btnAcAll.disabled = false;
+        btnAcAll.textContent = '⚡ Mevcut tüm etiketsiz maillere uygula';
+      }
+    };
+  }
 
   // v1.22: Yazım denetimi ayarları
   await loadSpellSettings();
@@ -1391,6 +1422,7 @@ async function showMessageContextMenu(e, message) {
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
     { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
     { label: '📅 Mesajdan Etkinlik Oluştur', action: () => createEventFromMessage(message) },
+    { label: '🏷 Otomatik Kategorize Et', action: () => autoCategorizeMessageManual(message) },
     { label: '📦 Arşivle', action: () => archiveMessageFromList(message) },
     '---',
     ...moveItems,
@@ -4867,6 +4899,14 @@ function buildCommandList() {
       action: () => openArchiveOldDialog(), category: 'Modül' },
     { id: 'calendar', label: 'Takvim', icon: '📅',
       action: () => openCalendar(), category: 'Modül' },
+    { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
+      action: async () => {
+        const r = await window.api.autoCategorize.all({ onlyUntagged: true });
+        if (r.ok) {
+          setStatus(`✓ ${r.categorized} mail kategorize edildi (${r.scanned} tarandı, ${r.totalLabels} etiket)`);
+          if (state.selectedFolder) await loadMessages();
+        } else alert('Hata: ' + r.error);
+      }, category: 'Modül' },
     { id: 'pgp', label: 'PGP Anahtar Yönetimi', icon: '🔐',
       action: () => openPGP(), category: 'Modül' },
     { id: 'templates', label: 'Şablonlar', icon: '📝',
@@ -6583,3 +6623,21 @@ if (window.api && window.api.on) {
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(refreshIdleLockState, 1500);
 });
+
+// ============= v1.29: Otomatik Kategorize =============
+async function autoCategorizeMessageManual(message) {
+  if (!message) return;
+  const r = await window.api.autoCategorize.single(message.id);
+  if (r.ok) {
+    if (r.added && r.added.length) {
+      setStatus(`🏷 Eklendi: ${r.added.join(', ')}`);
+    } else {
+      setStatus('Bu mail için uygun kategori bulunamadı (manuel etiketleyin)');
+    }
+    if (state.selectedFolder) await loadMessages();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+// Komut paletine ekle - Otomatik Kategorize
