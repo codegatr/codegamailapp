@@ -265,6 +265,7 @@ class Database {
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_enabled INTEGER DEFAULT 1');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_threshold INTEGER DEFAULT 50');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN sort_order INTEGER DEFAULT 0');
+    this._safeAlter('ALTER TABLE accounts ADD COLUMN signature_data TEXT'); // v1.38: imza şablonu JSON
     this._safeAlter('ALTER TABLE folders ADD COLUMN is_local INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE messages ADD COLUMN reply_to_addr TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN is_spam INTEGER DEFAULT 0');
@@ -650,7 +651,7 @@ class Database {
   updateAccount(id, updates) {
     const allowed = ['display_name', 'in_host', 'in_port', 'in_secure', 'in_username',
       'in_password', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_username',
-      'smtp_password', 'pop3_leave_on_server', 'signature',
+      'smtp_password', 'pop3_leave_on_server', 'signature', 'signature_data',
       'spam_enabled', 'spam_threshold', 'sort_order'];
     const fields = Object.keys(updates).filter(k => allowed.includes(k));
     if (!fields.length) return;

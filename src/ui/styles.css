@@ -3866,3 +3866,35 @@ body.dragging-message .folder-item:not(.drop-target) {
   font-size: 11px;
   font-weight: 500;
 }
+
+/* ============= v1.38: İmza Şablonları Builder ============= */
+.sig-template-gallery {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.sig-template-item {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sig-template-item:hover {
+  border-color: var(--primary);
+}
+.sig-template-item.active {
+  border-color: var(--primary);
+  background: rgba(0, 120, 212, 0.1);
+}
+.sig-template-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sig-template-desc {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 2px;
+}

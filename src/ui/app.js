@@ -1222,7 +1222,14 @@ function readAccountForm() {
     pop3_leave_on_server: document.getElementById('acc_pop3_leave').checked,
     spam_enabled: document.getElementById('acc_spam_enabled').value === '1',
     spam_threshold: parseInt(document.getElementById('acc_spam_threshold').value, 10) || 50,
-    signature: state.signatureEditor ? state.signatureEditor.getHTML() : ''
+    signature: state.signatureEditor ? state.signatureEditor.getHTML() : '',
+    // v1.38: Şablon tabanlı imza verisi (varsa)
+    signature_data: sigBuilderState && sigBuilderState._lastApplied
+      ? JSON.stringify({
+          templateId: sigBuilderState._lastApplied.templateId,
+          data: sigBuilderState._lastApplied.data
+        })
+      : undefined
   };
 }
 
@@ -5063,6 +5070,8 @@ function buildCommandList() {
       action: () => openQuickSteps(), category: 'Modül' },
     { id: 'advanced-search', label: 'Gelişmiş Arama', icon: '🔍',
       action: () => openAdvancedSearch(), category: 'Modül' },
+    { id: 'signature-builder', label: 'İmza Şablonu Oluştur', icon: '🎨',
+      action: () => { openSettings(); setTimeout(() => openSignatureBuilder(), 300); }, category: 'Modül' },
     { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
       action: async () => {
         const r = await window.api.autoCategorize.all({ onlyUntagged: true });
@@ -8626,3 +8635,194 @@ window.addEventListener('DOMContentLoaded', () => {
     renderQuickFilterChips();
   }, 1000);
 });
+
+// ============= v1.38: İmza Şablonu Builder =============
+const sigBuilderState = {
+  bound: false,
+  currentTemplateId: 'modern',
+  data: {
+    name: '', title: '', company: '', phone: '', email: '',
+    website: '', address: '', logoDataUrl: '', accentColor: '#0078d4',
+    linkedin: '', twitter: '', instagram: ''
+  }
+};
+
+function openSignatureBuilder() {
+  if (!window.SignatureTemplates) {
+    alert('Şablon kütüphanesi yüklenemedi. Sayfayı yenileyin.');
+    return;
+  }
+  document.getElementById('modalSignatureBuilder').classList.remove('hidden');
+  if (!sigBuilderState.bound) {
+    sigBuilderState.bound = true;
+    bindSignatureBuilder();
+  }
+
+  // Mevcut hesabın signature_data'sından doldur (varsa)
+  loadSigDataFromAccount();
+  renderSigTemplateGallery();
+  updateSigPreview();
+}
+
+function bindSignatureBuilder() {
+  document.getElementById('btnSigApply').onclick = applySignatureFromBuilder;
+  document.getElementById('btnSigUploadLogo').onclick = uploadSigLogo;
+  document.getElementById('btnSigClearLogo').onclick = () => {
+    sigBuilderState.data.logoDataUrl = '';
+    document.getElementById('sigLogoPreview').innerHTML = '';
+    updateSigPreview();
+  };
+}
+
+function loadSigDataFromAccount() {
+  const accountId = state.editingAccountId;
+  if (!accountId) return;
+  const acc = (state.accounts || []).find(a => a.id === accountId);
+  if (!acc) return;
+  let parsed = null;
+  try {
+    if (acc.signature_data) parsed = JSON.parse(acc.signature_data);
+  } catch (_) {}
+
+  if (parsed) {
+    sigBuilderState.currentTemplateId = parsed.templateId || 'modern';
+    sigBuilderState.data = Object.assign({}, sigBuilderState.data, parsed.data || {});
+  } else {
+    // Account default değerleri ile doldur
+    sigBuilderState.data.name = acc.display_name || '';
+    sigBuilderState.data.email = acc.email || '';
+    sigBuilderState.currentTemplateId = 'modern';
+  }
+
+  // Form alanlarını doldur
+  document.getElementById('sb_name').value = sigBuilderState.data.name || '';
+  document.getElementById('sb_title').value = sigBuilderState.data.title || '';
+  document.getElementById('sb_company').value = sigBuilderState.data.company || '';
+  document.getElementById('sb_phone').value = sigBuilderState.data.phone || '';
+  document.getElementById('sb_email').value = sigBuilderState.data.email || '';
+  document.getElementById('sb_website').value = sigBuilderState.data.website || '';
+  document.getElementById('sb_address').value = sigBuilderState.data.address || '';
+  document.getElementById('sb_accent').value = sigBuilderState.data.accentColor || '#0078d4';
+  document.getElementById('sb_linkedin').value = sigBuilderState.data.linkedin || '';
+  document.getElementById('sb_twitter').value = sigBuilderState.data.twitter || '';
+  document.getElementById('sb_instagram').value = sigBuilderState.data.instagram || '';
+
+  // Logo preview
+  if (sigBuilderState.data.logoDataUrl) {
+    document.getElementById('sigLogoPreview').innerHTML =
+      `<img src="${sigBuilderState.data.logoDataUrl}" style="max-width:80px;max-height:80px;border:1px solid var(--border);padding:4px;background:#fff;">`;
+  }
+}
+
+function renderSigTemplateGallery() {
+  const el = document.getElementById('sigTemplateGallery');
+  if (!el) return;
+  const templates = SignatureTemplates.getTemplates();
+  el.innerHTML = templates.map(t => `
+    <div class="sig-template-item ${t.id === sigBuilderState.currentTemplateId ? 'active' : ''}" data-tpl="${t.id}">
+      <div class="sig-template-name">${escapeHtml(t.name)}</div>
+      <div class="sig-template-desc">${escapeHtml(t.description)}</div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.sig-template-item').forEach(item => {
+    item.onclick = () => {
+      sigBuilderState.currentTemplateId = item.dataset.tpl;
+      renderSigTemplateGallery();
+      updateSigPreview();
+    };
+  });
+}
+
+// Form değişince çağrılır (oninput)
+function onSigDataChange() {
+  const v = (id) => document.getElementById(id)?.value || '';
+  sigBuilderState.data = Object.assign({}, sigBuilderState.data, {
+    name: v('sb_name'),
+    title: v('sb_title'),
+    company: v('sb_company'),
+    phone: v('sb_phone'),
+    email: v('sb_email'),
+    website: v('sb_website'),
+    address: v('sb_address'),
+    accentColor: v('sb_accent') || '#0078d4',
+    linkedin: v('sb_linkedin'),
+    twitter: v('sb_twitter'),
+    instagram: v('sb_instagram')
+    // logoDataUrl ayrı yönetiliyor
+  });
+  updateSigPreview();
+}
+window.onSigDataChange = onSigDataChange;
+
+function updateSigPreview() {
+  const html = SignatureTemplates.render(sigBuilderState.currentTemplateId, sigBuilderState.data);
+  const el = document.getElementById('sigPreviewContainer');
+  if (el) el.innerHTML = html;
+}
+
+async function uploadSigLogo() {
+  try {
+    // branding:pickAndReadImage IPC'sini kullan (mevcut)
+    const result = await window.api.branding?.pickImage?.();
+    if (!result || !result.ok) {
+      // Fallback: file input
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/png,image/jpeg,image/svg+xml,image/webp';
+      input.onchange = () => {
+        const file = input.files[0];
+        if (!file) return;
+        if (file.size > 200 * 1024) { alert('Logo en fazla 200 KB olabilir'); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          sigBuilderState.data.logoDataUrl = reader.result;
+          document.getElementById('sigLogoPreview').innerHTML =
+            `<img src="${reader.result}" style="max-width:80px;max-height:80px;border:1px solid var(--border);padding:4px;background:#fff;">`;
+          updateSigPreview();
+        };
+        reader.readAsDataURL(file);
+      };
+      input.click();
+      return;
+    }
+    sigBuilderState.data.logoDataUrl = result.dataUrl;
+    document.getElementById('sigLogoPreview').innerHTML =
+      `<img src="${result.dataUrl}" style="max-width:80px;max-height:80px;border:1px solid var(--border);padding:4px;background:#fff;">`;
+    updateSigPreview();
+  } catch (e) {
+    alert('Logo yüklenemedi: ' + e.message);
+  }
+}
+
+async function applySignatureFromBuilder() {
+  if (!sigBuilderState.data.name) {
+    if (!confirm('Ad Soyad boş - yine de uygula?')) return;
+  }
+  const html = SignatureTemplates.render(sigBuilderState.currentTemplateId, sigBuilderState.data);
+
+  // signatureEditor'a HTML'i koy
+  if (state.signatureEditor && typeof state.signatureEditor.setHTML === 'function') {
+    state.signatureEditor.setHTML(html);
+  }
+
+  // signature_data'yı state'e geçici olarak yaz - hesap kaydedilirken DB'ye gidecek
+  sigBuilderState._lastApplied = {
+    templateId: sigBuilderState.currentTemplateId,
+    data: sigBuilderState.data,
+    html
+  };
+
+  setStatus('✓ İmza şablonu uygulandı. Hesabı kaydetmeyi unutmayın.');
+  document.getElementById('modalSignatureBuilder').classList.add('hidden');
+}
+
+// btnSignatureBuilder bağla (settings modal açıldığında)
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'btnSignatureBuilder') {
+    e.preventDefault();
+    openSignatureBuilder();
+  }
+});
+
+// Hesap kaydedilirken signature_data'yı da gönder
+const _origAccountSave = window._origAccountSave;
