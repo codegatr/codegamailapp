@@ -703,6 +703,29 @@
           </div>
         </div>
 
+        <!-- v1.28: Boşta Kalma Kilidi -->
+        <div class="form-section full" style="margin-top:18px;">🔒 Otomatik Kilitleme</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_auto_lock">
+              <span>Boşta kalmada uygulamayı otomatik kilitle</span>
+            </label>
+            <small>Master Password aktif olmalı. Belirlenen süre boyunca fare/klavye hareketi yoksa uygulama otomatik kilitlenir, devam etmek için master password istenir. <strong id="autoLockNoMasterWarning" class="hidden" style="color:var(--danger);">⚠ Önce Master Password belirleyin (Güvenlik bölümünden).</strong></small>
+          </div>
+          <div class="form-group full">
+            <label>Boşta kalma süresi</label>
+            <select id="settings_auto_lock_minutes">
+              <option value="1">1 dakika</option>
+              <option value="5">5 dakika (yüksek güvenlik)</option>
+              <option value="15" selected>15 dakika (önerilen)</option>
+              <option value="30">30 dakika</option>
+              <option value="60">1 saat</option>
+              <option value="120">2 saat</option>
+            </select>
+          </div>
+        </div>
+
         <!-- v1.22: Yazım Denetimi -->
         <div class="form-section full" style="margin-top:18px;">📝 Yazım Denetimi</div>
         <div class="form-grid" style="grid-template-columns:1fr 1fr;">

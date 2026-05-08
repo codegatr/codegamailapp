@@ -674,6 +674,8 @@ function bindSettings() {
     ['settings_default_protocol', 'defaultProtocol', 'string'],
     ['settings_auto_archive', 'autoArchiveEnabled', 'checkbox'],
     ['settings_auto_archive_months', 'autoArchiveMonths', 'number'],
+    ['settings_auto_lock', 'autoLockEnabled', 'checkbox'],
+    ['settings_auto_lock_minutes', 'autoLockMinutes', 'number'],
     ['vt_autoScan', 'virustotalAutoScan', 'checkbox'],
     ['url_scanWithVt', 'urlScanWithVt', 'checkbox']
   ];
@@ -687,6 +689,10 @@ function bindSettings() {
       await window.api.config.updatePrefs({ [key]: value });
       flashSettingsSavedIndicator();
       setStatus('Ayar kaydedildi');
+      // v1.28: autoLock ayarları değiştiyse idle monitor'ü yenile
+      if (key === 'autoLockEnabled' || key === 'autoLockMinutes') {
+        refreshIdleLockState().catch(() => {});
+      }
     });
   }
 
@@ -773,6 +779,21 @@ async function openSettings() {
   if (aaEl) aaEl.checked = !!cfg.autoArchiveEnabled;
   const aamEl = document.getElementById('settings_auto_archive_months');
   if (aamEl) aamEl.value = String(cfg.autoArchiveMonths || 6);
+
+  // v1.28: Boşta kalma kilidi
+  const alEl = document.getElementById('settings_auto_lock');
+  if (alEl) alEl.checked = !!cfg.autoLockEnabled;
+  const almEl = document.getElementById('settings_auto_lock_minutes');
+  if (almEl) almEl.value = String(cfg.autoLockMinutes || 15);
+  // Master password yoksa uyarı göster
+  try {
+    const secStatus = await window.api.security.status();
+    const warnEl = document.getElementById('autoLockNoMasterWarning');
+    if (warnEl) {
+      if (secStatus.hasMasterPassword) warnEl.classList.add('hidden');
+      else warnEl.classList.remove('hidden');
+    }
+  } catch (_) {}
 
   // v1.22: Yazım denetimi ayarları
   await loadSpellSettings();
@@ -5350,6 +5371,7 @@ function bindSecuritySettings() {
     if (r.ok) {
       setStatus('✓ Ana şifre belirlendi');
       await refreshSecuritySettings();
+      await refreshIdleLockState();
     } else {
       alert('Hata: ' + r.error);
     }
@@ -5373,6 +5395,7 @@ function bindSecuritySettings() {
     if (r.ok) {
       setStatus('Ana şifre kaldırıldı');
       await refreshSecuritySettings();
+      await refreshIdleLockState();
     } else {
       alert('Hata: ' + r.error);
     }
@@ -6454,3 +6477,109 @@ if (window.api && window.api.on) {
     // Sessizce - notification sistemi zaten gösterdi
   });
 }
+
+// ============= v1.28: Boşta Kalma Kilidi (Idle Lock) =============
+const idleLock = {
+  timer: null,
+  timeoutMs: 0,
+  enabled: false,
+  hasMasterPassword: false,
+  installedListeners: false,
+  // Yüksek-frekanslı event'leri throttle etmek için son aktivite zamanı
+  lastActivity: Date.now(),
+  // 1 saniyeden sıkça reset etme
+  throttleMs: 1000
+};
+
+async function refreshIdleLockState() {
+  try {
+    const cfg = await window.api.config.get();
+    const secStatus = await window.api.security.status();
+
+    idleLock.enabled = !!cfg.autoLockEnabled;
+    idleLock.timeoutMs = (cfg.autoLockMinutes || 15) * 60 * 1000;
+    idleLock.hasMasterPassword = !!secStatus.hasMasterPassword;
+
+    // Master password yoksa veya kapalıysa timer'ı durdur
+    if (!idleLock.enabled || !idleLock.hasMasterPassword) {
+      stopIdleTimer();
+      return;
+    }
+
+    // Listener'ları bir defa kur
+    if (!idleLock.installedListeners) {
+      installIdleListeners();
+      idleLock.installedListeners = true;
+    }
+
+    // Timer'ı başlat / yenile
+    resetIdleTimer();
+  } catch (e) {
+    console.warn('Idle lock state refresh hatası:', e.message);
+  }
+}
+
+function installIdleListeners() {
+  const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'wheel', 'click'];
+  for (const ev of events) {
+    document.addEventListener(ev, onUserActivity, { passive: true, capture: true });
+  }
+  // Sekme/pencere odak değişikliklerinde de aktivite say
+  window.addEventListener('focus', onUserActivity, { passive: true });
+  // Sekme görünmez olduğunda timer çalışmaya devam etmeli (setTimeout sayesinde)
+}
+
+function onUserActivity() {
+  const now = Date.now();
+  // Throttle
+  if (now - idleLock.lastActivity < idleLock.throttleMs) return;
+  idleLock.lastActivity = now;
+  resetIdleTimer();
+}
+
+function stopIdleTimer() {
+  if (idleLock.timer) {
+    clearTimeout(idleLock.timer);
+    idleLock.timer = null;
+  }
+}
+
+function resetIdleTimer() {
+  stopIdleTimer();
+  if (!idleLock.enabled || !idleLock.hasMasterPassword || !idleLock.timeoutMs) return;
+  idleLock.timer = setTimeout(triggerAutoLock, idleLock.timeoutMs);
+}
+
+async function triggerAutoLock() {
+  // Lock screen zaten görünüyorsa atla
+  const lockScreen = document.getElementById('lockScreen');
+  if (lockScreen && !lockScreen.classList.contains('hidden')) return;
+
+  // Hızlı durum kontrol (kullanıcı bu süre içinde master pw kaldırmış olabilir)
+  try {
+    const secStatus = await window.api.security.status();
+    if (!secStatus.hasMasterPassword) return;
+
+    setStatus('🔒 Boşta kalmadan dolayı kilitlendi');
+    await window.api.security.lockApp();
+  } catch (e) {
+    console.warn('Auto-lock hatası:', e.message);
+  }
+}
+
+// Settings güncellendiğinde idle state'i yenile
+async function onPrefsChanged() {
+  await refreshIdleLockState();
+}
+
+// security:locked event'ini dinle (kilit açıldıysa timer'ı sıfırla)
+if (window.api && window.api.on) {
+  window.api.on('security:locked', () => {
+    stopIdleTimer();
+  });
+}
+
+// İlk yüklemede idle monitor başlat
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(refreshIdleLockState, 1500);
+});

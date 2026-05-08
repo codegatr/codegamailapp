@@ -524,7 +524,9 @@ ipcMain.handle('config:get', () => ({
   spellCheckEnabled: appConfig.get('spellCheckEnabled') !== false,
   spellCheckLanguages: appConfig.get('spellCheckLanguages') || ['tr', 'en-US'],
   autoArchiveEnabled: !!appConfig.get('autoArchiveEnabled'),
-  autoArchiveMonths: appConfig.get('autoArchiveMonths') || 6
+  autoArchiveMonths: appConfig.get('autoArchiveMonths') || 6,
+  autoLockEnabled: !!appConfig.get('autoLockEnabled'),
+  autoLockMinutes: appConfig.get('autoLockMinutes') || 15
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
