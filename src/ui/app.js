@@ -424,6 +424,7 @@ function bindToolbar() {
   document.getElementById('btnNotes').onclick = openNotes;
   document.getElementById('btnTasks').onclick = openTasks;
   document.getElementById('btnArchive').onclick = openArchive;
+  document.getElementById('btnPGP').onclick = openPGP;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -1676,6 +1677,9 @@ async function openMessage(id) {
   renderMessageView(msg);
   document.querySelectorAll('.message-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.message-item[data-id="${id}"]`)?.classList.add('active');
+
+  // v1.25: PGP detect - şifreli/imzalı mesajsa badge göster
+  setTimeout(() => checkAndShowPgpStatus(msg), 100);
 }
 
 // v1.9: Thread (konuşma) görünümü - tüm mesajları timeline'da listele
@@ -2376,6 +2380,10 @@ function openCompose(opts = {}) {
   // v1.16: Autocomplete bağla
   attachAutocompleteToCompose();
 
+  // v1.25: PGP toggle listener bağla + ilk durum
+  bindComposeEncryptListener();
+  refreshComposeEncryptToggle().catch(() => {});
+
   // v1.6: editor varsa init et (modal hidden iken init zor olabilir, burada da güvence)
   if (!state.composeEditor && typeof RichEditor !== 'undefined') {
     state.composeEditor = new RichEditor('composeEditor', {
@@ -2467,16 +2475,44 @@ async function sendMail() {
 
   setStatus('Gönderiliyor…' + (attachments.length ? ` (${attachments.length} ek)` : ''));
   try {
+    // v1.25: PGP şifreleme - alıcı public key'leri varsa ve toggle açıksa
+    const pgpEncrypt = document.getElementById('compose_pgp_encrypt');
+    if (pgpEncrypt && pgpEncrypt.checked) {
+      const recipientEmails = parseEmailAddresses(to + (cc ? ',' + cc : ''));
+      if (recipientEmails.length === 0) throw new Error('Alıcı adresleri okunamadı');
+
+      // Ek dosyalar uyarısı (PGP/MIME standart değil bu MVP'de)
+      if (attachments.length) {
+        if (!confirm('PGP şifreleme aktif - ekler ŞİFRELENMEDEN gönderilecek. Devam edilsin mi?')) {
+          setStatus('Gönderim iptal edildi');
+          return;
+        }
+      }
+
+      const enc = await window.api.pgp.encrypt({
+        plainText: finalText,
+        recipientEmails,
+        // İmzalama opsiyonel - şu MVP'de imzasız
+      });
+      if (!enc.ok) throw new Error('PGP şifreleme: ' + enc.error);
+
+      // body'yi PGP MESSAGE BLOCK ile değiştir
+      finalText = enc.armored;
+      // HTML body'yi de plain wrapper ile gönder (gmail vs uyumlu)
+      finalHtml = `<pre style="font-family:ui-monospace,monospace;font-size:11px;white-space:pre-wrap;">${escapeHtml(enc.armored)}</pre>`;
+    }
+
     await window.api.mail.send(accountId, {
       to, cc: cc || undefined, subject,
       text: finalText, html: finalHtml,
       attachments: attachments.length ? attachments : undefined
     });
     document.getElementById('modalCompose').classList.add('hidden');
-    setStatus('Mesaj gönderildi ✓' + (attachments.length ? ` (${attachments.length} ek)` : ''));
+    setStatus('Mesaj gönderildi ✓' + (attachments.length ? ` (${attachments.length} ek)` : '') + (pgpEncrypt && pgpEncrypt.checked ? ' [🔐 PGP]' : ''));
     state.composeAttachments = [];
     renderAttachmentList();
     if (state.composeEditor) state.composeEditor.clear();
+    if (pgpEncrypt) pgpEncrypt.checked = false;
     await loadAccounts();
     if (state.selectedFolder) await loadMessages();
   } catch (e) {
@@ -4782,6 +4818,8 @@ function buildCommandList() {
       action: () => openArchive(), category: 'Modül' },
     { id: 'archive-old', label: 'Eski mesajları toplu arşivle', icon: '📥',
       action: () => openArchiveOldDialog(), category: 'Modül' },
+    { id: 'pgp', label: 'PGP Anahtar Yönetimi', icon: '🔐',
+      action: () => openPGP(), category: 'Modül' },
     { id: 'templates', label: 'Şablonlar', icon: '📝',
       action: () => { const b = document.getElementById('btnTemplates'); if (b) b.click(); }, category: 'Modül' },
     { id: 'rules', label: 'Filtre Kuralları', icon: '🔧',
@@ -5605,3 +5643,388 @@ if (window.api && window.api.on) {
 }
 
 // Klavye kısayolu: E (Gmail tarzı arşivleme)
+
+// ============= v1.25: PGP / OpenPGP =============
+let pgpUIBound = false;
+
+async function openPGP() {
+  document.getElementById('modalPGP').classList.remove('hidden');
+  if (!pgpUIBound) {
+    pgpUIBound = true;
+    bindPGPUI();
+  }
+  await renderPgpKeys();
+  await renderPgpContacts();
+}
+
+function bindPGPUI() {
+  // Tab switching
+  document.querySelectorAll('.pgp-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.pgp-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.tab;
+      document.querySelectorAll('.pgp-pane').forEach(p => p.classList.add('hidden'));
+      const paneId = 'pgpPane' + target.charAt(0).toUpperCase() + target.slice(1);
+      document.getElementById(paneId)?.classList.remove('hidden');
+    };
+  });
+
+  document.getElementById('btnGenPgpKey').onclick = openPgpGenerateDialog;
+  document.getElementById('btnImportPgpContact').onclick = openPgpImportDialog;
+  document.getElementById('btnPgpGenSubmit').onclick = submitPgpGenerate;
+  document.getElementById('btnPgpImportSubmit').onclick = submitPgpImport;
+  document.getElementById('btnPgpExportCopy').onclick = () => {
+    navigator.clipboard.writeText(document.getElementById('pgp_export_text').value);
+    setStatus('✓ Public key kopyalandı');
+  };
+  document.getElementById('btnPgpDecryptSubmit').onclick = submitPgpDecrypt;
+}
+
+async function renderPgpKeys() {
+  const keys = await window.api.pgp.listKeys();
+  const el = document.getElementById('pgpMyKeysList');
+  if (!keys.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px;">Henüz anahtarınız yok. "+ Yeni Anahtar Üret" ile başlayın.</div>';
+    return;
+  }
+  el.innerHTML = keys.map(k => `
+    <div class="pgp-key-card ${k.is_default ? 'default' : ''}">
+      <div class="pgp-key-header">
+        <span class="pgp-key-icon">🗝</span>
+        <div class="pgp-key-info">
+          <div class="pgp-key-name">${k.is_default ? '⭐ ' : ''}${escapeHtml(k.name || k.email)} <small style="color:var(--muted);">${escapeHtml(k.email)}</small></div>
+          <div class="pgp-key-fp" title="Fingerprint">${escapeHtml(formatFingerprint(k.fingerprint))}</div>
+        </div>
+      </div>
+      <div class="pgp-key-actions">
+        ${!k.is_default ? `<button class="btn btn-ghost" data-action="default" data-id="${k.id}">⭐ Varsayılan Yap</button>` : ''}
+        <button class="btn" data-action="export" data-id="${k.id}">📤 Public Key Paylaş</button>
+        <button class="btn btn-ghost" data-action="delete" data-id="${k.id}" style="color:var(--danger);">🗑 Sil</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('[data-action]').forEach(btn => {
+    btn.onclick = async () => {
+      const action = btn.dataset.action;
+      const id = parseInt(btn.dataset.id, 10);
+      if (action === 'default') {
+        await window.api.pgp.setDefault(id);
+        await renderPgpKeys();
+      } else if (action === 'export') {
+        const r = await window.api.pgp.exportPublicKey(id);
+        if (r.ok) {
+          document.getElementById('pgp_export_text').value = r.publicKey;
+          document.getElementById('modalPgpExport').classList.remove('hidden');
+        }
+      } else if (action === 'delete') {
+        if (!confirm('Bu anahtar silinsin mi? Bu işlem geri alınamaz! Bu anahtarla şifrelenmiş tüm mailleriniz açılamaz hale gelir.')) return;
+        await window.api.pgp.deleteKey(id);
+        await renderPgpKeys();
+        setStatus('Anahtar silindi');
+      }
+    };
+  });
+}
+
+async function renderPgpContacts() {
+  const contacts = await window.api.pgp.listContacts();
+  const el = document.getElementById('pgpContactsList');
+  if (!contacts.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px;">Henüz kişi public key\'i yok. Karşı taraf size kendi public key\'ini gönderdiğinde "+ Public Key İçe Aktar" ile ekleyin.</div>';
+    return;
+  }
+  el.innerHTML = contacts.map(c => `
+    <div class="pgp-key-card">
+      <div class="pgp-key-header">
+        <span class="pgp-key-icon">👤</span>
+        <div class="pgp-key-info">
+          <div class="pgp-key-name">${escapeHtml(c.name || c.email)} <small style="color:var(--muted);">${escapeHtml(c.email)}</small></div>
+          <div class="pgp-key-fp" title="Fingerprint">${escapeHtml(formatFingerprint(c.fingerprint))}</div>
+          <div style="margin-top:4px;font-size:11px;">
+            Güven: <select class="pgp-trust" data-id="${c.id}" style="font-size:11px;padding:2px 6px;">
+              <option value="unverified" ${c.trust_level === 'unverified' ? 'selected' : ''}>❓ Doğrulanmamış</option>
+              <option value="verified" ${c.trust_level === 'verified' ? 'selected' : ''}>✅ Doğrulanmış</option>
+              <option value="trusted" ${c.trust_level === 'trusted' ? 'selected' : ''}>⭐ Güvenilir</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="pgp-key-actions">
+        <button class="btn btn-ghost" data-action="delete-contact" data-id="${c.id}" style="color:var(--danger);">🗑 Sil</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.pgp-trust').forEach(sel => {
+    sel.onchange = async () => {
+      await window.api.pgp.setContactTrust({ id: parseInt(sel.dataset.id, 10), level: sel.value });
+      setStatus('Güven seviyesi güncellendi');
+    };
+  });
+  el.querySelectorAll('[data-action="delete-contact"]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Bu kişinin public key\'i silinsin mi?')) return;
+      await window.api.pgp.deleteContact(parseInt(btn.dataset.id, 10));
+      await renderPgpContacts();
+    };
+  });
+}
+
+function formatFingerprint(fp) {
+  if (!fp) return '';
+  // 4 karakterlik gruplar halinde formatla
+  return fp.match(/.{1,4}/g).join(' ');
+}
+
+function openPgpGenerateDialog() {
+  document.getElementById('pgp_gen_name').value = state.accounts && state.accounts[0] ? state.accounts[0].display_name : '';
+  document.getElementById('pgp_gen_email').value = state.accounts && state.accounts[0] ? state.accounts[0].email : '';
+  document.getElementById('pgp_gen_passphrase').value = '';
+  document.getElementById('pgp_gen_passphrase2').value = '';
+  document.getElementById('pgp_gen_progress').classList.add('hidden');
+  document.getElementById('pgp_gen_error').classList.add('hidden');
+  document.getElementById('btnPgpGenSubmit').disabled = false;
+  document.getElementById('modalPgpGenerate').classList.remove('hidden');
+}
+
+async function submitPgpGenerate() {
+  const name = document.getElementById('pgp_gen_name').value.trim();
+  const email = document.getElementById('pgp_gen_email').value.trim();
+  const pass1 = document.getElementById('pgp_gen_passphrase').value;
+  const pass2 = document.getElementById('pgp_gen_passphrase2').value;
+  const errEl = document.getElementById('pgp_gen_error');
+  const progEl = document.getElementById('pgp_gen_progress');
+  const btn = document.getElementById('btnPgpGenSubmit');
+
+  errEl.classList.add('hidden');
+
+  if (!email || !email.includes('@')) {
+    errEl.textContent = 'Geçerli bir email girin';
+    errEl.classList.remove('hidden'); return;
+  }
+  if (pass1.length < 8) {
+    errEl.textContent = 'Passphrase en az 8 karakter olmalı';
+    errEl.classList.remove('hidden'); return;
+  }
+  if (pass1 !== pass2) {
+    errEl.textContent = 'Passphrase\'ler eşleşmiyor';
+    errEl.classList.remove('hidden'); return;
+  }
+
+  progEl.classList.remove('hidden');
+  btn.disabled = true;
+
+  try {
+    const r = await window.api.pgp.generateKey({ name, email, passphrase: pass1 });
+    if (!r.ok) {
+      errEl.textContent = r.error;
+      errEl.classList.remove('hidden');
+      progEl.classList.add('hidden');
+      btn.disabled = false;
+      return;
+    }
+    document.getElementById('modalPgpGenerate').classList.add('hidden');
+    setStatus('✓ Anahtar üretildi: ' + r.fingerprint.slice(0, 16) + '...');
+    await renderPgpKeys();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.classList.remove('hidden');
+    progEl.classList.add('hidden');
+    btn.disabled = false;
+  }
+}
+
+function openPgpImportDialog() {
+  document.getElementById('pgp_import_armored').value = '';
+  document.getElementById('pgp_import_error').classList.add('hidden');
+  document.getElementById('modalPgpImport').classList.remove('hidden');
+}
+
+async function submitPgpImport() {
+  const armored = document.getElementById('pgp_import_armored').value.trim();
+  const errEl = document.getElementById('pgp_import_error');
+  errEl.classList.add('hidden');
+
+  if (!armored.includes('-----BEGIN PGP PUBLIC KEY BLOCK-----')) {
+    errEl.textContent = 'PGP PUBLIC KEY BLOCK ile başlayan geçerli bir public key yapıştırın';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const r = await window.api.pgp.importContact({ armoredKey: armored });
+  if (!r.ok) {
+    errEl.textContent = r.error;
+    errEl.classList.remove('hidden');
+    return;
+  }
+  document.getElementById('modalPgpImport').classList.add('hidden');
+  setStatus(`✓ ${r.email} public key'i içe aktarıldı`);
+  await renderPgpContacts();
+}
+
+// ============= Compose'da PGP toggle =============
+async function refreshComposeEncryptToggle() {
+  const toggle = document.getElementById('composePgpEncryptToggle');
+  if (!toggle) return;
+  const toEl = document.getElementById('compose_to');
+  if (!toEl) return;
+  const toValue = toEl.value;
+  // Adresleri parse et
+  const emails = parseEmailAddresses(toValue);
+  if (!emails.length) {
+    toggle.classList.add('hidden');
+    return;
+  }
+  // Tüm alıcıların public key'i var mı?
+  let allHaveKeys = true;
+  for (const e of emails) {
+    const has = await window.api.pgp.hasContact(e);
+    if (!has) { allHaveKeys = false; break; }
+  }
+  if (allHaveKeys) {
+    toggle.classList.remove('hidden');
+    toggle.title = `Tüm ${emails.length} alıcının PGP anahtarı mevcut`;
+  } else {
+    toggle.classList.add('hidden');
+    document.getElementById('compose_pgp_encrypt').checked = false;
+  }
+}
+
+function parseEmailAddresses(str) {
+  if (!str) return [];
+  const parts = str.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+  const emails = [];
+  for (const p of parts) {
+    const m = p.match(/<([^>]+)>/) || p.match(/^\s*([^\s,;]+@[^\s,;]+)\s*$/);
+    if (m) emails.push((m[1] || m[0]).trim().toLowerCase());
+  }
+  return emails;
+}
+
+// Compose To input'una listener bağla
+function bindComposeEncryptListener() {
+  const toEl = document.getElementById('compose_to');
+  if (!toEl || toEl.dataset.pgpBound) return;
+  toEl.dataset.pgpBound = '1';
+  toEl.addEventListener('input', debounce(refreshComposeEncryptToggle, 300));
+  toEl.addEventListener('blur', refreshComposeEncryptToggle);
+}
+
+// ============= Mesaj görüntüleme: PGP detect =============
+async function checkAndShowPgpStatus(message) {
+  // body_text içinde PGP MESSAGE BLOCK var mı kontrol et
+  const body = message.body_text || '';
+  const det = await window.api.pgp.detectInBody(body);
+
+  // Eski badge varsa kaldır
+  const existing = document.getElementById('pgpStatusBadge');
+  if (existing) existing.remove();
+
+  if (!det || !det.type) return;
+
+  const detailContainer = document.querySelector('.message-detail-content, #messageBody, .message-body')
+    || document.body;
+
+  const badge = document.createElement('div');
+  badge.id = 'pgpStatusBadge';
+  badge.className = 'pgp-status-badge';
+
+  if (det.type === 'encrypted') {
+    badge.innerHTML = `🔐 <strong>Bu mesaj PGP ile şifrelenmiş</strong> · <button class="btn btn-primary" id="btnPgpDecryptOpen" style="margin-left:10px;">🔓 Aç</button>`;
+    badge.style.background = 'rgba(52,152,219,0.15)';
+    badge.style.borderColor = 'rgba(52,152,219,0.5)';
+  } else if (det.type === 'signed') {
+    badge.innerHTML = '✍ <strong>Bu mesaj PGP ile imzalanmış</strong> · İçeriği Görüntüle/Doğrula menüsü';
+    badge.style.background = 'rgba(46,204,113,0.15)';
+  }
+
+  // Mesaj başına yerleştir
+  const firstChild = detailContainer.firstChild;
+  if (firstChild) detailContainer.insertBefore(badge, firstChild);
+  else detailContainer.appendChild(badge);
+
+  if (det.type === 'encrypted') {
+    setTimeout(() => {
+      const btn = document.getElementById('btnPgpDecryptOpen');
+      if (btn) btn.onclick = () => openPgpDecryptDialog(message);
+    }, 50);
+  }
+}
+
+async function openPgpDecryptDialog(message) {
+  const keys = await window.api.pgp.listKeys();
+  const sel = document.getElementById('pgp_decrypt_key');
+  const privateKeys = keys.filter(k => k.has_private);
+  if (!privateKeys.length) {
+    alert('Şifre çözmek için bir private key gerekli. Önce Toolbar > 🔐 PGP\'den anahtar üretin.');
+    return;
+  }
+  sel.innerHTML = privateKeys.map(k =>
+    `<option value="${k.id}" ${k.is_default ? 'selected' : ''}>${escapeHtml(k.name || k.email)} (${k.fingerprint.slice(0, 8)}...)</option>`
+  ).join('');
+  document.getElementById('pgp_decrypt_passphrase').value = '';
+  document.getElementById('pgp_decrypt_error').classList.add('hidden');
+  document.getElementById('pgp_decrypt_result').classList.add('hidden');
+  document.getElementById('modalPgpDecrypt').classList.remove('hidden');
+  document.getElementById('modalPgpDecrypt').dataset.messageId = message.id;
+  document.getElementById('modalPgpDecrypt').dataset.senderEmail = message.from_addr || '';
+  document.getElementById('modalPgpDecrypt').dataset.bodyText = message.body_text || '';
+  setTimeout(() => document.getElementById('pgp_decrypt_passphrase').focus(), 100);
+}
+
+async function submitPgpDecrypt() {
+  const modal = document.getElementById('modalPgpDecrypt');
+  const keyId = parseInt(document.getElementById('pgp_decrypt_key').value, 10);
+  const passphrase = document.getElementById('pgp_decrypt_passphrase').value;
+  const senderEmail = modal.dataset.senderEmail;
+  const bodyText = modal.dataset.bodyText;
+  const errEl = document.getElementById('pgp_decrypt_error');
+  const resEl = document.getElementById('pgp_decrypt_result');
+
+  errEl.classList.add('hidden');
+  resEl.classList.add('hidden');
+
+  // body_text'ten PGP block'unu çıkar
+  const blockMatch = bodyText.match(/-----BEGIN PGP MESSAGE-----[\s\S]*?-----END PGP MESSAGE-----/);
+  if (!blockMatch) {
+    errEl.textContent = 'PGP MESSAGE bloğu bulunamadı';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  const r = await window.api.pgp.decrypt({
+    armoredMessage: blockMatch[0],
+    keyId,
+    passphrase,
+    senderEmail
+  });
+
+  if (!r.ok) {
+    errEl.textContent = r.error;
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  // Sonucu göster
+  document.getElementById('pgp_decrypt_text').textContent = r.decryptedText;
+  const sigEl = document.getElementById('pgp_decrypt_signature_info');
+  if (r.verified) {
+    if (r.verified.ok) {
+      sigEl.innerHTML = `✅ <strong>İmza doğrulandı</strong> - Key ID: ${r.verified.keyId}`;
+      sigEl.style.background = 'rgba(46,204,113,0.15)';
+      sigEl.style.color = '#2ecc71';
+    } else {
+      sigEl.innerHTML = `⚠ <strong>İmza doğrulanamadı</strong> - ${r.verified.error}`;
+      sigEl.style.background = 'rgba(231,76,60,0.15)';
+      sigEl.style.color = 'var(--danger)';
+    }
+    sigEl.classList.remove('hidden');
+  } else {
+    sigEl.classList.add('hidden');
+  }
+  resEl.classList.remove('hidden');
+}
+
+// Komut paletine ekle

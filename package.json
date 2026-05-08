@@ -1,6 +1,6 @@
 {
   "name": "codega-mail",
-  "version": "1.24.0",
+  "version": "1.25.0",
   "description": "CODEGA Mail - Yerel masaüstü mail istemcisi (IMAP/POP3, sistem tepsisi, otomatik güncelleme, ek dosya, birleşik gelen kutusu, zengin metin editörü)",
   "main": "src/main.js",
   "author": "CODEGA",
@@ -20,6 +20,7 @@
     "node-notifier": "^10.0.1",
     "node-pop3": "^0.10.0",
     "nodemailer": "^6.9.7",
+    "openpgp": "^5.11.2",
     "qrcode": "^1.5.4",
     "sql.js": "^1.10.3",
     "uuid": "^9.0.1"

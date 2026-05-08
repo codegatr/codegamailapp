@@ -1225,6 +1225,150 @@ async function processAutoArchive() {
 }
 
 // =====================================================================
+// v1.25 IPC: PGP / OpenPGP
+// =====================================================================
+const PGPService = require('./services/pgp');
+
+ipcMain.handle('pgp:listKeys', () => db.listPgpKeys());
+ipcMain.handle('pgp:listContacts', () => db.listPgpContacts());
+
+ipcMain.handle('pgp:generateKey', async (_, { name, email, passphrase }) => {
+  try {
+    if (!email || !passphrase) return { ok: false, error: 'Email ve passphrase gerekli' };
+    if (passphrase.length < 8) return { ok: false, error: 'Passphrase en az 8 karakter olmalı' };
+    const result = await PGPService.generateKeyPair(name, email, passphrase);
+    const id = db.addPgpKey({
+      email,
+      name: name || email,
+      fingerprint: result.fingerprint,
+      key_id: result.keyId,
+      public_key: result.publicKey,
+      private_key: result.privateKey,
+      is_default: db.listPgpKeys().length === 0 ? 1 : 0
+    });
+    db.save();
+    return { ok: true, id, fingerprint: result.fingerprint, keyId: result.keyId };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('pgp:setDefault', (_, id) => {
+  db.setDefaultPgpKey(id);
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('pgp:deleteKey', (_, id) => {
+  db.deletePgpKey(id);
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('pgp:exportPublicKey', (_, id) => {
+  const k = db.getPgpKey(id);
+  return k ? { ok: true, publicKey: k.public_key, email: k.email, fingerprint: k.fingerprint } : { ok: false };
+});
+
+ipcMain.handle('pgp:importContact', async (_, { armoredKey }) => {
+  try {
+    const info = await PGPService.readPublicKey(armoredKey);
+    // Email'i userIDs'den çıkar
+    const userId = info.userIDs[0] || '';
+    const m = userId.match(/<([^>]+)>/);
+    const email = m ? m[1] : '';
+    const name = m ? userId.replace(/<[^>]+>/, '').trim() : userId;
+    if (!email) return { ok: false, error: 'Public key içinde email adresi bulunamadı' };
+    const id = db.addPgpContact({
+      email,
+      name,
+      fingerprint: info.fingerprint,
+      key_id: info.keyId,
+      public_key: armoredKey,
+      trust_level: 'unverified'
+    });
+    db.save();
+    return { ok: true, id, email, name, fingerprint: info.fingerprint };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('pgp:deleteContact', (_, id) => {
+  db.deletePgpContact(id);
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('pgp:setContactTrust', (_, { id, level }) => {
+  db.setPgpContactTrust(id, level);
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('pgp:hasContact', (_, email) => {
+  return !!db.getPgpContactByEmail(email);
+});
+
+ipcMain.handle('pgp:encrypt', async (_, { plainText, recipientEmails, signWithKeyId, signPassphrase }) => {
+  try {
+    const recipientKeys = [];
+    for (const em of recipientEmails) {
+      const c = db.getPgpContactByEmail(em);
+      if (!c) return { ok: false, error: `${em} için public key bulunamadı. Önce kişinin PGP anahtarını içe aktarın.` };
+      recipientKeys.push(c.public_key);
+    }
+    let signingPriv = null, signingPass = '';
+    if (signWithKeyId) {
+      const sk = db.getPgpKey(signWithKeyId);
+      if (sk && sk.private_key) {
+        signingPriv = sk.private_key;
+        signingPass = signPassphrase || '';
+      }
+    }
+    const armored = await PGPService.encryptMessage(plainText, recipientKeys, signingPriv, signingPass);
+    return { ok: true, armored };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('pgp:decrypt', async (_, { armoredMessage, keyId, passphrase, senderEmail }) => {
+  try {
+    let privKey = null;
+    if (keyId) {
+      const k = db.getPgpKey(keyId);
+      if (k && k.private_key) privKey = k.private_key;
+    }
+    if (!privKey) {
+      // Default key dene
+      const keys = db.listPgpKeys();
+      const def = keys.find(k => k.is_default && k.has_private) || keys.find(k => k.has_private);
+      if (def) {
+        const full = db.getPgpKey(def.id);
+        privKey = full.private_key;
+      }
+    }
+    if (!privKey) return { ok: false, error: 'Şifre çözmek için bir private key gerekli. Settings > PGP\'den anahtar üretin.' };
+
+    let senderKeys = [];
+    if (senderEmail) {
+      const c = db.getPgpContactByEmail(senderEmail);
+      if (c) senderKeys.push(c.public_key);
+    }
+
+    const result = await PGPService.decryptMessage(armoredMessage, privKey, passphrase || '', senderKeys);
+    return { ok: true, decryptedText: result.decryptedText, verified: result.verified };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('pgp:detectInBody', (_, bodyText) => {
+  return { type: PGPService.detectPgpInBody(bodyText) };
+});
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));

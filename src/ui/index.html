@@ -30,6 +30,7 @@
       <button id="btnNotes" class="btn btn-ghost" title="Notlar">📓 Notlar</button>
       <button id="btnTasks" class="btn btn-ghost" title="Görevler / To-Do">✅ Görevler <span id="tasksBadge" class="tasks-badge hidden">0</span></button>
       <button id="btnArchive" class="btn btn-ghost" title="Arşiv (eski mesajlar)">📦 Arşiv</button>
+      <button id="btnPGP" class="btn btn-ghost" title="PGP Anahtarları (uçtan uca şifreleme)">🔐 PGP</button>
       <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
@@ -80,6 +81,174 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.25: PGP / OpenPGP Anahtar Yönetimi ===== -->
+  <div id="modalPGP" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>🔐 PGP Anahtarları <span style="font-size:11px;color:var(--muted);font-weight:400;">(uçtan uca şifreleme)</span></h2>
+        <div style="flex:1;"></div>
+        <button class="modal-close" data-close="modalPGP">×</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;max-height:calc(90vh - 80px);">
+
+        <!-- Tabs -->
+        <div class="pgp-tabs">
+          <button class="pgp-tab active" data-tab="myKeys">🗝 Kendi Anahtarlarım</button>
+          <button class="pgp-tab" data-tab="contacts">👥 Kişilerin Anahtarları</button>
+          <button class="pgp-tab" data-tab="info">ℹ Nasıl Çalışır?</button>
+        </div>
+
+        <!-- Sekme: Kendi anahtarlar -->
+        <div id="pgpPaneMyKeys" class="pgp-pane">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <p style="margin:0;font-size:12px;color:var(--text-2);">Bu anahtarlar size aittir. Public key'i karşı tarafla paylaşabilir, private key ile gelen şifreli mailleri açabilirsiniz.</p>
+            <button class="btn btn-primary" id="btnGenPgpKey">+ Yeni Anahtar Üret</button>
+          </div>
+          <div id="pgpMyKeysList"></div>
+        </div>
+
+        <!-- Sekme: Kişiler (3rd party public keys) -->
+        <div id="pgpPaneContacts" class="pgp-pane hidden">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <p style="margin:0;font-size:12px;color:var(--text-2);">Karşı tarafın public key'ini buraya ekleyin - sonra ona şifreli mail gönderebilirsiniz.</p>
+            <button class="btn btn-primary" id="btnImportPgpContact">+ Public Key İçe Aktar</button>
+          </div>
+          <div id="pgpContactsList"></div>
+        </div>
+
+        <!-- Sekme: Bilgi -->
+        <div id="pgpPaneInfo" class="pgp-pane hidden">
+          <div class="pgp-info-card">
+            <h3>🔐 PGP Nedir?</h3>
+            <p>PGP (Pretty Good Privacy), e-posta içeriğini sadece alıcının okuyabileceği şekilde şifreler. Sunucuya kayıtlı şifreli mailler bile siz <strong>private key</strong> ile açana kadar okunamaz.</p>
+            <h3>Nasıl Kullanılır?</h3>
+            <ol style="line-height:1.8;">
+              <li><strong>Yeni Anahtar Üret</strong> - Email + güçlü bir passphrase (en az 8 karakter)</li>
+              <li><strong>Public Key'i Paylaş</strong> - Karşı tarafa export edip gönderin (e-posta veya başka kanal)</li>
+              <li><strong>Karşı Tarafın Public Key'ini İçe Aktar</strong> - Onun anahtarını size verdiğinde "Public Key İçe Aktar" ile ekleyin</li>
+              <li><strong>Şifreli Mail Gönder</strong> - Compose'da "🔐 Şifrele" toggle'ını açın - sadece o kişi açabilir</li>
+              <li><strong>Şifreli Mail Aç</strong> - Gelen şifreli maillerde "🔓 Aç" butonuna basın - passphrase istenir</li>
+            </ol>
+            <h3>⚠ Önemli</h3>
+            <ul style="line-height:1.8;">
+              <li><strong>Passphrase'i unutmayın!</strong> Unutursanız private key'iniz işe yaramaz hale gelir, geri alınamaz.</li>
+              <li><strong>Public key</strong> herkesle paylaşılabilir. <strong>Private key</strong> ASLA paylaşılmaz.</li>
+              <li>Konu satırı şifrelenmez - sadece mesaj gövdesi şifrelenir.</li>
+              <li>Karşı tarafın da PGP destekli bir mail uygulaması kullanması gerekir.</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- PGP Anahtar Üretme Diyaloğu -->
+  <div id="modalPgpGenerate" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>🗝 Yeni PGP Anahtarı Üret</h2>
+        <button class="modal-close" data-close="modalPgpGenerate">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--text-2);">ECC Curve25519 anahtar çifti üretilecek (modern, hızlı, güvenli).</p>
+        <div class="form-group">
+          <label>Ad Soyad</label>
+          <input type="text" id="pgp_gen_name" placeholder="Yunus Aksoy">
+        </div>
+        <div class="form-group">
+          <label>E-posta</label>
+          <input type="email" id="pgp_gen_email" placeholder="info@yunusaksoy.com.tr">
+        </div>
+        <div class="form-group">
+          <label>Passphrase (private key şifresi)</label>
+          <input type="password" id="pgp_gen_passphrase" placeholder="En az 8 karakter">
+          <small style="color:var(--danger);">⚠ Bu passphrase'i unutmayın - geri alınamaz!</small>
+        </div>
+        <div class="form-group">
+          <label>Passphrase (tekrar)</label>
+          <input type="password" id="pgp_gen_passphrase2" placeholder="Aynısını tekrar girin">
+        </div>
+        <div id="pgp_gen_progress" class="hidden" style="text-align:center;padding:14px;color:var(--primary);">
+          ⏳ Anahtar üretiliyor... (birkaç saniye sürebilir)
+        </div>
+        <div id="pgp_gen_error" class="hidden" style="color:var(--danger);font-size:12px;margin-top:8px;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn btn-ghost" data-close="modalPgpGenerate">İptal</button>
+          <button class="btn btn-primary" id="btnPgpGenSubmit">🗝 Anahtarı Üret</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PGP Public Key Import Diyaloğu -->
+  <div id="modalPgpImport" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>📥 Public Key İçe Aktar</h2>
+        <button class="modal-close" data-close="modalPgpImport">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--text-2);">Karşı tarafın size verdiği <code>-----BEGIN PGP PUBLIC KEY BLOCK-----</code> ile başlayan tüm metni yapıştırın.</p>
+        <textarea id="pgp_import_armored" rows="14" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----..." style="width:100%;font-family:ui-monospace,monospace;font-size:11px;"></textarea>
+        <div id="pgp_import_error" class="hidden" style="color:var(--danger);font-size:12px;margin-top:8px;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn btn-ghost" data-close="modalPgpImport">İptal</button>
+          <button class="btn btn-primary" id="btnPgpImportSubmit">📥 İçe Aktar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PGP Public Key Görüntüleme/Export Diyaloğu -->
+  <div id="modalPgpExport" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>📤 Public Key Paylaş</h2>
+        <button class="modal-close" data-close="modalPgpExport">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--text-2);">Bu metni karşı tarafa gönderin. Onlar da içe aktarsın.</p>
+        <textarea id="pgp_export_text" rows="14" readonly style="width:100%;font-family:ui-monospace,monospace;font-size:11px;"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn" id="btnPgpExportCopy">📋 Kopyala</button>
+          <button class="btn btn-primary" data-close="modalPgpExport">Tamam</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PGP Şifre Çözme Diyaloğu -->
+  <div id="modalPgpDecrypt" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>🔓 Şifreli Mesajı Aç</h2>
+        <button class="modal-close" data-close="modalPgpDecrypt">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;">Bu mesaj sizin için şifrelenmiş. Açmak için private key passphrase'ini girin.</p>
+        <div class="form-group">
+          <label>Anahtar</label>
+          <select id="pgp_decrypt_key"></select>
+        </div>
+        <div class="form-group">
+          <label>Passphrase</label>
+          <input type="password" id="pgp_decrypt_passphrase" placeholder="Anahtar üretirken belirlediğiniz şifre">
+        </div>
+        <div id="pgp_decrypt_error" class="hidden" style="color:var(--danger);font-size:12px;margin-top:8px;"></div>
+        <div id="pgp_decrypt_result" class="hidden" style="margin-top:14px;">
+          <div id="pgp_decrypt_signature_info" class="hidden" style="margin-bottom:10px;padding:8px 12px;border-radius:6px;font-size:12px;"></div>
+          <strong>Çözülmüş Mesaj:</strong>
+          <pre id="pgp_decrypt_text" style="background:var(--bg-3);padding:12px;border-radius:6px;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;"></pre>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn btn-ghost" data-close="modalPgpDecrypt">Kapat</button>
+          <button class="btn btn-primary" id="btnPgpDecryptSubmit">🔓 Şifreyi Çöz</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.24: Arşiv Görünümü ===== -->
   <div id="modalArchive" class="modal hidden">
@@ -880,6 +1049,9 @@
         <button class="btn btn-ghost" data-close="modalCompose">İptal</button>
         <div style="flex:1;"></div>
         <span id="composeAttCount" style="font-size:11px;color:var(--muted);"></span>
+        <label class="pgp-toggle hidden" id="composePgpEncryptToggle" title="Mesajı uçtan uca şifrele">
+          <input type="checkbox" id="compose_pgp_encrypt"> 🔐 Şifrele
+        </label>
         <button id="btnScheduleMail" class="btn btn-ghost" title="Belirli bir zamanda gönder">⏰ Zamanla</button>
         <button id="btnSendMail" class="btn btn-primary">Gönder</button>
       </div>

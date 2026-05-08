@@ -387,6 +387,32 @@ class Database {
           used_at TEXT,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS pgp_keys (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL,
+          name TEXT,
+          fingerprint TEXT NOT NULL,
+          key_id TEXT,
+          public_key TEXT NOT NULL,
+          private_key TEXT,
+          is_default INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_pgp_keys_email ON pgp_keys(email);
+        CREATE INDEX IF NOT EXISTS idx_pgp_keys_fp ON pgp_keys(fingerprint);
+
+        CREATE TABLE IF NOT EXISTS pgp_contacts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT,
+          fingerprint TEXT NOT NULL,
+          key_id TEXT,
+          public_key TEXT NOT NULL,
+          trust_level TEXT DEFAULT 'unverified',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_pgp_contacts_email ON pgp_contacts(email);
       `);
     } catch (_) {}
 
@@ -1790,6 +1816,97 @@ class Database {
       WHERE ${where}
       ORDER BY m.archived_at DESC, m.date DESC LIMIT ? OFFSET ?
     `).all(...params, limit, offset);
+  }
+
+  // ====== v1.25: PGP Anahtar Yönetimi ======
+  listPgpKeys() {
+    return this.prepare(`
+      SELECT id, email, name, fingerprint, key_id, public_key, is_default, created_at,
+             (private_key IS NOT NULL) AS has_private
+      FROM pgp_keys ORDER BY is_default DESC, created_at DESC
+    `).all();
+  }
+
+  getPgpKey(id) {
+    return this.prepare('SELECT * FROM pgp_keys WHERE id = ?').get(id);
+  }
+
+  getPgpKeyByEmail(email) {
+    return this.prepare('SELECT * FROM pgp_keys WHERE LOWER(email) = LOWER(?) ORDER BY is_default DESC LIMIT 1').get(email);
+  }
+
+  addPgpKey(k) {
+    const r = this.prepare(`
+      INSERT INTO pgp_keys (email, name, fingerprint, key_id, public_key, private_key, is_default)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      k.email.toLowerCase(),
+      k.name || null,
+      k.fingerprint,
+      k.key_id || null,
+      k.public_key,
+      k.private_key || null,
+      k.is_default ? 1 : 0
+    );
+    return r.lastInsertRowid;
+  }
+
+  setDefaultPgpKey(id) {
+    this.exec('UPDATE pgp_keys SET is_default = 0');
+    this.prepare('UPDATE pgp_keys SET is_default = 1 WHERE id = ?').run(id);
+  }
+
+  deletePgpKey(id) {
+    this.prepare('DELETE FROM pgp_keys WHERE id = ?').run(id);
+  }
+
+  // ====== PGP Contacts (3rd party public keys) ======
+  listPgpContacts() {
+    return this.prepare(`
+      SELECT id, email, name, fingerprint, key_id, public_key, trust_level, created_at
+      FROM pgp_contacts ORDER BY email COLLATE NOCASE ASC
+    `).all();
+  }
+
+  getPgpContactByEmail(email) {
+    if (!email) return null;
+    return this.prepare('SELECT * FROM pgp_contacts WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
+  }
+
+  addPgpContact(c) {
+    try {
+      const r = this.prepare(`
+        INSERT INTO pgp_contacts (email, name, fingerprint, key_id, public_key, trust_level)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        c.email.toLowerCase(),
+        c.name || null,
+        c.fingerprint,
+        c.key_id || null,
+        c.public_key,
+        c.trust_level || 'unverified'
+      );
+      return r.lastInsertRowid;
+    } catch (e) {
+      // Zaten varsa, public_key güncelle
+      const existing = this.getPgpContactByEmail(c.email);
+      if (existing) {
+        this.prepare(`
+          UPDATE pgp_contacts SET name = ?, fingerprint = ?, key_id = ?, public_key = ?
+          WHERE id = ?
+        `).run(c.name || existing.name, c.fingerprint, c.key_id || existing.key_id, c.public_key, existing.id);
+        return existing.id;
+      }
+      throw e;
+    }
+  }
+
+  deletePgpContact(id) {
+    this.prepare('DELETE FROM pgp_contacts WHERE id = ?').run(id);
+  }
+
+  setPgpContactTrust(id, level) {
+    this.prepare('UPDATE pgp_contacts SET trust_level = ? WHERE id = ?').run(level, id);
   }
 }
 

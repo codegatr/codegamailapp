@@ -135,6 +135,21 @@ contextBridge.exposeInMainWorld('api', {
     list: (opts) => ipcRenderer.invoke('archive:list', opts),
     purge: (opts) => ipcRenderer.invoke('archive:purge', opts)
   },
+  pgp: {
+    listKeys: () => ipcRenderer.invoke('pgp:listKeys'),
+    listContacts: () => ipcRenderer.invoke('pgp:listContacts'),
+    generateKey: (params) => ipcRenderer.invoke('pgp:generateKey', params),
+    setDefault: (id) => ipcRenderer.invoke('pgp:setDefault', id),
+    deleteKey: (id) => ipcRenderer.invoke('pgp:deleteKey', id),
+    exportPublicKey: (id) => ipcRenderer.invoke('pgp:exportPublicKey', id),
+    importContact: (params) => ipcRenderer.invoke('pgp:importContact', params),
+    deleteContact: (id) => ipcRenderer.invoke('pgp:deleteContact', id),
+    setContactTrust: (params) => ipcRenderer.invoke('pgp:setContactTrust', params),
+    hasContact: (email) => ipcRenderer.invoke('pgp:hasContact', email),
+    encrypt: (params) => ipcRenderer.invoke('pgp:encrypt', params),
+    decrypt: (params) => ipcRenderer.invoke('pgp:decrypt', params),
+    detectInBody: (text) => ipcRenderer.invoke('pgp:detectInBody', text)
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),
