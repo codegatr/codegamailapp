@@ -9817,6 +9817,7 @@ const MENUS = {
       { sep: true },
       { icon: '⬇', label: 'Yedek Al (Dışa Aktar)', action: () => { openSettings(); setTimeout(() => document.getElementById('btnSettingsBackup')?.click(), 300); } },
       { icon: '⬆', label: 'Yedekten Geri Yükle', action: () => { openSettings(); setTimeout(() => document.getElementById('btnSettingsRestore')?.click(), 300); } },
+      { icon: '📥', label: 'Mail İçe Aktar (PST/MBOX/EML)', action: () => openImportModal() },
       { sep: true },
       { icon: '⚙', label: 'Ayarlar', shortcut: 'Ctrl+,', action: () => openSettings() },
       { sep: true },
@@ -10688,3 +10689,123 @@ if (typeof RIBBON_ACTIONS !== 'undefined') {
 }
 
 // Komut paletine ekle (basit)
+
+// ============= v1.53: Mail Import Wizard =============
+let _importState = null;
+
+function openImportModal() {
+  document.getElementById('modalImport').classList.remove('hidden');
+  document.getElementById('importStep1').classList.remove('hidden');
+  document.getElementById('importStep2').classList.add('hidden');
+  document.getElementById('importStep3').classList.add('hidden');
+  document.getElementById('importFileInfo').classList.add('hidden');
+  document.getElementById('importBtnStart').classList.add('hidden');
+  _importState = null;
+}
+
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('#importBtnPickFile')) {
+    const r = await window.api.import.pickFile();
+    if (r.canceled) return;
+    if (r.fileType === 'unknown') {
+      alert('Bu dosya tipi desteklenmiyor. Sadece .pst, .ost, .mbox, .mbx, .eml, .emlx kabul edilir.');
+      return;
+    }
+    _importState = r;
+
+    // Önizleme yükle
+    const info = document.getElementById('importFileInfo');
+    info.classList.remove('hidden');
+    info.innerHTML = `
+      <div class="import-info-box">
+        <div><strong>Dosya:</strong> ${escapeHtml(r.fileName)}</div>
+        <div><strong>Tip:</strong> ${r.fileType.toUpperCase()}</div>
+        <div><strong>Boyut:</strong> ${(r.fileSize / 1024 / 1024).toFixed(1)} MB</div>
+        <div id="importPreview" style="margin-top:8px;color:var(--muted);">⏳ Önizleme yükleniyor...</div>
+      </div>
+    `;
+
+    const preview = await window.api.import.preview(r.filePath, r.fileType);
+    const previewEl = document.getElementById('importPreview');
+    if (preview.ok) {
+      let html = '';
+      if (preview.folderCount !== undefined) {
+        html += `<div><strong>📁 Klasör:</strong> ${preview.folderCount}</div>`;
+      }
+      if (preview.messageCount !== undefined) {
+        html += `<div><strong>📨 Mail:</strong> ${preview.messageCount}</div>`;
+      }
+      if (preview.folders && preview.folders.length) {
+        html += `<details style="margin-top:8px;"><summary style="cursor:pointer;">Klasör listesi (ilk 20)</summary><ul style="margin:4px 0;padding-left:20px;font-size:11px;">`;
+        preview.folders.forEach(f => {
+          const indent = '&nbsp;'.repeat(f.depth * 2);
+          html += `<li>${indent}${escapeHtml(f.name)} ${f.count > 0 ? `<span style="color:var(--muted);">(${f.count})</span>` : ''}</li>`;
+        });
+        html += `</ul></details>`;
+      }
+      previewEl.innerHTML = html;
+      document.getElementById('importBtnStart').classList.remove('hidden');
+    } else {
+      previewEl.innerHTML = `<span style="color:var(--danger);">⚠ Önizleme alınamadı: ${preview.error}</span>`;
+    }
+  }
+
+  if (e.target.closest('#importBtnStart')) {
+    if (!_importState) return;
+    document.getElementById('importStep1').classList.add('hidden');
+    document.getElementById('importStep2').classList.remove('hidden');
+    document.getElementById('importBtnStart').classList.add('hidden');
+
+    const progEl = document.getElementById('importProgress');
+    progEl.innerHTML = '<div style="color:var(--muted);">⏳ Başlatılıyor...</div>';
+
+    const r = await window.api.import.start(_importState.filePath, _importState.fileType, {
+      accountName: 'Yerel Arşiv (' + _importState.fileName + ')'
+    });
+
+    document.getElementById('importStep2').classList.add('hidden');
+    document.getElementById('importStep3').classList.remove('hidden');
+    if (r.ok) {
+      document.getElementById('importSummary').innerHTML = `
+        <div style="background:rgba(46,204,113,0.1);border-left:3px solid var(--success);padding:12px;border-radius:4px;margin-top:10px;">
+          <div><strong>📁 Klasör:</strong> ${r.folders || 1}</div>
+          <div><strong>📨 Mail:</strong> ${r.messages || 0}</div>
+          ${r.errors ? `<div><strong>⚠ Hata:</strong> ${r.errors} mail import edilemedi</div>` : ''}
+          <div style="margin-top:10px;color:var(--text-2);font-size:12px;">
+            "Yerel Arşiv" hesabı altında bulabilirsiniz. Sidebar'dan erişin.
+          </div>
+        </div>
+      `;
+      // Hesap listesini yenile
+      await loadAccounts();
+    } else {
+      document.getElementById('importSummary').innerHTML = `
+        <div style="background:rgba(231,76,60,0.1);border-left:3px solid var(--danger);padding:12px;border-radius:4px;">
+          <strong>⚠ İçe aktarım başarısız:</strong><br>${escapeHtml(r.error)}
+        </div>
+      `;
+    }
+  }
+});
+
+// Progress event
+window.api.on('import:progress', (data) => {
+  const progEl = document.getElementById('importProgress');
+  if (!progEl) return;
+  const stats = data.stats || data;
+  progEl.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div>📁 İşlenen klasör: <strong>${stats.folders || 0}</strong></div>
+      <div>📨 İçe aktarılan mail: <strong>${stats.messages || 0}</strong></div>
+      ${stats.errors ? `<div style="color:var(--warn);">⚠ Hatalı: ${stats.errors}</div>` : ''}
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;">
+        ${stats.done ? '✓ Bitti' : '⏳ Devam ediyor...'}
+      </div>
+    </div>
+  `;
+});
+
+// Ribbon + Menu entegrasyonu
+if (typeof RIBBON_ACTIONS !== 'undefined') {
+  RIBBON_ACTIONS['import-mail'] = () => openImportModal();
+}

@@ -5340,3 +5340,42 @@ html.dark .mdn-banner {
   margin-right: 4px;
   font-size: 12px;
 }
+
+/* ============= v1.53: Mail Import ============= */
+.import-format-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 8px;
+  text-align: center;
+}
+.import-icon {
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+.import-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text);
+}
+.import-desc {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+  font-family: 'Consolas', monospace;
+}
+.import-info-box {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.import-info-box strong {
+  color: var(--text);
+  display: inline-block;
+  width: 70px;
+}

@@ -166,6 +166,11 @@ contextBridge.exposeInMainWorld('api', {
     count: () => ipcRenderer.invoke('snooze:count'),
     unsnooze: (messageId) => ipcRenderer.invoke('snooze:unsnooze', messageId)
   },
+  import: {
+    pickFile: () => ipcRenderer.invoke('import:pickFile'),
+    preview: (filePath, fileType) => ipcRenderer.invoke('import:preview', filePath, fileType),
+    start: (filePath, fileType, options) => ipcRenderer.invoke('import:start', filePath, fileType, options)
+  },
   readReceipt: {
     send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
     ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),
@@ -307,7 +312,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup', 'snooze:matured'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup', 'snooze:matured', 'import:progress'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

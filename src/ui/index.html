@@ -151,6 +151,7 @@
               <button class="ribbon-btn-sm" data-action="backup"><span>⬇</span> Yedek Al</button>
               <button class="ribbon-btn-sm" data-action="restore"><span>⬆</span> Geri Yükle</button>
               <button class="ribbon-btn-sm" data-action="archive"><span>📦</span> Arşiv</button>
+              <button class="ribbon-btn-sm" data-action="import-mail"><span>📥</span> Mail İçe Aktar</button>
             </div>
           </div>
         </div>
@@ -370,6 +371,61 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.53: Mail Import Wizard ===== -->
+  <div id="modalImport" class="modal hidden">
+    <div class="modal-content" style="max-width:560px;">
+      <div class="modal-header">
+        <h2>📥 Mail İçe Aktar</h2>
+        <button class="modal-close" data-close="modalImport">×</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <div id="importStep1">
+          <p style="color:var(--text-2);font-size:13px;margin-top:0;">
+            Outlook (.pst), Thunderbird/Apple (.mbox) veya tek mail (.eml) dosyalarınızdan içe aktarım yapın. İçe aktarılan mailler <strong>"Yerel Arşiv"</strong> hesabı altında saklanır - sync edilmez, sadece arama ve okuma için.
+          </p>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0;">
+            <div class="import-format-card">
+              <div class="import-icon">📨</div>
+              <div class="import-name">Outlook PST</div>
+              <div class="import-desc">.pst, .ost</div>
+            </div>
+            <div class="import-format-card">
+              <div class="import-icon">🐦</div>
+              <div class="import-name">Thunderbird</div>
+              <div class="import-desc">.mbox, .mbx</div>
+            </div>
+            <div class="import-format-card">
+              <div class="import-icon">📄</div>
+              <div class="import-name">Tek Mail</div>
+              <div class="import-desc">.eml, .emlx</div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" id="importBtnPickFile" style="width:100%;padding:12px;font-size:14px;">
+            📁 Dosya Seç...
+          </button>
+
+          <div id="importFileInfo" class="import-file-info hidden" style="margin-top:14px;"></div>
+        </div>
+
+        <div id="importStep2" class="hidden">
+          <h3 style="margin-top:0;">İçe Aktarım Devam Ediyor...</h3>
+          <div id="importProgress" style="margin:16px 0;"></div>
+        </div>
+
+        <div id="importStep3" class="hidden">
+          <h3 style="margin-top:0;color:var(--success);">✓ İçe Aktarım Tamamlandı</h3>
+          <div id="importSummary"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="modalImport">Kapat</button>
+        <button class="btn btn-primary hidden" id="importBtnStart">Başlat</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.52: Snooze (Erteleme) Modal ===== -->
   <div id="modalSnooze" class="modal hidden">

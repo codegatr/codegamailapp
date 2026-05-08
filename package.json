@@ -1,6 +1,6 @@
 {
   "name": "codega-mail",
-  "version": "1.52.0",
+  "version": "1.53.0",
   "description": "CODEGA Mail - Yerel masaüstü mail istemcisi (IMAP/POP3, sistem tepsisi, otomatik güncelleme, ek dosya, birleşik gelen kutusu, zengin metin editörü)",
   "main": "src/main.js",
   "author": "CODEGA",
@@ -21,6 +21,7 @@
     "node-pop3": "^0.10.0",
     "nodemailer": "^6.9.7",
     "openpgp": "^5.11.2",
+    "pst-extractor": "^1.12.0",
     "qrcode": "^1.5.4",
     "sql.js": "^1.10.3",
     "uuid": "^9.0.1"
@@ -56,7 +57,12 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "src/ui/icon.ico",
       "verifyUpdateCodeSignature": false
@@ -71,7 +77,13 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "icon": "src/ui/icon.png",
       "category": "public.app-category.productivity"

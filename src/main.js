@@ -2228,6 +2228,90 @@ setInterval(() => {
 }, 30000);
 
 // =====================================================================
+// v1.53 IPC: Mail Import (PST / MBOX / EML)
+// =====================================================================
+const MailImportService = require('./services/mail-import');
+const importService = new MailImportService(db, crypto);
+
+ipcMain.handle('import:pickFile', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'Mail Dosyası Seç',
+    filters: [
+      { name: 'Mail Dosyaları', extensions: ['pst', 'ost', 'mbox', 'mbx', 'eml', 'emlx'] },
+      { name: 'Outlook PST', extensions: ['pst', 'ost'] },
+      { name: 'Thunderbird/Apple MBOX', extensions: ['mbox', 'mbx'] },
+      { name: 'EML Tek Mesaj', extensions: ['eml', 'emlx'] },
+      { name: 'Tüm Dosyalar', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  if (r.canceled || !r.filePaths.length) return { canceled: true };
+  const filePath = r.filePaths[0];
+  const fileType = importService.detectFileType(filePath);
+  const fileName = require('path').basename(filePath);
+  const fileSize = require('fs').statSync(filePath).size;
+  return { canceled: false, filePath, fileType, fileName, fileSize };
+});
+
+ipcMain.handle('import:preview', async (_, filePath, fileType) => {
+  try {
+    if (fileType === 'pst') return { ok: true, ...(await importService.previewPst(filePath)) };
+    if (fileType === 'mbox') return { ok: true, ...(await importService.previewMbox(filePath)) };
+    if (fileType === 'eml') return { ok: true, messageCount: 1 };
+    return { ok: false, error: 'Bilinmeyen dosya tipi' };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('import:start', async (_, filePath, fileType, options) => {
+  try {
+    options = options || {};
+    let accountId = options.accountId;
+
+    // Local arşiv hesabı oluştur (gerekirse)
+    if (!accountId) {
+      const accountName = options.accountName || `Yerel Arşiv (${require('path').basename(filePath)})`;
+      accountId = importService.ensureLocalArchiveAccount(accountName);
+    }
+
+    // Progress callback - UI'a yansıt
+    const sendProgress = (stats) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('import:progress', { stats });
+      }
+    };
+
+    let result;
+    if (fileType === 'pst') {
+      result = await importService.importPst(filePath, accountId, sendProgress);
+    } else if (fileType === 'mbox') {
+      // Tek klasör oluştur (dosya adıyla)
+      const folderId = db.upsertFolder(accountId, {
+        name: require('path').basename(filePath, require('path').extname(filePath)),
+        path: '__MBOX__',
+        special_use: '\\Inbox',
+        is_local: true
+      });
+      result = await importService.importMbox(filePath, accountId, folderId, sendProgress);
+    } else if (fileType === 'eml') {
+      const folderId = db.upsertFolder(accountId, {
+        name: 'EML İçe Aktarımları',
+        path: '__EML__',
+        special_use: '\\Inbox',
+        is_local: true
+      });
+      result = await importService.importEml(filePath, accountId, folderId);
+    } else {
+      return { ok: false, error: 'Desteklenmeyen dosya tipi' };
+    }
+
+    db.save();
+    return { ok: true, accountId, ...result };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// =====================================================================
 // v1.46 IPC: Read Receipt (RFC 3798 MDN)
 // =====================================================================
 const ReadReceiptService = require('./services/read-receipt');
