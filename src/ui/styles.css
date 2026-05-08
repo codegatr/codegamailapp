@@ -3299,3 +3299,188 @@ html.theme-light .cal-day-event:hover {
   max-width: 200px;
   object-fit: contain;
 }
+
+/* ============= v1.31: Outlook tarzı Layout Çeşitleri ============= */
+
+/* Default 3-sütun layout zaten yukarıda tanımlı */
+
+/* Layout: Reading Pane Sağ (default - mevcut davranış) */
+html.layout-right .layout {
+  grid-template-columns: 240px 380px 1fr;
+  grid-template-rows: 1fr;
+  grid-template-areas: "folders list view";
+}
+html.layout-right .pane-folders { grid-area: folders; }
+html.layout-right .pane-list { grid-area: list; border-right: 1px solid var(--border); }
+html.layout-right .pane-view { grid-area: view; }
+
+/* Layout: Reading Pane Alt (Outlook klasik) */
+html.layout-bottom .layout {
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: 50% 50%;
+  grid-template-areas:
+    "folders list"
+    "folders view";
+}
+html.layout-bottom .pane-folders { grid-area: folders; }
+html.layout-bottom .pane-list {
+  grid-area: list;
+  border-bottom: 1px solid var(--border);
+  border-right: none;
+}
+html.layout-bottom .pane-view { grid-area: view; }
+/* Alt layoutta liste daha kompakt görünmesi için */
+html.layout-bottom .message-item {
+  padding: 8px 12px;
+}
+
+/* Layout: Reading Pane Kapalı (sadece liste, çift tıkla pop-out) */
+html.layout-off .layout {
+  grid-template-columns: 240px 1fr 0;
+  grid-template-areas: "folders list view";
+}
+html.layout-off .pane-folders { grid-area: folders; }
+html.layout-off .pane-list {
+  grid-area: list;
+  border-right: none;
+}
+html.layout-off .pane-view {
+  display: none;
+}
+
+/* Compact density */
+html.density-compact .message-item {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+html.density-compact .message-item .message-subject {
+  font-size: 12px;
+}
+html.density-compact .account-header,
+html.density-compact .folder-item {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* Layout preview kartları (Settings) */
+.layout-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+.layout-card {
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  background: var(--surface);
+  transition: all 0.15s;
+}
+.layout-card:hover {
+  border-color: var(--primary);
+}
+.layout-card.active {
+  border-color: var(--primary);
+  background: rgba(0, 120, 212, 0.08);
+}
+.layout-card-preview {
+  height: 60px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+  background: var(--bg-3);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.layout-card-preview .lp-folders {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 22%;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+.layout-card-preview .lp-list {
+  position: absolute;
+  background: var(--surface-hi);
+}
+.layout-card-preview .lp-view {
+  position: absolute;
+  background: var(--bg);
+}
+/* Right reading pane */
+.layout-card-preview.lp-right .lp-list {
+  top: 0; bottom: 0; left: 22%; width: 35%;
+  border-right: 1px solid var(--border);
+}
+.layout-card-preview.lp-right .lp-view {
+  top: 0; bottom: 0; left: 57%; right: 0;
+}
+/* Bottom reading pane */
+.layout-card-preview.lp-bottom .lp-list {
+  top: 0; height: 50%; left: 22%; right: 0;
+  border-bottom: 1px solid var(--border);
+}
+.layout-card-preview.lp-bottom .lp-view {
+  top: 50%; bottom: 0; left: 22%; right: 0;
+}
+/* Off (no pane) */
+.layout-card-preview.lp-off .lp-list {
+  top: 0; bottom: 0; left: 22%; right: 0;
+}
+.layout-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.density-toggle {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.density-toggle .btn {
+  flex: 1;
+}
+.density-toggle .btn.active {
+  background: var(--primary);
+  color: var(--primary-text);
+  border-color: var(--primary);
+}
+
+/* Sade layout'ta mesaja tıklayınca overlay olarak aç */
+html.layout-off .pane-view.show-overlay {
+  display: flex !important;
+  position: fixed;
+  top: 48px;        /* toolbar yüksekliği */
+  left: 240px;      /* folders genişliği */
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.3);
+  animation: slideInRight 0.25s ease-out;
+}
+@keyframes slideInRight {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.msg-overlay-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--text);
+  z-index: 91;
+}
+.msg-overlay-close:hover { background: var(--surface-hi); }

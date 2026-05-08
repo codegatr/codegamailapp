@@ -539,7 +539,9 @@ ipcMain.handle('config:get', () => ({
   accentColor: appConfig.get('accentColor') || null,
   logoDataUrl: appConfig.get('logoDataUrl') || null,
   bgImageDataUrl: appConfig.get('bgImageDataUrl') || null,
-  bgImageOpacity: typeof appConfig.get('bgImageOpacity') === 'number' ? appConfig.get('bgImageOpacity') : 6
+  bgImageOpacity: typeof appConfig.get('bgImageOpacity') === 'number' ? appConfig.get('bgImageOpacity') : 6,
+  layout: appConfig.get('layout') || 'right',
+  density: appConfig.get('density') || 'comfortable'
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {

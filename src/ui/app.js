@@ -834,6 +834,9 @@ async function openSettings() {
 
   // v1.30: Görünüm ayarları
   await refreshAppearanceSettings();
+
+  // v1.31: Layout ayarları
+  await refreshLayoutSettings();
   // v1.3: Güncelleme tercihi
   const autoUpdEl = document.getElementById('settings_auto_update');
   if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
@@ -1735,6 +1738,9 @@ async function openMessage(id) {
   renderMessageView(msg);
   document.querySelectorAll('.message-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.message-item[data-id="${id}"]`)?.classList.add('active');
+
+  // v1.31: Sade modda overlay olarak göster
+  ensureMsgOverlayUI();
 
   // v1.25: PGP detect - şifreli/imzalı mesajsa badge göster
   setTimeout(() => checkAndShowPgpStatus(msg), 100);
@@ -6917,4 +6923,129 @@ async function refreshAppearanceSettings() {
 // İlk yüklemede temayı uygula
 window.addEventListener('DOMContentLoaded', () => {
   applyAppearanceFromConfig();
+});
+
+// ============= v1.31: Layout Çeşitleri =============
+const layoutState = {
+  layout: 'right',   // 'right' | 'bottom' | 'off'
+  density: 'comfortable',  // 'comfortable' | 'compact'
+  bound: false
+};
+
+async function applyLayoutFromConfig() {
+  try {
+    const cfg = await window.api.config.get();
+    layoutState.layout = cfg.layout || 'right';
+    layoutState.density = cfg.density || 'comfortable';
+    applyLayout(layoutState.layout);
+    applyDensity(layoutState.density);
+  } catch (e) { console.warn('Layout uygulanamadı:', e.message); }
+}
+
+function applyLayout(layout) {
+  const html = document.documentElement;
+  html.classList.remove('layout-right', 'layout-bottom', 'layout-off');
+  html.classList.add('layout-' + layout);
+
+  // Sade modda overlay'i kapat
+  const view = document.querySelector('.pane-view');
+  if (view && layout !== 'off') {
+    view.classList.remove('show-overlay');
+    const closeBtn = document.getElementById('msgOverlayCloseBtn');
+    if (closeBtn) closeBtn.remove();
+  }
+}
+
+function applyDensity(density) {
+  const html = document.documentElement;
+  html.classList.remove('density-comfortable', 'density-compact');
+  html.classList.add('density-' + density);
+}
+
+// Sade modda mesaj görüntüleme: pane-view'i overlay olarak göster
+function ensureMsgOverlayUI() {
+  if (layoutState.layout !== 'off') return;
+  const view = document.querySelector('.pane-view');
+  if (!view) return;
+  view.classList.add('show-overlay');
+
+  if (!document.getElementById('msgOverlayCloseBtn')) {
+    const close = document.createElement('button');
+    close.id = 'msgOverlayCloseBtn';
+    close.className = 'msg-overlay-close';
+    close.innerHTML = '✕';
+    close.title = 'Kapat (Esc)';
+    close.onclick = closeMsgOverlay;
+    view.appendChild(close);
+  }
+}
+
+function closeMsgOverlay() {
+  const view = document.querySelector('.pane-view');
+  if (view) view.classList.remove('show-overlay');
+  const btn = document.getElementById('msgOverlayCloseBtn');
+  if (btn) btn.remove();
+}
+
+// ESC ile sade-mod overlay'i kapat
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && layoutState.layout === 'off') {
+    const view = document.querySelector('.pane-view');
+    if (view && view.classList.contains('show-overlay')) {
+      e.stopPropagation();
+      closeMsgOverlay();
+    }
+  }
+}, true);
+
+// Settings UI binding
+function bindLayoutSettings() {
+  // Layout kartları
+  document.querySelectorAll('.layout-card').forEach(card => {
+    if (card.dataset.bound) return;
+    card.dataset.bound = '1';
+    card.onclick = async () => {
+      const layout = card.dataset.layout;
+      layoutState.layout = layout;
+      applyLayout(layout);
+      await window.api.config.updatePrefs({ layout });
+      refreshLayoutUIState();
+      flashSettingsSavedIndicator();
+    };
+  });
+  // Density butonları
+  document.querySelectorAll('[data-density]').forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.onclick = async () => {
+      const density = btn.dataset.density;
+      layoutState.density = density;
+      applyDensity(density);
+      await window.api.config.updatePrefs({ density });
+      refreshLayoutUIState();
+      flashSettingsSavedIndicator();
+    };
+  });
+}
+
+function refreshLayoutUIState() {
+  document.querySelectorAll('.layout-card').forEach(c => {
+    c.classList.toggle('active', c.dataset.layout === layoutState.layout);
+  });
+  document.querySelectorAll('[data-density]').forEach(b => {
+    b.classList.toggle('active', b.dataset.density === layoutState.density);
+  });
+}
+
+async function refreshLayoutSettings() {
+  bindLayoutSettings();
+  const cfg = await window.api.config.get();
+  layoutState.layout = cfg.layout || 'right';
+  layoutState.density = cfg.density || 'comfortable';
+  refreshLayoutUIState();
+}
+
+// İlk yüklemede uygula
+window.addEventListener('DOMContentLoaded', () => {
+  applyLayoutFromConfig();
 });
