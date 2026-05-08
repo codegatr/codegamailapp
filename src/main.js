@@ -27,6 +27,9 @@ let appConfig;
 let isQuitting = false;
 let backgroundSyncTimer = null;
 let isBackgroundSyncing = false;
+// v1.10: Zamanlanmış mesajlar (TDZ engelleme - üstte tanımlı)
+let scheduledTimer = null;
+let processingScheduled = false;
 
 // Windows'ta bildirimlerin uygulama adıyla gruplanması için zorunlu
 app.setAppUserModelId('tr.com.codega.mail');
@@ -2165,27 +2168,9 @@ ipcMain.handle('spam:delete', (_, ruleId) => {
 });
 
 // =====================================================================
-// v1.7 IPC: Filtre Kuralları (Rules)
 // =====================================================================
-ipcMain.handle('rules:list', (_, accountId) => db.listRules(accountId));
-ipcMain.handle('rules:get', (_, id) => db.getRule(id));
-ipcMain.handle('rules:add', (_, rule) => ({ ok: true, id: db.addRule(rule) }));
-ipcMain.handle('rules:update', (_, id, updates) => {
-  db.updateRule(id, updates);
-  return { ok: true };
-});
-ipcMain.handle('rules:delete', (_, id) => {
-  db.deleteRule(id);
-  return { ok: true };
-});
-ipcMain.handle('rules:applyNow', async (_, ruleId, accountId) => {
-  // Kuralı tüm mevcut mesajlara uygula (sadece bu hesap)
-  try {
-    const applied = mailService._applyRulesToNewMessages(accountId, 0);
-    db.save();
-    return { ok: true, applied };
-  } catch (e) { return { ok: false, error: e.message }; }
-});
+// v1.7 IPC: (Filtre Kuralları kaldırıldı - v1.35 'rules:' namespace'i ile birleşti)
+// =====================================================================
 
 // =====================================================================
 // v1.7 IPC: Çöp/Klasör Boşaltma + Önemli işaretleme
@@ -2290,8 +2275,7 @@ ipcMain.handle('scheduled:delete', (_, id) => {
 });
 
 // Background scheduler - her 30 saniyede bir kontrol
-let scheduledTimer = null;
-let processingScheduled = false;
+// (scheduledTimer ve processingScheduled main.js başında tanımlı - TDZ engelleme)
 
 function scheduleProcessSoon() {
   setTimeout(() => processDueScheduledMessages().catch(e => console.warn('Scheduler error:', e.message)), 1000);
