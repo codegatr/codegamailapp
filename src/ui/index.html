@@ -28,6 +28,7 @@
       <button id="btnTemplates" class="btn btn-ghost" title="Mesaj şablonları">📝 Şablonlar</button>
       <button id="btnScheduled" class="btn btn-ghost" title="Zamanlanmış mesajlar">⏰ Zamanlanmış</button>
       <button id="btnNotes" class="btn btn-ghost" title="Notlar (Lotus Notes benzeri)">📓 Notlar</button>
+      <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
       <button id="btnAbout" class="btn btn-ghost" title="Hakkında">ℹ Hakkında</button>
@@ -684,6 +685,83 @@
       </div>
     </div>
   </div>
+  <!-- ===== Adres Defteri ===== -->
+  <div id="modalContacts" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>👥 Adres Defteri <span id="contactsCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
+        <div style="flex:1;"></div>
+        <button class="btn btn-primary" id="btnNewContact">+ Yeni Kişi</button>
+        <button class="modal-close" data-close="modalContacts" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;display:flex;height:calc(90vh - 110px);overflow:hidden;">
+        <!-- Sol: arama + liste -->
+        <div class="contacts-sidebar">
+          <div style="padding:10px;border-bottom:1px solid var(--border);">
+            <input type="text" id="contactsSearchInput" placeholder="🔍 İsim, e-posta, kurum..." style="width:100%;padding:7px 10px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:13px;">
+          </div>
+          <div style="display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;">
+            <select id="contactsSortSelect" style="flex:1;font-size:11px;padding:3px 6px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;">
+              <option value="name">İsme göre</option>
+              <option value="use">En çok kullanılan</option>
+              <option value="recent">Son kullanım</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:4px;color:var(--text-2);">
+              <input type="checkbox" id="contactsFavOnly"> ⭐ Sık
+            </label>
+          </div>
+          <div id="contactsList" class="contacts-list"></div>
+        </div>
+        <!-- Sağ: kişi detay -->
+        <div class="contacts-detail-pane">
+          <div id="contactsEmpty" class="empty-state" style="margin:auto;padding:40px;">
+            Bir kişi seçin veya "+ Yeni Kişi" oluşturun
+          </div>
+          <div id="contactsDetail" class="hidden">
+            <div class="contacts-detail-toolbar">
+              <h3 id="contactDetailHeader" style="margin:0;flex:1;font-size:18px;">—</h3>
+              <button class="btn" id="btnContactCompose" title="Bu kişiye mail at">✉ Mail At</button>
+              <button class="btn btn-ghost" id="btnContactFav" title="Sık kullanılan">⭐</button>
+              <button class="btn btn-ghost" id="btnContactDelete" title="Sil" style="color:var(--danger);">🗑</button>
+            </div>
+            <div class="contacts-detail-body">
+              <div class="form-row">
+                <label class="form-label">Ad Soyad</label>
+                <input type="text" id="ct_name" placeholder="Ali Veli">
+              </div>
+              <div class="form-row">
+                <label class="form-label">E-posta *</label>
+                <input type="email" id="ct_email" placeholder="ali@example.com" required>
+              </div>
+              <div class="form-row">
+                <label class="form-label">Kurum / Şirket</label>
+                <input type="text" id="ct_organization" placeholder="ABC Şirketi">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Telefon</label>
+                <input type="text" id="ct_phone" placeholder="+90 555 555 55 55">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Etiketler (virgülle)</label>
+                <input type="text" id="ct_tags" placeholder="müşteri, vip, tedarikçi">
+              </div>
+              <div class="form-row">
+                <label class="form-label">Notlar</label>
+                <textarea id="ct_notes" rows="3" placeholder="Kişi hakkında notlar..."></textarea>
+              </div>
+              <div class="form-row" style="font-size:11px;color:var(--muted);">
+                <span id="ct_meta">—</span>
+              </div>
+            </div>
+            <div class="contacts-detail-footer">
+              <button class="btn btn-primary" id="btnContactSave">💾 Kaydet</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== Güvenilir Göndericiler ===== -->
   <div id="modalTrustedSenders" class="modal hidden">
     <div class="modal-content modal-md">

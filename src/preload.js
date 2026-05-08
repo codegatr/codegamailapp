@@ -98,6 +98,15 @@ contextBridge.exposeInMainWorld('api', {
     openExternal: (u) => ipcRenderer.invoke('url:openExternal', u),
     clearCache: () => ipcRenderer.invoke('url:clearCache')
   },
+  contacts: {
+    list: (opts) => ipcRenderer.invoke('contacts:list', opts),
+    get: (id) => ipcRenderer.invoke('contacts:get', id),
+    search: (q, limit) => ipcRenderer.invoke('contacts:search', q, limit),
+    add: (c) => ipcRenderer.invoke('contacts:add', c),
+    update: (id, u) => ipcRenderer.invoke('contacts:update', id, u),
+    delete: (id) => ipcRenderer.invoke('contacts:delete', id),
+    stats: () => ipcRenderer.invoke('contacts:stats')
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

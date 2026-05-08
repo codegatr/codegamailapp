@@ -794,6 +794,37 @@ ipcMain.handle('url:clearCache', () => {
 });
 
 // =====================================================================
+// v1.16 IPC: Adres Defteri (Contacts)
+// =====================================================================
+ipcMain.handle('contacts:list', (_, opts) => db.listContacts(opts || {}));
+ipcMain.handle('contacts:get', (_, id) => db.getContact(id));
+ipcMain.handle('contacts:search', (_, query, limit) => db.searchContactsForAutocomplete(query, limit || 8));
+ipcMain.handle('contacts:add', (_, contact) => {
+  try {
+    const id = db.addContact(contact);
+    db.save();
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+ipcMain.handle('contacts:update', (_, id, updates) => {
+  try {
+    db.updateContact(id, updates);
+    db.save();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+ipcMain.handle('contacts:delete', (_, id) => {
+  db.deleteContact(id);
+  db.save();
+  return { ok: true };
+});
+ipcMain.handle('contacts:stats', () => db.contactsStats());
+
+// =====================================================================
 // IPC: Spam Kuralları
 // =====================================================================
 ipcMain.handle('spam:list', (_, accountId) => db.listSpamRules(accountId));
@@ -1206,7 +1237,32 @@ ipcMain.handle('mail:send', async (_, accountId, mailData) => {
       contentType: a.contentType || 'application/octet-stream'
     }));
   }
-  return await mailService.sendMail(accountId, mailData);
+  const result = await mailService.sendMail(accountId, mailData);
+
+  // v1.16: Gönderilen alıcıları contact olarak kaydet
+  try {
+    if (result && (result.ok || result.success !== false)) {
+      const recips = [
+        ...(mailData.to || []),
+        ...(mailData.cc || []),
+        ...(mailData.bcc || [])
+      ];
+      for (const r of recips) {
+        // r "Name <email>" veya "email" formatında olabilir
+        const m = String(r || '').match(/^\s*(.*?)\s*<([^>]+)>\s*$/) ||
+                  String(r || '').match(/^\s*([^\s,]+@[^\s,]+)\s*$/);
+        if (!m) continue;
+        const email = (m[2] || m[1] || '').trim();
+        const name = m[2] ? (m[1] || '').trim() : '';
+        if (email && email.includes('@')) {
+          db.recordContactUsage(email, name, 'auto');
+        }
+      }
+      db.save();
+    }
+  } catch (e) { console.warn('Contact kayıt hatası:', e.message); }
+
+  return result;
 });
 
 // =====================================================================

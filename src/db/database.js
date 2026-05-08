@@ -321,6 +321,25 @@ class Database {
           result TEXT,
           scanned_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS contacts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT,
+          organization TEXT,
+          phone TEXT,
+          notes TEXT,
+          tags TEXT,
+          is_favorite INTEGER DEFAULT 0,
+          use_count INTEGER DEFAULT 1,
+          source TEXT DEFAULT 'auto',
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT,
+          last_used TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+        CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
+        CREATE INDEX IF NOT EXISTS idx_contacts_use ON contacts(use_count DESC, last_used DESC);
       `);
     } catch (_) {}
 
@@ -1240,6 +1259,143 @@ class Database {
 
   clearUrlCache() {
     this.exec('DELETE FROM url_scan_cache');
+  }
+
+  // ====== v1.16: Adres Defteri (Contacts) ======
+  /**
+   * Otomatik kişi kaydı (mail aldığında veya gönderdiğinde)
+   * Varsa use_count++ ve last_used güncelle, yoksa yeni ekle
+   */
+  recordContactUsage(email, name, source = 'auto') {
+    if (!email) return;
+    const e = String(email).trim().toLowerCase();
+    if (!e || !e.includes('@')) return;
+    const now = new Date().toISOString();
+    try {
+      const existing = this.prepare('SELECT id, name FROM contacts WHERE email = ? LIMIT 1').get(e);
+      if (existing) {
+        // Name boşsa ve yeni isim geldiyse güncelle
+        if (!existing.name && name && name.trim()) {
+          this.prepare('UPDATE contacts SET name = ?, use_count = use_count + 1, last_used = ? WHERE id = ?')
+            .run(name.trim(), now, existing.id);
+        } else {
+          this.prepare('UPDATE contacts SET use_count = use_count + 1, last_used = ? WHERE id = ?')
+            .run(now, existing.id);
+        }
+      } else {
+        this.prepare(`
+          INSERT INTO contacts (email, name, source, last_used)
+          VALUES (?, ?, ?, ?)
+        `).run(e, (name || '').trim() || null, source, now);
+      }
+    } catch (_) {}
+  }
+
+  listContacts(opts = {}) {
+    let where = '1=1';
+    const params = [];
+    if (opts.search) {
+      where += ' AND (LOWER(email) LIKE ? OR LOWER(name) LIKE ? OR LOWER(organization) LIKE ?)';
+      const q = '%' + String(opts.search).toLowerCase() + '%';
+      params.push(q, q, q);
+    }
+    if (opts.favoritesOnly) where += ' AND is_favorite = 1';
+
+    const sortBy = opts.sortBy || 'name';
+    let orderBy = 'is_favorite DESC, ';
+    if (sortBy === 'use') orderBy += 'use_count DESC, last_used DESC';
+    else if (sortBy === 'recent') orderBy += 'last_used DESC, use_count DESC';
+    else orderBy += 'COALESCE(name, email) COLLATE NOCASE ASC';
+
+    const limit = opts.limit ? `LIMIT ${parseInt(opts.limit, 10)}` : '';
+
+    return this.prepare(
+      `SELECT * FROM contacts WHERE ${where} ORDER BY ${orderBy} ${limit}`
+    ).all(...params);
+  }
+
+  /**
+   * Compose autocomplete için hızlı arama (limit 8)
+   * Email VEYA name'de prefix/contains eşleşmesi
+   */
+  searchContactsForAutocomplete(query, limit = 8) {
+    if (!query || query.length < 2) return [];
+    const q = String(query).toLowerCase();
+    const qLike = '%' + q + '%';
+    return this.prepare(`
+      SELECT id, email, name, organization, use_count, last_used, is_favorite
+      FROM contacts
+      WHERE LOWER(email) LIKE ? OR LOWER(name) LIKE ?
+      ORDER BY
+        is_favorite DESC,
+        CASE WHEN LOWER(email) LIKE ? OR LOWER(name) LIKE ? THEN 0 ELSE 1 END,
+        use_count DESC,
+        last_used DESC
+      LIMIT ?
+    `).all(qLike, qLike, q + '%', q + '%', parseInt(limit, 10));
+  }
+
+  getContact(id) {
+    return this.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
+  }
+
+  getContactByEmail(email) {
+    return this.prepare('SELECT * FROM contacts WHERE LOWER(email) = LOWER(?) LIMIT 1').get(String(email).trim());
+  }
+
+  addContact(c) {
+    const email = String(c.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) return null;
+    try {
+      const r = this.prepare(`
+        INSERT INTO contacts (email, name, organization, phone, notes, tags, is_favorite, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        email,
+        (c.name || '').trim() || null,
+        (c.organization || '').trim() || null,
+        (c.phone || '').trim() || null,
+        c.notes || null,
+        c.tags || null,
+        c.is_favorite ? 1 : 0,
+        c.source || 'manual'
+      );
+      return r.lastInsertRowid;
+    } catch (e) {
+      // Zaten varsa - update fallback
+      const existing = this.getContactByEmail(email);
+      if (existing) {
+        this.updateContact(existing.id, c);
+        return existing.id;
+      }
+      throw e;
+    }
+  }
+
+  updateContact(id, updates) {
+    const allowed = ['email', 'name', 'organization', 'phone', 'notes', 'tags', 'is_favorite'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (typeof v === 'boolean') v = v ? 1 : 0;
+      if (f === 'email' && typeof v === 'string') v = v.toLowerCase().trim();
+      return v;
+    });
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE contacts SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteContact(id) {
+    this.prepare('DELETE FROM contacts WHERE id = ?').run(id);
+  }
+
+  contactsStats() {
+    const total = this.prepare('SELECT COUNT(*) AS c FROM contacts').get().c;
+    const fav = this.prepare('SELECT COUNT(*) AS c FROM contacts WHERE is_favorite = 1').get().c;
+    const auto = this.prepare("SELECT COUNT(*) AS c FROM contacts WHERE source = 'auto'").get().c;
+    return { total, favorites: fav, automatic: auto, manual: total - auto };
   }
 }
 

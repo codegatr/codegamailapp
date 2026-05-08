@@ -121,6 +121,7 @@ class Pop3Service {
           } catch (_) {}
           if (!messageData.is_spam && messageData.from_addr) {
             try { db.recordSenderInteraction(messageData.from_addr, messageData.from_name); } catch (_) {}
+            try { db.recordContactUsage(messageData.from_addr, messageData.from_name, 'auto'); } catch (_) {}
           }
 
           if (parsed.attachments && parsed.attachments.length) {

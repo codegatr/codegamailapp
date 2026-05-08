@@ -413,6 +413,7 @@ function bindToolbar() {
   document.getElementById('btnTemplates').onclick = openTemplatesManager;
   document.getElementById('btnScheduled').onclick = openScheduledManager;
   document.getElementById('btnNotes').onclick = openNotes;
+  document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
 
@@ -1872,6 +1873,9 @@ function openCompose(opts = {}) {
   state.composeAttachments = [];
   renderAttachmentList();
 
+  // v1.16: Autocomplete bağla
+  attachAutocompleteToCompose();
+
   // v1.6: editor varsa init et (modal hidden iken init zor olabilir, burada da güvence)
   if (!state.composeEditor && typeof RichEditor !== 'undefined') {
     state.composeEditor = new RichEditor('composeEditor', {
@@ -1880,6 +1884,7 @@ function openCompose(opts = {}) {
   }
 
   let to = '', subject = '', initialHTML = '<p><br></p>';
+  if (opts.to) to = opts.to;
   if (opts.replyTo) {
     to = opts.replyTo.from_addr || '';
     subject = (opts.replyTo.subject || '').startsWith('Re:') ? opts.replyTo.subject : 'Re: ' + (opts.replyTo.subject || '');
@@ -3632,4 +3637,304 @@ async function handleLinkClick(url, linkEl) {
   } else {
     setStatus('Link açma iptal edildi (kullanıcı tarafından)');
   }
+}
+
+// ============= v1.16: Adres Defteri (Contacts) =============
+let currentContactId = null;
+let contactsUIBound = false;
+
+async function openContacts() {
+  document.getElementById('modalContacts').classList.remove('hidden');
+  if (!contactsUIBound) {
+    contactsUIBound = true;
+    bindContactsUI();
+  }
+  await renderContactsList();
+}
+
+function bindContactsUI() {
+  document.getElementById('btnNewContact').onclick = createNewContact;
+  document.getElementById('contactsSearchInput').oninput = debounce(renderContactsList, 200);
+  document.getElementById('contactsSortSelect').onchange = renderContactsList;
+  document.getElementById('contactsFavOnly').onchange = renderContactsList;
+
+  document.getElementById('btnContactSave').onclick = saveCurrentContact;
+  document.getElementById('btnContactDelete').onclick = deleteCurrentContact;
+  document.getElementById('btnContactFav').onclick = toggleFavCurrentContact;
+  document.getElementById('btnContactCompose').onclick = composeToCurrentContact;
+}
+
+async function renderContactsList() {
+  const search = document.getElementById('contactsSearchInput').value.trim();
+  const sortBy = document.getElementById('contactsSortSelect').value;
+  const favOnly = document.getElementById('contactsFavOnly').checked;
+
+  const list = await window.api.contacts.list({ search, sortBy, favoritesOnly: favOnly });
+  const stats = await window.api.contacts.stats();
+  document.getElementById('contactsCount').textContent = `(${stats.total} toplam, ${stats.favorites} sık)`;
+
+  const el = document.getElementById('contactsList');
+  if (!list.length) {
+    el.innerHTML = '<div class="empty-state" style="padding:30px;">Kişi bulunamadı</div>';
+    return;
+  }
+
+  el.innerHTML = list.map(c => {
+    const initial = (c.name || c.email).trim().charAt(0).toUpperCase();
+    const colorIdx = (c.email.charCodeAt(0) + c.email.charCodeAt(1)) % 8;
+    const colors = ['#3498db', '#9b59b6', '#e74c3c', '#f39c12', '#2ecc71', '#1abc9c', '#e67e22', '#34495e'];
+    return `
+      <div class="contact-item ${currentContactId === c.id ? 'active' : ''}" data-id="${c.id}">
+        <div class="contact-avatar" style="background:${colors[colorIdx]};">${escapeHtml(initial)}</div>
+        <div class="contact-info">
+          <div class="contact-name">${c.is_favorite ? '⭐ ' : ''}${escapeHtml(c.name || c.email.split('@')[0])}</div>
+          <div class="contact-email">${escapeHtml(c.email)}</div>
+          ${c.organization ? `<div class="contact-org">${escapeHtml(c.organization)}</div>` : ''}
+        </div>
+        ${c.use_count > 1 ? `<div class="contact-usecount" title="Kullanım sayısı">${c.use_count}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  el.querySelectorAll('.contact-item').forEach(item => {
+    item.onclick = () => loadContactIntoDetail(parseInt(item.dataset.id, 10));
+  });
+}
+
+async function loadContactIntoDetail(id) {
+  const c = await window.api.contacts.get(id);
+  if (!c) return;
+  currentContactId = id;
+  document.getElementById('contactsEmpty').classList.add('hidden');
+  document.getElementById('contactsDetail').classList.remove('hidden');
+
+  document.getElementById('contactDetailHeader').textContent = c.name || c.email;
+  document.getElementById('ct_name').value = c.name || '';
+  document.getElementById('ct_email').value = c.email || '';
+  document.getElementById('ct_organization').value = c.organization || '';
+  document.getElementById('ct_phone').value = c.phone || '';
+  document.getElementById('ct_tags').value = c.tags || '';
+  document.getElementById('ct_notes').value = c.notes || '';
+
+  const favBtn = document.getElementById('btnContactFav');
+  favBtn.classList.toggle('btn-primary', !!c.is_favorite);
+  favBtn.classList.toggle('btn-ghost', !c.is_favorite);
+
+  let meta = `Kullanım: ${c.use_count || 0} kez`;
+  if (c.last_used) meta += ` · Son: ${new Date(c.last_used).toLocaleString('tr-TR')}`;
+  if (c.created_at) meta += ` · Eklendi: ${new Date(c.created_at).toLocaleDateString('tr-TR')}`;
+  meta += ` · Kaynak: ${c.source === 'auto' ? 'otomatik' : 'manuel'}`;
+  document.getElementById('ct_meta').textContent = meta;
+
+  document.querySelectorAll('.contact-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.contact-item[data-id="${id}"]`)?.classList.add('active');
+}
+
+async function createNewContact() {
+  const r = await window.api.contacts.add({
+    email: 'yeni@example.com',
+    name: 'Yeni Kişi',
+    source: 'manual'
+  });
+  if (r.ok) {
+    await renderContactsList();
+    await loadContactIntoDetail(r.id);
+    setTimeout(() => {
+      const emailEl = document.getElementById('ct_email');
+      emailEl.focus();
+      emailEl.select();
+    }, 100);
+  } else {
+    alert('Eklenemedi: ' + (r.error || ''));
+  }
+}
+
+async function saveCurrentContact() {
+  if (!currentContactId) return;
+  const email = document.getElementById('ct_email').value.trim();
+  if (!email || !email.includes('@')) {
+    alert('Geçerli bir e-posta adresi girin');
+    return;
+  }
+  const updates = {
+    email,
+    name: document.getElementById('ct_name').value.trim(),
+    organization: document.getElementById('ct_organization').value.trim(),
+    phone: document.getElementById('ct_phone').value.trim(),
+    tags: document.getElementById('ct_tags').value.trim(),
+    notes: document.getElementById('ct_notes').value
+  };
+  const r = await window.api.contacts.update(currentContactId, updates);
+  if (r.ok) {
+    setStatus('✓ Kişi kaydedildi');
+    await renderContactsList();
+    await loadContactIntoDetail(currentContactId);
+  } else {
+    alert('Kayıt hatası: ' + (r.error || ''));
+  }
+}
+
+async function deleteCurrentContact() {
+  if (!currentContactId) return;
+  const c = await window.api.contacts.get(currentContactId);
+  if (!confirm(`"${c.name || c.email}" silinsin mi?`)) return;
+  await window.api.contacts.delete(currentContactId);
+  currentContactId = null;
+  document.getElementById('contactsDetail').classList.add('hidden');
+  document.getElementById('contactsEmpty').classList.remove('hidden');
+  await renderContactsList();
+  setStatus('Kişi silindi');
+}
+
+async function toggleFavCurrentContact() {
+  if (!currentContactId) return;
+  const c = await window.api.contacts.get(currentContactId);
+  await window.api.contacts.update(currentContactId, { is_favorite: !c.is_favorite });
+  await loadContactIntoDetail(currentContactId);
+  await renderContactsList();
+}
+
+async function composeToCurrentContact() {
+  if (!currentContactId) return;
+  const c = await window.api.contacts.get(currentContactId);
+  if (!c) return;
+  document.getElementById('modalContacts').classList.add('hidden');
+  const recipient = c.name ? `${c.name} <${c.email}>` : c.email;
+  openCompose({ to: recipient });
+}
+
+// ============= v1.16: Compose Autocomplete =============
+class RecipientAutocomplete {
+  constructor(inputEl) {
+    this.input = inputEl;
+    this.dropdown = null;
+    this.items = [];
+    this.activeIdx = -1;
+    this.startPos = 0;
+    this.lastQuery = '';
+
+    this.input.addEventListener('input', () => this.onInput());
+    this.input.addEventListener('keydown', (e) => this.onKeydown(e));
+    this.input.addEventListener('blur', () => setTimeout(() => this.hide(), 200));
+  }
+
+  async onInput() {
+    const value = this.input.value;
+    const cursor = this.input.selectionStart;
+    const before = value.slice(0, cursor);
+    // Son separator'dan sonraki kısmı al
+    const lastSep = Math.max(before.lastIndexOf(','), before.lastIndexOf(';'));
+    const token = before.slice(lastSep + 1).trim();
+    this.startPos = lastSep + 1;
+
+    if (token.length < 2) { this.hide(); return; }
+    if (token === this.lastQuery) return;
+    this.lastQuery = token;
+
+    const results = await window.api.contacts.search(token, 8);
+    this.show(results);
+  }
+
+  show(items) {
+    this.items = items || [];
+    this.activeIdx = this.items.length > 0 ? 0 : -1;
+    if (!this.dropdown) {
+      this.dropdown = document.createElement('div');
+      this.dropdown.className = 'recipient-autocomplete';
+      document.body.appendChild(this.dropdown);
+    }
+    if (!this.items.length) { this.hide(); return; }
+
+    this.dropdown.innerHTML = this.items.map((c, i) => {
+      const initial = (c.name || c.email).charAt(0).toUpperCase();
+      return `
+        <div class="rac-item ${i === this.activeIdx ? 'active' : ''}" data-idx="${i}">
+          <div class="rac-avatar">${escapeHtml(initial)}</div>
+          <div class="rac-info">
+            <div class="rac-name">${c.is_favorite ? '⭐ ' : ''}${escapeHtml(c.name || c.email.split('@')[0])}</div>
+            <div class="rac-email">${escapeHtml(c.email)}${c.organization ? ' · ' + escapeHtml(c.organization) : ''}</div>
+          </div>
+          ${c.use_count > 1 ? `<span class="rac-uses">${c.use_count}×</span>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    const rect = this.input.getBoundingClientRect();
+    this.dropdown.style.top = (rect.bottom + window.scrollY + 2) + 'px';
+    this.dropdown.style.left = (rect.left + window.scrollX) + 'px';
+    this.dropdown.style.minWidth = rect.width + 'px';
+    this.dropdown.classList.add('show');
+
+    this.dropdown.querySelectorAll('.rac-item').forEach(el => {
+      el.onmousedown = (e) => {
+        e.preventDefault();
+        const idx = parseInt(el.dataset.idx, 10);
+        this.select(this.items[idx]);
+      };
+    });
+  }
+
+  hide() {
+    if (this.dropdown) this.dropdown.classList.remove('show');
+    this.items = [];
+    this.activeIdx = -1;
+  }
+
+  onKeydown(e) {
+    if (!this.items.length || !this.dropdown || !this.dropdown.classList.contains('show')) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      this.activeIdx = (this.activeIdx + 1) % this.items.length;
+      this._renderActive();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      this.activeIdx = (this.activeIdx - 1 + this.items.length) % this.items.length;
+      this._renderActive();
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (this.activeIdx >= 0) {
+        e.preventDefault();
+        this.select(this.items[this.activeIdx]);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      this.hide();
+    }
+  }
+
+  _renderActive() {
+    if (!this.dropdown) return;
+    this.dropdown.querySelectorAll('.rac-item').forEach((el, i) => {
+      el.classList.toggle('active', i === this.activeIdx);
+    });
+  }
+
+  select(c) {
+    const value = this.input.value;
+    const cursor = this.input.selectionStart;
+    const before = value.slice(0, this.startPos);
+    const after = value.slice(cursor);
+
+    const formatted = c.name ? `${c.name} <${c.email}>` : c.email;
+    const beforeTrimmed = before.replace(/[\s,;]*$/, '');
+    const sep = beforeTrimmed ? ', ' : '';
+    const newValue = beforeTrimmed + sep + formatted + ', ' + after.replace(/^[\s,;]+/, '');
+
+    this.input.value = newValue;
+    const newCursor = beforeTrimmed.length + sep.length + formatted.length + 2;
+    this.input.setSelectionRange(newCursor, newCursor);
+    this.input.focus();
+
+    this.lastQuery = '';
+    this.hide();
+  }
+}
+
+function attachAutocompleteToCompose() {
+  ['compose_to', 'compose_cc'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.acBound) {
+      el.dataset.acBound = '1';
+      new RecipientAutocomplete(el);
+    }
+  });
 }

@@ -205,6 +205,7 @@ class ImapService {
                 if (!messageData.is_spam && messageData.from_addr) {
                   try {
                     db.recordSenderInteraction(messageData.from_addr, messageData.from_name);
+                    db.recordContactUsage(messageData.from_addr, messageData.from_name, 'auto');
                   } catch (_) {}
                 }
 
