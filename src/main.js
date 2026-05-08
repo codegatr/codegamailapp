@@ -27,9 +27,15 @@ let appConfig;
 let isQuitting = false;
 let backgroundSyncTimer = null;
 let isBackgroundSyncing = false;
-// v1.10: Zamanlanmış mesajlar (TDZ engelleme - üstte tanımlı)
-let scheduledTimer = null;
-let processingScheduled = false;
+// v1.39: var ile hoisting - TDZ tamamen engellensin (bazı kullanıcılarda v1.38 build'i let ile sorun yaşadı)
+var scheduledTimer = null;
+var processingScheduled = false;
+
+// IPC handler safe-register helper (duplicate kayıtları engeller)
+function safeIpcHandle(channel, handler) {
+  try { ipcMain.removeHandler(channel); } catch (_) {}
+  ipcMain.handle(channel, handler);
+}
 
 // Windows'ta bildirimlerin uygulama adıyla gruplanması için zorunlu
 app.setAppUserModelId('tr.com.codega.mail');
