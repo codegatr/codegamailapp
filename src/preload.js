@@ -151,7 +151,9 @@ contextBridge.exposeInMainWorld('api', {
   oauth2: {
     isConfigured: (provider) => ipcRenderer.invoke('oauth2:isConfigured', provider),
     startFlow: (provider) => ipcRenderer.invoke('oauth2:startFlow', provider),
-    refresh: (accountId) => ipcRenderer.invoke('oauth2:refresh', accountId)
+    refresh: (accountId) => ipcRenderer.invoke('oauth2:refresh', accountId),
+    saveClientId: (provider, clientId) => ipcRenderer.invoke('oauth2:saveClientId', provider, clientId),
+    getClientIds: () => ipcRenderer.invoke('oauth2:getClientIds')
   },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)

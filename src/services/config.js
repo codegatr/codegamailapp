@@ -8,7 +8,7 @@ class Config {
     this.data = {
       dataPath: defaultDir,
       firstRun: true,
-      version: '1.43.0',
+      version: '1.44.0',
       // v1.2 yeni ayarlar
       notificationsEnabled: true,
       backgroundSyncMinutes: 5,    // 0 = devre dışı
@@ -24,6 +24,9 @@ class Config {
       virustotalAutoScan: true,    // Medium+ riskli ekler için otomatik tarama
       // v1.15: URL Reputation
       urlScanWithVt: true,         // VT API key varsa URL'leri de VT ile tara
+      // v1.44: OAuth2 client ID'leri (UI'dan kullanıcı doldurur)
+      oauth2MicrosoftClientId: '',
+      oauth2GoogleClientId: '',
     };
     this.load();
   }

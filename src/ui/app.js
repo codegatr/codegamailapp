@@ -5141,6 +5141,8 @@ function buildCommandList() {
       action: () => openAdvancedSearch(), category: 'Modül' },
     { id: 'signature-builder', label: 'İmza Şablonu Oluştur', icon: '🎨',
       action: () => { openSettings(); setTimeout(() => openSignatureBuilder(), 300); }, category: 'Modül' },
+    { id: 'oauth-setup', label: 'OAuth2 Kurulumu (Microsoft/Google)', icon: '🔐',
+      action: () => openOAuth2Setup(), category: 'Modül' },
     { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
       action: async () => {
         const r = await window.api.autoCategorize.all({ onlyUntagged: true });
@@ -9034,20 +9036,13 @@ async function connectViaOAuth(provider) {
   const configured = await window.api.oauth2.isConfigured(provider);
   if (!configured) {
     const providerName = provider === 'microsoft' ? 'Microsoft' : 'Google';
-    const portalName = provider === 'microsoft' ? 'Azure Portal' : 'Google Cloud Console';
-    const envVar = provider === 'microsoft' ? 'CODEGA_MS_CLIENT_ID' : 'CODEGA_GOOGLE_CLIENT_ID';
-
-    alert(
-      `${providerName} OAuth2 yapılandırılmamış.\n\n` +
-      `BU UYGULAMAYI GERÇEK KULLANIM İÇİN HAZIRLAMAK İÇİN:\n\n` +
-      `1. ${portalName}'a git\n` +
-      `2. "Public Client" / "Desktop App" tipinde uygulama kayıt et\n` +
-      `3. Redirect URI: http://localhost:${provider === 'microsoft' ? '51842' : '51843'}/callback\n` +
-      `4. ${provider === 'microsoft' ? 'API izinleri: IMAP.AccessAsUser.All, SMTP.Send, offline_access' : 'Scope: https://mail.google.com/'}\n` +
-      `5. CLIENT_ID'yi alıp ${envVar} environment değişkenine yaz\n` +
-      `6. Uygulamayı yeniden başlat\n\n` +
-      `Kısa vadeli alternatif: "App Password" ile manuel kurulum.`
-    );
+    if (confirm(
+      `${providerName} OAuth2 henüz yapılandırılmamış.\n\n` +
+      `Adım adım rehberli kurulum sihirbazını açmak ister misiniz?\n\n` +
+      `(5 dakika sürer - Azure/Google'da ücretsiz uygulama kayıt edilir)`
+    )) {
+      openOAuth2Setup(provider);
+    }
     return;
   }
 
@@ -9102,3 +9097,283 @@ document.addEventListener('click', (e) => {
     connectViaOAuth('google');
   }
 });
+
+// Settings'te OAuth setup butonu
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'btnOpenOAuth2Setup') {
+    e.preventDefault();
+    document.getElementById('modalSettings')?.classList.add('hidden');
+    setTimeout(() => openOAuth2Setup(), 200);
+  }
+});
+
+// ============= v1.44: OAuth2 Setup Wizard =============
+async function openOAuth2Setup(initialProvider) {
+  document.getElementById('modalOAuth2Setup').classList.remove('hidden');
+  await refreshOAuthSetupStatus();
+
+  // Tab handlers
+  document.querySelectorAll('.oauth-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.oauth-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderOAuthSetupContent(tab.dataset.provider);
+    };
+  });
+
+  const target = initialProvider || 'microsoft';
+  document.querySelectorAll('.oauth-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.provider === target);
+  });
+  renderOAuthSetupContent(target);
+}
+
+async function refreshOAuthSetupStatus() {
+  const ids = await window.api.oauth2.getClientIds();
+  document.getElementById('oauthStatusMicrosoft').innerHTML = ids.microsoft
+    ? '<span style="color:var(--success);">✓ Yapılandırıldı</span>'
+    : '⚪ Yapılandırılmamış';
+  document.getElementById('oauthStatusGoogle').innerHTML = ids.google
+    ? '<span style="color:var(--success);">✓ Yapılandırıldı</span>'
+    : '⚪ Yapılandırılmamış';
+}
+
+async function renderOAuthSetupContent(provider) {
+  const ids = await window.api.oauth2.getClientIds();
+  const currentId = ids[provider] || '';
+  const el = document.getElementById('oauthSetupContent');
+
+  if (provider === 'microsoft') {
+    el.innerHTML = `
+      <h3 style="margin-top:0;">🟦 Microsoft (Outlook.com / Office 365) Kurulumu</h3>
+      <p style="font-size:13px;color:var(--text-2);">
+        Microsoft, 2024 Eylül'den sonra outlook.com / hotmail / live hesaplarında şifre ile IMAP girişini kapattı. Modern auth (OAuth2) için kendi uygulamanızı Azure'da ücretsiz kayıt etmeniz gerekiyor (5 dk).
+      </p>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">1</div>
+        <div class="oauth-step-body">
+          <strong>Azure Portal'a giriş yap</strong>
+          <p>Microsoft hesabınla giriş yap (her hesap çalışır):</p>
+          <button class="btn btn-primary" onclick="openExternalLink('https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade')">
+            🔗 Azure Portal — App registrations
+          </button>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">2</div>
+        <div class="oauth-step-body">
+          <strong>"+ New registration" butonuna bas</strong>
+          <p>Açılan formu doldur:</p>
+          <div class="oauth-form-mock">
+            <div><strong>Name:</strong> CODEGA Mail</div>
+            <div><strong>Supported account types:</strong> Personal Microsoft accounts only <em>(kişisel hesap için)</em><br>
+            <small style="color:var(--muted);">İş hesabı kullanıyorsan: "Accounts in any organizational directory and personal Microsoft accounts"</small></div>
+            <div><strong>Redirect URI:</strong> Public client/native (mobile &amp; desktop) → <code>http://localhost:51842/callback</code></div>
+          </div>
+          <button class="btn">Register</button>'a bas
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">3</div>
+        <div class="oauth-step-body">
+          <strong>API izinlerini ekle</strong>
+          <p>Sol menüden <code>API permissions</code> > <code>+ Add a permission</code> > <code>Microsoft Graph</code> > <code>Delegated permissions</code></p>
+          <p>Şu izinleri ARA ve seç:</p>
+          <ul style="font-family:monospace;font-size:12px;color:var(--text);">
+            <li>✅ <code>IMAP.AccessAsUser.All</code></li>
+            <li>✅ <code>SMTP.Send</code></li>
+            <li>✅ <code>offline_access</code></li>
+            <li>✅ <code>User.Read</code> (genelde otomatik ekli)</li>
+          </ul>
+          <p>"Add permissions" ile kaydet.</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">4</div>
+        <div class="oauth-step-body">
+          <strong>Public client flow'u aç</strong>
+          <p>Sol menü > <code>Authentication</code> sayfasına git. Aşağıda <em>"Allow public client flows"</em> seçeneğini bul ve <strong>Yes</strong> yap. Save'e bas.</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">5</div>
+        <div class="oauth-step-body">
+          <strong>Application (client) ID'yi kopyala</strong>
+          <p>Sol menü > <code>Overview</code> > <strong>Application (client) ID</strong> alanını kopyala. UUID şeklinde olacak (örn: <code>12345678-1234-1234-1234-123456789012</code>).</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">6</div>
+        <div class="oauth-step-body">
+          <strong>Client ID'yi buraya yapıştır</strong>
+          <input type="text" id="oauthMsClientId" placeholder="12345678-1234-1234-1234-123456789012"
+                 value="${escapeHtml(currentId)}"
+                 style="width:100%;padding:10px;font-family:monospace;font-size:12px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;">
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn btn-primary" id="btnSaveMsClientId">💾 Kaydet</button>
+            ${currentId ? '<button class="btn btn-ghost" id="btnTestMsConnect">🔐 Test - Microsoft ile Bağlan</button>' : ''}
+          </div>
+          <small style="color:var(--muted);display:block;margin-top:8px;">
+            Client ID gizli değil (public bilgi). Sadece "kim çağırıyor" demek için. Güvenlik için secret kullanmıyoruz - PKCE flow.
+          </small>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btnSaveMsClientId').onclick = async () => {
+      const id = document.getElementById('oauthMsClientId').value.trim();
+      if (!id) { alert('Client ID boş olamaz'); return; }
+      const r = await window.api.oauth2.saveClientId('microsoft', id);
+      if (r.ok) {
+        setStatus('✓ Microsoft Client ID kaydedildi');
+        await refreshOAuthSetupStatus();
+        renderOAuthSetupContent('microsoft'); // Test butonu eklensin
+      } else { alert('Hata: ' + r.error); }
+    };
+    const btnTest = document.getElementById('btnTestMsConnect');
+    if (btnTest) btnTest.onclick = async () => {
+      document.getElementById('modalOAuth2Setup').classList.add('hidden');
+      // Hesap ekleme modali açılmazsa connect direkt
+      const r = await window.api.oauth2.startFlow('microsoft');
+      if (r.ok) {
+        alert(`✓ Test başarılı!\n\nGiriş yapan: ${r.email}\n\nArtık + Hesap > 🟦 Microsoft ile Bağlan ile gerçek hesap ekleyebilirsiniz.`);
+      } else {
+        alert('Test başarısız: ' + r.error);
+      }
+    };
+  }
+
+  if (provider === 'google') {
+    el.innerHTML = `
+      <h3 style="margin-top:0;">🟥 Google (Gmail) Kurulumu</h3>
+      <p style="font-size:13px;color:var(--text-2);">
+        Gmail için Google Cloud Console'da ücretsiz bir OAuth uygulaması kayıt etmeniz gerekiyor. Test mode'da 100 kullanıcıya kadar ücretsiz çalışır (kişisel kullanım için fazlasıyla yeterli).
+      </p>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">1</div>
+        <div class="oauth-step-body">
+          <strong>Google Cloud Console'a giriş yap</strong>
+          <button class="btn btn-primary" onclick="openExternalLink('https://console.cloud.google.com/projectcreate')">
+            🔗 Yeni Proje Oluştur
+          </button>
+          <p>Proje adı: <code>CODEGA Mail</code> — "Create" bas.</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">2</div>
+        <div class="oauth-step-body">
+          <strong>OAuth Consent Screen yapılandır</strong>
+          <button class="btn" onclick="openExternalLink('https://console.cloud.google.com/apis/credentials/consent')">
+            🔗 OAuth Consent Screen
+          </button>
+          <p>User Type: <strong>External</strong> > Create</p>
+          <p>App information:</p>
+          <ul style="font-size:12px;">
+            <li>App name: <code>CODEGA Mail</code></li>
+            <li>User support email: e-postanız</li>
+            <li>Developer email: e-postanız</li>
+          </ul>
+          <p>Save and Continue (3 sayfa boyunca, Scopes ve Test users boş bırakılabilir başta).</p>
+          <p><strong>Test users</strong> sayfasına gel ve kendi Gmail adresini ekle (sadece eklediklerin giriş yapabilir).</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">3</div>
+        <div class="oauth-step-body">
+          <strong>OAuth Client ID oluştur</strong>
+          <button class="btn" onclick="openExternalLink('https://console.cloud.google.com/apis/credentials')">
+            🔗 Credentials sayfası
+          </button>
+          <p><code>+ Create Credentials</code> > <code>OAuth client ID</code></p>
+          <div class="oauth-form-mock">
+            <div><strong>Application type:</strong> Desktop app</div>
+            <div><strong>Name:</strong> CODEGA Mail Desktop</div>
+          </div>
+          <p>Create'e bas.</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">4</div>
+        <div class="oauth-step-body">
+          <strong>Gmail API'sini etkinleştir</strong>
+          <button class="btn" onclick="openExternalLink('https://console.cloud.google.com/apis/library/gmail.googleapis.com')">
+            🔗 Gmail API'yi Etkinleştir
+          </button>
+          <p>"Enable" butonuna bas.</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">5</div>
+        <div class="oauth-step-body">
+          <strong>Client ID'yi kopyala</strong>
+          <p>Credentials sayfasında oluşturduğun "OAuth 2.0 Client IDs" kaydının yanındaki ikonla Client ID'yi kopyala. <code>123456789-abcdefg.apps.googleusercontent.com</code> gibi olacak.</p>
+        </div>
+      </div>
+
+      <div class="oauth-step">
+        <div class="oauth-step-num">6</div>
+        <div class="oauth-step-body">
+          <strong>Buraya yapıştır</strong>
+          <input type="text" id="oauthGoogleClientId" placeholder="123456789-abc.apps.googleusercontent.com"
+                 value="${escapeHtml(currentId)}"
+                 style="width:100%;padding:10px;font-family:monospace;font-size:12px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;">
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button class="btn btn-primary" id="btnSaveGoogleClientId">💾 Kaydet</button>
+            ${currentId ? '<button class="btn btn-ghost" id="btnTestGoogleConnect">🔐 Test - Google ile Bağlan</button>' : ''}
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btnSaveGoogleClientId').onclick = async () => {
+      const id = document.getElementById('oauthGoogleClientId').value.trim();
+      if (!id) { alert('Client ID boş olamaz'); return; }
+      const r = await window.api.oauth2.saveClientId('google', id);
+      if (r.ok) {
+        setStatus('✓ Google Client ID kaydedildi');
+        await refreshOAuthSetupStatus();
+        renderOAuthSetupContent('google');
+      } else { alert('Hata: ' + r.error); }
+    };
+    const btnTest = document.getElementById('btnTestGoogleConnect');
+    if (btnTest) btnTest.onclick = async () => {
+      document.getElementById('modalOAuth2Setup').classList.add('hidden');
+      const r = await window.api.oauth2.startFlow('google');
+      if (r.ok) {
+        alert(`✓ Test başarılı!\n\nGiriş yapan: ${r.email}\n\nArtık + Hesap > 🟥 Google ile Bağlan ile gerçek hesap ekleyebilirsiniz.`);
+      } else {
+        alert('Test başarısız: ' + r.error);
+      }
+    };
+  }
+}
+
+// External link açıcı
+async function openExternalLink(url) {
+  // window.api.app.openExternal mevcut (main.js:2762)
+  try {
+    if (window.api.app?.openExternal) {
+      await window.api.app.openExternal(url);
+    } else if (window.api.url?.openExternal) {
+      await window.api.url.openExternal(url);
+    } else {
+      window.open(url, '_blank');
+    }
+  } catch (e) {
+    window.open(url, '_blank');
+  }
+}
+window.openExternalLink = openExternalLink;
+
+// Komut paletine ekle

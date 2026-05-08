@@ -103,6 +103,38 @@
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
 
+  <!-- ===== v1.44: OAuth2 Setup Wizard ===== -->
+  <div id="modalOAuth2Setup" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>🔐 OAuth2 Kurulum Sihirbazı</h2>
+        <div style="flex:1;"></div>
+        <button class="modal-close" data-close="modalOAuth2Setup">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;display:flex;height:calc(90vh - 110px);overflow:hidden;">
+        <div class="oauth-setup-tabs">
+          <div class="oauth-tab active" data-provider="microsoft">
+            <span class="oauth-tab-icon" style="background:#0078d4;color:#fff;">M</span>
+            <div style="flex:1;min-width:0;">
+              <div class="oauth-tab-name">Microsoft</div>
+              <div class="oauth-tab-sub">Outlook.com / Hotmail / Office 365</div>
+              <div class="oauth-tab-status" id="oauthStatusMicrosoft">⚪ Yapılandırılmamış</div>
+            </div>
+          </div>
+          <div class="oauth-tab" data-provider="google">
+            <span class="oauth-tab-icon" style="background:#ea4335;color:#fff;">G</span>
+            <div style="flex:1;min-width:0;">
+              <div class="oauth-tab-name">Google</div>
+              <div class="oauth-tab-sub">Gmail / Workspace</div>
+              <div class="oauth-tab-status" id="oauthStatusGoogle">⚪ Yapılandırılmamış</div>
+            </div>
+          </div>
+        </div>
+        <div class="oauth-setup-content" id="oauthSetupContent"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== v1.38: İmza Şablonları Builder ===== -->
   <div id="modalSignatureBuilder" class="modal hidden">
     <div class="modal-content modal-fullscreen">
@@ -1370,7 +1402,15 @@
           ⚠ Geri yükleme mevcut tüm verileri silip yedekteki ile değiştirir. Önemli verileriniz varsa önce yedek alın.
         </div>
 
-        <!-- v1.13: VirusTotal -->
+        <!-- v1.44: OAuth2 Setup -->
+            <div class="form-section full">🔐 OAuth2 (Modern Auth)</div>
+            <div class="form-group full">
+              <label>Microsoft + Google için OAuth2 yapılandırması</label>
+              <button type="button" class="btn" id="btnOpenOAuth2Setup" style="margin-top:6px;">🔐 OAuth2 Kurulum Sihirbazını Aç</button>
+              <small style="display:block;margin-top:4px;color:var(--muted);">Outlook.com / Hotmail / Office 365 ve Gmail hesapları için modern auth (5 dk kurulum, ücretsiz).</small>
+            </div>
+
+            <!-- v1.13: VirusTotal -->
         <div class="form-section full" style="margin-top:18px;">🦠 VirusTotal Tarama</div>
         <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:8px;">
           Ücretsiz <strong>VirusTotal</strong> API anahtarı ekleyerek ek dosyalarınız 70+ antivirüs motoruyla taranabilir. Dosyalar yüklenmez, sadece SHA-256 hash bazlı sorgu yapılır (gizliliğiniz korunur). Anahtar almak için: <a href="#" id="lnkVtJoin" style="color:var(--primary);">virustotal.com/gui/join-us</a>

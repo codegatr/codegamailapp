@@ -665,10 +665,26 @@ ipcMain.handle('accounts:update', async (_, accountId, accountData) => {
 // v1.42 IPC: OAuth2 Login Flow
 // =====================================================================
 const oauth2Service = require('./services/oauth2');
+oauth2Service.setAppConfig(appConfig); // v1.44: Config'i oauth2'ye bağla (UI'dan girilen client ID'ler için)
 
 ipcMain.handle('oauth2:isConfigured', (_, provider) => {
   return oauth2Service.isProviderConfigured(provider);
 });
+
+// v1.44: OAuth2 client ID'leri kaydet
+ipcMain.handle('oauth2:saveClientId', (_, provider, clientId) => {
+  try {
+    if (provider === 'microsoft') appConfig.set('oauth2MicrosoftClientId', clientId.trim());
+    else if (provider === 'google') appConfig.set('oauth2GoogleClientId', clientId.trim());
+    else return { ok: false, error: 'Geçersiz sağlayıcı' };
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('oauth2:getClientIds', () => ({
+  microsoft: appConfig.get('oauth2MicrosoftClientId') || '',
+  google: appConfig.get('oauth2GoogleClientId') || ''
+}));
 
 ipcMain.handle('oauth2:startFlow', async (_, provider) => {
   try {

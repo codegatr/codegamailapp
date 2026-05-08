@@ -23,13 +23,23 @@ const url = require('url');
 // =====================================================================
 // CONFIG: Azure / Google'da app kayıt edilince doldurulur
 // =====================================================================
+// v1.44: Client ID'ler runtime'da appConfig'den dinamik okunabilir
+let _appConfigRef = null;
+function setAppConfig(config) { _appConfigRef = config; }
+function getClientId(provider) {
+  // Önce env, sonra config (UI üzerinden girilen)
+  if (provider === 'microsoft') {
+    return process.env.CODEGA_MS_CLIENT_ID || _appConfigRef?.get('oauth2MicrosoftClientId') || '';
+  }
+  if (provider === 'google') {
+    return process.env.CODEGA_GOOGLE_CLIENT_ID || _appConfigRef?.get('oauth2GoogleClientId') || '';
+  }
+  return '';
+}
+
 const OAUTH_CONFIG = {
   microsoft: {
-    // Azure Portal > App registrations > New registration
-    // - Tip: Public client (mobile/desktop)
-    // - Redirect URI: http://localhost (loopback) veya msalXXX:// custom
-    // - API permissions: IMAP.AccessAsUser.All, SMTP.Send, offline_access, User.Read
-    clientId: process.env.CODEGA_MS_CLIENT_ID || '', // ⚠️ Doldurulması gerekiyor
+    get clientId() { return getClientId('microsoft'); },
     authority: 'https://login.microsoftonline.com/common',
     authorizeEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
     tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
@@ -47,10 +57,7 @@ const OAUTH_CONFIG = {
     smtpPort: 587
   },
   google: {
-    // Google Cloud Console > Credentials > Create OAuth client ID
-    // - Type: Desktop app
-    // - Test mode'ta 100 kullanıcıya kadar
-    clientId: process.env.CODEGA_GOOGLE_CLIENT_ID || '', // ⚠️ Doldurulması gerekiyor
+    get clientId() { return getClientId('google'); },
     authorizeEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenEndpoint: 'https://oauth2.googleapis.com/token',
     userInfoEndpoint: 'https://www.googleapis.com/oauth2/v2/userinfo',
@@ -335,6 +342,7 @@ function buildXOAuth2Token(email, accessToken) {
 }
 
 module.exports = {
+  setAppConfig,
   startAuthFlow,
   refreshAccessToken,
   buildXOAuth2Token,
