@@ -1478,6 +1478,10 @@ async function loadAccounts() {
   state.accounts = await window.api.accounts.list();
   await renderAccounts();
   await updateUnifiedSummary();
+  // v1.41: Sidebar kategorilerini de yenile
+  if (typeof renderSidebarCategories === 'function') {
+    renderSidebarCategories().catch(() => {});
+  }
 }
 
 async function renderAccounts() {
@@ -1672,6 +1676,11 @@ function folderIcon(specialUse, isLocal) {
 async function selectFolder(folderId, accountId) {
   // v1.33: Klasör değişince çoklu seçimi temizle
   if (state.multiSelectIds && state.multiSelectIds.size) clearMultiSelect();
+  // v1.41: Kategori seçimini de temizle
+  if (typeof catSidebarState !== 'undefined' && catSidebarState.selectedCategoryId) {
+    catSidebarState.selectedCategoryId = null;
+    if (typeof renderSidebarCategories === 'function') renderSidebarCategories();
+  }
   state.selectedFolder = { id: folderId, accountId, account_id: accountId };
   state.selectedMessage = null;
   document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
@@ -8826,3 +8835,125 @@ document.addEventListener('click', (e) => {
 
 // Hesap kaydedilirken signature_data'yı da gönder
 const _origAccountSave = window._origAccountSave;
+
+// ============= v1.41: Sidebar Kategori Paneli =============
+const catSidebarState = {
+  selectedCategoryId: null,
+  collapsed: false,
+  bound: false
+};
+
+async function renderSidebarCategories() {
+  const el = document.getElementById('sidebarCategoriesList');
+  if (!el) return;
+  if (catSidebarState.collapsed) { el.style.display = 'none'; return; }
+  el.style.display = '';
+
+  const cats = await window.api.categories.list();
+  if (!cats.length) {
+    el.innerHTML = '<div class="cat-empty">Henüz kategori yok. + ile ekle</div>';
+    return;
+  }
+
+  el.innerHTML = cats.map(c => `
+    <div class="sidebar-cat-item ${catSidebarState.selectedCategoryId === c.id ? 'active' : ''}"
+         data-cat-id="${c.id}" title="${escapeHtml(c.name)}">
+      <span class="sidebar-cat-dot" style="background:${escapeHtml(c.color || '#888')};"></span>
+      <span class="sidebar-cat-name">${escapeHtml(c.name)}</span>
+      ${c.unread_count > 0 ? `<span class="sidebar-cat-unread">${c.unread_count}</span>` : ''}
+      ${c.message_count > 0 && !c.unread_count ? `<span class="sidebar-cat-count">${c.message_count}</span>` : ''}
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.sidebar-cat-item').forEach(item => {
+    const catId = parseInt(item.dataset.catId, 10);
+    item.onclick = () => selectSidebarCategory(catId);
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      showSidebarCategoryContextMenu(e, catId);
+    };
+  });
+
+  if (!catSidebarState.bound) {
+    catSidebarState.bound = true;
+    document.getElementById('catSectionToggle').onclick = () => {
+      catSidebarState.collapsed = !catSidebarState.collapsed;
+      document.getElementById('catSectionToggle').textContent = catSidebarState.collapsed ? '▶' : '▼';
+      renderSidebarCategories();
+    };
+    document.getElementById('btnSidebarNewCat').onclick = async (e) => {
+      e.stopPropagation();
+      await createNewSidebarCategory();
+    };
+  }
+}
+
+async function selectSidebarCategory(categoryId) {
+  catSidebarState.selectedCategoryId = categoryId;
+  // Klasör/inbox seçimini temizle
+  state.selectedFolder = null;
+  document.querySelectorAll('.folder-item.active').forEach(el => el.classList.remove('active'));
+  document.getElementById('unifiedInbox')?.classList.remove('active');
+
+  // Kategorinin tüm maillerini getir
+  const messages = await window.api.categories.listMessages(categoryId, {});
+  const cat = await window.api.categories.get(categoryId);
+  state.messages = messages || [];
+
+  document.getElementById('folderTitle').textContent = `🏷 ${cat?.name || 'Kategori'} (${messages.length})`;
+  renderSearchResults(messages); // v1.37 cross-folder render kullan
+  await renderSidebarCategories();
+}
+
+function showSidebarCategoryContextMenu(event, categoryId) {
+  const items = [
+    { label: '✏ Adını/rengini değiştir', action: () => editCategoryQuick(categoryId) },
+    { label: '🏷 Kategori yöneticisini aç', action: () => openCategories() },
+    { divider: true },
+    { label: '🗑 Sil', danger: true, action: async () => {
+      const cat = await window.api.categories.get(categoryId);
+      if (!cat) return;
+      if (!confirm(`"${cat.name}" kategorisi silinsin mi?\n\nMaillerden de kaldırılacak (mailler silinmez).`)) return;
+      await window.api.categories.delete(categoryId);
+      setStatus('Kategori silindi');
+      if (catSidebarState.selectedCategoryId === categoryId) catSidebarState.selectedCategoryId = null;
+      await renderSidebarCategories();
+    }}
+  ];
+  showContextMenu(event, items);
+}
+
+async function editCategoryQuick(categoryId) {
+  const cat = await window.api.categories.get(categoryId);
+  if (!cat) return;
+  const newName = prompt('Yeni ad:', cat.name);
+  if (!newName || !newName.trim()) return;
+  // Renk için basit bir prompt (color picker'a tam erişim için Categories modal'ı kullansın)
+  const newColor = prompt('Renk (hex, örn #3498db):', cat.color || '#3498db');
+  const updates = { name: newName.trim() };
+  if (newColor && /^#[0-9a-f]{6}$/i.test(newColor)) updates.color = newColor;
+  await window.api.categories.update(categoryId, updates);
+  setStatus('Kategori güncellendi');
+  await renderSidebarCategories();
+}
+
+async function createNewSidebarCategory() {
+  const name = prompt('Yeni kategori adı:');
+  if (!name || !name.trim()) return;
+  const colors = ['#3498db', '#9b59b6', '#e74c3c', '#f39c12', '#2ecc71', '#1abc9c', '#e67e22', '#34495e'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  const r = await window.api.categories.add({ name: name.trim(), color });
+  if (r && (r.ok !== false)) {
+    setStatus(`✓ "${name}" kategorisi oluşturuldu`);
+    await renderSidebarCategories();
+  }
+}
+
+// Klasör seçilince kategori seçimini temizle
+const _origSelectFolder_v141 = window.selectFolder;
+// Bu hook ile entegre etmek yerine selectFolder içinden direkt çağırıyoruz aşağıda
+
+// loadAccounts veya init sonrası kategorileri çek
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => renderSidebarCategories().catch(() => {}), 1500);
+});

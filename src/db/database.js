@@ -1031,7 +1031,48 @@ class Database {
 
   // ====== v1.8: Kategoriler ======
   listCategories() {
-    return this.prepare('SELECT * FROM categories ORDER BY sort_order ASC, name ASC').all();
+    return this.prepare(`
+      SELECT c.*,
+        (SELECT COUNT(DISTINCT m.id) FROM messages m
+          JOIN message_categories mc ON mc.message_id = m.id
+          WHERE mc.category_id = c.id
+            AND (m.is_archived = 0 OR m.is_archived IS NULL)) AS message_count,
+        (SELECT COUNT(DISTINCT m.id) FROM messages m
+          JOIN message_categories mc ON mc.message_id = m.id
+          WHERE mc.category_id = c.id AND m.is_read = 0
+            AND (m.is_archived = 0 OR m.is_archived IS NULL)) AS unread_count
+      FROM categories c
+      ORDER BY c.sort_order ASC, c.name ASC
+    `).all();
+  }
+
+  /**
+   * v1.41: Bir kategorideki tüm mailleri listele (cross-folder)
+   */
+  listMessagesByCategory(categoryId, opts = {}) {
+    const limit = opts.limit || 200;
+    const offset = opts.offset || 0;
+    const includeArchived = !!opts.includeArchived;
+    return this.prepare(`
+      SELECT m.id, m.account_id, m.folder_id, m.uid,
+             m.from_addr, m.from_name, m.to_addrs, m.subject, m.date,
+             m.is_read, m.is_flagged, m.is_spam, m.is_important, m.spam_score,
+             m.has_attachments, m.size, m.thread_id, m.is_archived,
+             SUBSTR(m.body_text, 1, 200) AS preview,
+             a.display_name AS account_name, a.email AS account_email,
+             f.name AS folder_name,
+             (SELECT GROUP_CONCAT(c2.id || char(31) || c2.name || char(31) || c2.color, char(30))
+              FROM message_categories mc2 JOIN categories c2 ON c2.id = mc2.category_id
+              WHERE mc2.message_id = m.id) AS categories
+      FROM messages m
+      JOIN message_categories mc ON mc.message_id = m.id
+      LEFT JOIN accounts a ON a.id = m.account_id
+      LEFT JOIN folders f ON f.id = m.folder_id
+      WHERE mc.category_id = ?
+        ${includeArchived ? '' : 'AND (m.is_archived = 0 OR m.is_archived IS NULL)'}
+      ORDER BY m.date DESC
+      LIMIT ? OFFSET ?
+    `).all(categoryId, limit, offset);
   }
 
   getCategory(id) {

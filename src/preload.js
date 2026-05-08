@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('api', {
   invokeOpenCompose: (params) => ipcRenderer.invoke('messages:requestComposeAction', { action: 'compose', data: params }),
   categories: {
     list: () => ipcRenderer.invoke('categories:list'),
+    listMessages: (catId, opts) => ipcRenderer.invoke('categories:listMessages', catId, opts),
     get: (id) => ipcRenderer.invoke('categories:get', id),
     add: (cat) => ipcRenderer.invoke('categories:add', cat),
     update: (id, updates) => ipcRenderer.invoke('categories:update', id, updates),

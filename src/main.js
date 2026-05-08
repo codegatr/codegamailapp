@@ -2199,6 +2199,11 @@ ipcMain.handle('messages:markImportant', (_, messageId, isImportant) => {
 // v1.8 IPC: Kategoriler
 // =====================================================================
 ipcMain.handle('categories:list', () => db.listCategories());
+ipcMain.handle('categories:listMessages', (_, categoryId, opts) => {
+  try {
+    return db.listMessagesByCategory(categoryId, opts || {});
+  } catch (e) { return []; }
+});
 ipcMain.handle('categories:get', (_, id) => db.getCategory(id));
 ipcMain.handle('categories:add', (_, cat) => ({ ok: true, id: db.addCategory(cat) }));
 ipcMain.handle('categories:update', (_, id, updates) => {
