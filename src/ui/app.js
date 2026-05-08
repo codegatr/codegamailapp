@@ -125,7 +125,10 @@ const state = {
   composeEditor: null,     // v1.6: zengin editör compose
   signatureEditor: null,   // v1.6: zengin editör imza
   conversationView: false, // v1.9: konuşma görünümü
-  templateEditor: null     // v1.10: şablon editörü
+  templateEditor: null,    // v1.10: şablon editörü
+  // v1.33: Çoklu seçim + sürükle-bırak
+  multiSelectIds: new Set(),
+  lastSelectedId: null
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -1504,6 +1507,66 @@ async function renderAccounts() {
       const accountId = parseInt(el.dataset.accountId, 10);
       selectFolder(folderId, accountId);
     };
+    // v1.33: Folder drop zone
+    el.ondragover = (e) => {
+      if (!e.dataTransfer.types.includes('application/x-codega-msgs')) return;
+      const folderAccountId = parseInt(el.dataset.accountId, 10);
+      const folderId = parseInt(el.dataset.folderId, 10);
+      // Mevcut klasöre drop'u engelle
+      if (state.selectedFolder && state.selectedFolder.id === folderId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      el.classList.add('drop-target');
+    };
+    el.ondragleave = () => {
+      el.classList.remove('drop-target');
+    };
+    el.ondrop = async (e) => {
+      e.preventDefault();
+      el.classList.remove('drop-target');
+      try {
+        const raw = e.dataTransfer.getData('application/x-codega-msgs');
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        const targetFolderId = parseInt(el.dataset.folderId, 10);
+        const targetAccountId = parseInt(el.dataset.accountId, 10);
+        const folderName = el.dataset.folderName || 'klasör';
+
+        // Kaynak ile hedef hesap aynı mı?
+        if (data.accountId && data.accountId !== targetAccountId) {
+          alert('Mesajlar farklı bir hesabın klasörüne taşınamaz. Aynı hesap içinde sürükleyin.');
+          return;
+        }
+        if (data.sourceFolderId === targetFolderId) return;
+
+        if (data.ids.length > 1) {
+          if (!confirm(`${data.ids.length} mesaj "${folderName}" klasörüne taşınsın mı?`)) return;
+        }
+
+        setStatus(`📤 ${data.ids.length} mesaj taşınıyor...`);
+        let success = 0, errors = 0;
+        for (const id of data.ids) {
+          try {
+            await window.api.messages.move(id, targetFolderId);
+            success++;
+          } catch (e) {
+            console.warn('Move hatası:', e.message);
+            errors++;
+          }
+        }
+        clearMultiSelect();
+        await loadAccounts();
+        await loadMessages();
+        if (errors === 0) {
+          setStatus(`✓ ${success} mesaj "${folderName}" klasörüne taşındı`);
+        } else {
+          setStatus(`${success} taşındı, ${errors} hata`, 'error');
+          alert(`${success} mesaj taşındı, ${errors} mesaj taşınamadı (sunucu hatası olabilir)`);
+        }
+      } catch (e) {
+        alert('Hata: ' + e.message);
+      }
+    };
     el.oncontextmenu = (e) => {
       const isLocal = el.dataset.isLocal === '1';
       const special = el.dataset.special;
@@ -1597,7 +1660,9 @@ function folderIcon(specialUse, isLocal) {
 
 // ============= Mesaj Listesi & Görüntüleme =============
 async function selectFolder(folderId, accountId) {
-  state.selectedFolder = { id: folderId, accountId };
+  // v1.33: Klasör değişince çoklu seçimi temizle
+  if (state.multiSelectIds && state.multiSelectIds.size) clearMultiSelect();
+  state.selectedFolder = { id: folderId, accountId, account_id: accountId };
   state.selectedMessage = null;
   document.querySelectorAll('.folder-item').forEach(el => el.classList.remove('active'));
   document.getElementById('unifiedInbox')?.classList.remove('active');
@@ -1689,6 +1754,20 @@ function renderMessageList() {
     el.onclick = (e) => {
       // Yıldız tıklamaysa mesajı açma
       if (e.target.dataset.toggleImportant) return;
+      // v1.33: Ctrl/Shift ile çoklu seçim
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        toggleMultiSelect(id);
+        return;
+      }
+      if (e.shiftKey && state.lastSelectedId) {
+        e.preventDefault();
+        rangeMultiSelect(state.lastSelectedId, id);
+        return;
+      }
+      // Normal tıklama: çoklu seçimi temizle
+      clearMultiSelect();
+      state.lastSelectedId = id;
       openMessage(id);
     };
     // v1.32: Çift tıklama → ayrı pencerede aç (Outlook tarzı)
@@ -1700,6 +1779,34 @@ function renderMessageList() {
     el.oncontextmenu = async (e) => {
       const fullMsg = await window.api.messages.get(id);
       if (fullMsg) showMessageContextMenu(e, fullMsg);
+    };
+    // v1.33: Sürükle-bırak
+    el.draggable = true;
+    el.ondragstart = (e) => {
+      // Eğer bu mesaj çoklu seçimde değilse, çoklu seçimi temizle ve sadece bunu sürükle
+      if (!state.multiSelectIds.has(id)) {
+        clearMultiSelect();
+        state.multiSelectIds.add(id);
+        el.classList.add('multi-selected');
+      }
+      const ids = Array.from(state.multiSelectIds);
+      const accountId = parseInt(el.dataset.accountId, 10) ||
+                        (state.selectedFolder ? state.selectedFolder.account_id : null);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/x-codega-msgs',
+        JSON.stringify({ ids, accountId, sourceFolderId: state.selectedFolder?.id }));
+      // Drag preview
+      const dragGhost = document.createElement('div');
+      dragGhost.className = 'drag-ghost';
+      dragGhost.textContent = ids.length === 1 ? '📧 1 mesaj taşınıyor' : `📧 ${ids.length} mesaj taşınıyor`;
+      document.body.appendChild(dragGhost);
+      e.dataTransfer.setDragImage(dragGhost, 10, 10);
+      setTimeout(() => dragGhost.remove(), 100);
+      document.body.classList.add('dragging-message');
+    };
+    el.ondragend = () => {
+      document.body.classList.remove('dragging-message');
+      document.querySelectorAll('.drop-target').forEach(d => d.classList.remove('drop-target'));
     };
   });
   // Yıldız toggle
@@ -7070,3 +7177,84 @@ if (window.api && window.api.on) {
     }
   });
 }
+
+// ============= v1.33: Çoklu Seçim + Sürükle Bırak =============
+function toggleMultiSelect(id) {
+  if (state.multiSelectIds.has(id)) {
+    state.multiSelectIds.delete(id);
+  } else {
+    state.multiSelectIds.add(id);
+  }
+  updateMultiSelectVisuals();
+  updateMultiSelectIndicator();
+  state.lastSelectedId = id;
+}
+
+function rangeMultiSelect(fromId, toId) {
+  const ids = (state.messages || []).map(m => m.id);
+  const fromIdx = ids.indexOf(fromId);
+  const toIdx = ids.indexOf(toId);
+  if (fromIdx === -1 || toIdx === -1) return;
+  const start = Math.min(fromIdx, toIdx);
+  const end = Math.max(fromIdx, toIdx);
+  for (let i = start; i <= end; i++) state.multiSelectIds.add(ids[i]);
+  updateMultiSelectVisuals();
+  updateMultiSelectIndicator();
+}
+
+function clearMultiSelect() {
+  state.multiSelectIds.clear();
+  updateMultiSelectVisuals();
+  updateMultiSelectIndicator();
+}
+
+function updateMultiSelectVisuals() {
+  document.querySelectorAll('.message-item').forEach(el => {
+    const id = parseInt(el.dataset.id, 10);
+    el.classList.toggle('multi-selected', state.multiSelectIds.has(id));
+  });
+}
+
+function updateMultiSelectIndicator() {
+  let bar = document.getElementById('multiSelectBar');
+  const count = state.multiSelectIds.size;
+  if (count <= 1) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'multiSelectBar';
+    bar.className = 'multi-select-bar';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span style="font-weight:600;">📌 ${count} mesaj seçili</span>
+    <button class="btn btn-ghost" id="msbDeselect">Seçimi Kaldır</button>
+    <button class="btn" id="msbMarkRead">✓ Okundu İşaretle</button>
+    <button class="btn btn-ghost" id="msbDelete" style="color:var(--danger);">🗑 Sil</button>
+    <span style="font-size:11px;color:var(--muted);margin-left:auto;">💡 Bir klasöre sürükleyin</span>
+  `;
+  document.getElementById('msbDeselect').onclick = clearMultiSelect;
+  document.getElementById('msbMarkRead').onclick = async () => {
+    for (const id of state.multiSelectIds) {
+      try { await window.api.messages.markRead(id, true); } catch (_) {}
+    }
+    clearMultiSelect();
+    await loadAccounts();
+    await loadMessages();
+  };
+  document.getElementById('msbDelete').onclick = async () => {
+    if (!confirm(`${state.multiSelectIds.size} mesaj silinsin mi?`)) return;
+    for (const id of state.multiSelectIds) {
+      try { await window.api.messages.delete(id); } catch (_) {}
+    }
+    setStatus(`✓ ${state.multiSelectIds.size} mesaj silindi`);
+    clearMultiSelect();
+    await loadAccounts();
+    await loadMessages();
+  };
+}
+
+// Klasör değişince çoklu seçimi temizle
+const _origLoadMessages = typeof loadMessages === 'function' ? loadMessages : null;

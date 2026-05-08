@@ -3484,3 +3484,81 @@ html.layout-off .pane-view.show-overlay {
   z-index: 91;
 }
 .msg-overlay-close:hover { background: var(--surface-hi); }
+
+/* ============= v1.33: Sürükle-Bırak + Çoklu Seçim ============= */
+
+/* Çoklu seçili mesaj */
+.message-item.multi-selected {
+  background: rgba(0, 120, 212, 0.15);
+  border-left: 3px solid var(--primary);
+  padding-left: 9px; /* border-left için kompansasyon */
+}
+html.theme-light .message-item.multi-selected {
+  background: rgba(0, 120, 212, 0.08);
+}
+
+/* Folder drop zone */
+.folder-item.drop-target {
+  background: var(--primary) !important;
+  color: var(--primary-text) !important;
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+  transform: scale(1.02);
+  transition: transform 0.1s ease;
+}
+.folder-item.drop-target .folder-name,
+.folder-item.drop-target .folder-icon,
+.folder-item.drop-target .unread-count {
+  color: var(--primary-text) !important;
+}
+
+/* Body sürükleme sırasında imleç değiştir */
+body.dragging-message .message-item {
+  cursor: grabbing;
+}
+body.dragging-message .folder-item:not(.drop-target) {
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+/* Drag preview ghost */
+.drag-ghost {
+  position: absolute;
+  top: -1000px;
+  background: var(--primary);
+  color: var(--primary-text);
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+/* Çoklu seçim alt barı */
+.multi-select-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 480px;
+  max-width: 90vw;
+  animation: slideUp 0.2s ease-out;
+}
+@keyframes slideUp {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+.multi-select-bar .btn {
+  font-size: 12px;
+  padding: 5px 10px;
+}
