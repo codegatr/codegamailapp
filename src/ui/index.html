@@ -7,13 +7,36 @@
 </head>
 <body>
   <div id="bgImageLayer" class="bg-image-layer" style="display:none;"></div>
-  <header class="toolbar">
-    <div class="brand">
-      <img id="customLogoImg" class="brand-logo-img hidden" alt="Logo">
-      <span class="brand-icon" id="brandIcon">✉</span>
-      <span class="brand-text" id="brandText">CODEGA Mail</span>
+
+  <!-- v1.46: Outlook tarzı menü çubuğu -->
+  <div class="menubar" id="menubar">
+    <div class="menubar-brand">
+      <img id="customLogoImg2" class="menubar-logo-img hidden" alt="Logo">
+      <span class="menubar-icon" id="brandIcon2">✉</span>
+      <span class="menubar-name" id="brandText2">CODEGA Mail</span>
     </div>
-    <!-- v1.40: Outlook tarzı ortalı arama kutusu -->
+    <div class="menubar-items">
+      <div class="menu-item" data-menu="dosya"><span class="menu-key">D</span>osya</div>
+      <div class="menu-item" data-menu="mesaj"><span class="menu-key">M</span>esaj</div>
+      <div class="menu-item" data-menu="gorunum"><span class="menu-key">G</span>örünüm</div>
+      <div class="menu-item" data-menu="araclar"><span class="menu-key">A</span>raçlar</div>
+      <div class="menu-item" data-menu="hesap"><span class="menu-key">H</span>esap</div>
+      <div class="menu-item" data-menu="yardim"><span class="menu-key">Y</span>ardım</div>
+    </div>
+    <div class="menubar-spacer"></div>
+    <div class="menubar-status" id="menubarStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Hazır</span>
+    </div>
+  </div>
+
+  <!-- Dropdown menüler (her menü item için) -->
+  <div id="dropdownContainer" class="dropdown-container hidden"></div>
+
+  <header class="toolbar toolbar-compact">
+    <div class="brand brand-mini">
+      <span class="brand-icon" id="brandIcon">✉</span>
+    </div>
     <div class="header-search">
       <span class="header-search-icon">🔍</span>
       <input id="searchBox" type="text" placeholder="Ara… (from: subject: has:attachment)" autocomplete="off">
@@ -26,30 +49,34 @@
       <button id="btnSyncAll" class="btn" title="Tüm hesapları senkronize et (F5)">
         <span>↻</span> Senkronize Et
       </button>
-      <button id="btnAddAccount" class="btn">+ Hesap</button>
-      <button id="btnNewFolder" class="btn">+ Klasör</button>
       <div class="toolbar-spacer"></div>
       <div id="quickStepsBar" class="quick-steps-bar"></div>
-      <button id="btnSpamRules" class="btn btn-ghost" title="Spam kuralları">🛡 Spam</button>
-      <button id="btnCategories" class="btn btn-ghost" title="Renkli kategoriler/etiketler">🏷 Kategoriler</button>
-      <button id="btnConversationView" class="btn btn-ghost" title="Konuşma görünümü (Re: zincirleri grupla)">💬 Konuşma</button>
-      <button id="btnTemplates" class="btn btn-ghost" title="Mesaj şablonları">📝 Şablonlar</button>
-      <button id="btnScheduled" class="btn btn-ghost" title="Zamanlanmış mesajlar">⏰ Zamanlanmış</button>
-      <button id="btnNotes" class="btn btn-ghost" title="Notlar">📓 Notlar</button>
-      <button id="btnTasks" class="btn btn-ghost" title="Görevler / To-Do">✅ Görevler <span id="tasksBadge" class="tasks-badge hidden">0</span></button>
-      <button id="btnArchive" class="btn btn-ghost" title="Arşiv (eski mesajlar)">📦 Arşiv</button>
-      <button id="btnPGP" class="btn btn-ghost" title="PGP Anahtarları (uçtan uca şifreleme)">🔐 PGP</button>
-      <button id="btnCalendar" class="btn btn-ghost" title="Takvim - etkinlikler ve hatırlatıcılar">📅 Takvim</button>
-      <button id="btnRules" class="btn btn-ghost" title="Mail Kuralları (otomatik klasöre taşıma/etiketleme)">⚙ Kurallar</button>
-      <button id="btnQuickSteps" class="btn btn-ghost" title="Quick Steps yönetimi - özelleştirilebilir kestirmeler">⚡ Quick Steps</button>
-      <button id="btnDashboard" class="btn btn-ghost" title="Gösterge paneli - mail istatistikleri ve grafikler">📊 Panel</button>
-      <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
-      <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
-      <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
-      <button id="btnAbout" class="btn btn-ghost" title="Hakkında">ℹ Hakkında</button>
+      <button id="btnDashboard" class="btn btn-ghost" title="Gösterge paneli (Ctrl+Shift+D)">📊</button>
       <button id="btnUpdateBadge" class="btn btn-update hidden" title="Güncelleme mevcut">🚀 Güncelle</button>
     </div>
   </header>
+
+  <!-- Eski toolbar butonları gizli (menü için backward compat) -->
+  <div style="display:none;">
+    <button id="btnAddAccount"></button>
+    <button id="btnNewFolder"></button>
+    <button id="btnSpamRules"></button>
+    <button id="btnCategories"></button>
+    <button id="btnConversationView"></button>
+    <button id="btnTemplates"></button>
+    <button id="btnScheduled"></button>
+    <button id="btnNotes"></button>
+    <button id="btnTasks"><span id="tasksBadge" class="tasks-badge hidden">0</span></button>
+    <button id="btnArchive"></button>
+    <button id="btnPGP"></button>
+    <button id="btnCalendar"></button>
+    <button id="btnRules"></button>
+    <button id="btnQuickSteps"></button>
+    <button id="btnContacts"></button>
+    <button id="btnTrustedSenders"></button>
+    <button id="btnSettings"></button>
+    <button id="btnAbout"></button>
+  </div>
 
   <main class="layout">
     <aside class="pane pane-folders">

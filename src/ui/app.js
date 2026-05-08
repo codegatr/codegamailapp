@@ -9700,3 +9700,310 @@ function renderAccountChart(accounts) {
     </div>
   `;
 }
+
+// ============= v1.46: Outlook Tarzı Menü Çubuğu =============
+const MENUS = {
+  dosya: {
+    label: 'Dosya',
+    items: [
+      { icon: '✎', label: 'Yeni Mesaj', shortcut: 'Ctrl+N', action: () => openCompose() },
+      { icon: '↻', label: 'Senkronize Et', shortcut: 'F5', action: () => document.getElementById('btnSyncAll').click() },
+      { sep: true },
+      { section: 'Hesap & Veri' },
+      { icon: '+', label: 'Yeni Hesap Ekle', action: () => document.getElementById('btnAddAccount').click() },
+      { icon: '📁', label: 'Yeni Klasör', action: () => document.getElementById('btnNewFolder').click() },
+      { icon: '🔐', label: 'OAuth2 Kurulum Sihirbazı', action: () => openOAuth2Setup() },
+      { sep: true },
+      { icon: '⬇', label: 'Yedek Al (Dışa Aktar)', action: () => { openSettings(); setTimeout(() => document.getElementById('btnSettingsBackup')?.click(), 300); } },
+      { icon: '⬆', label: 'Yedekten Geri Yükle', action: () => { openSettings(); setTimeout(() => document.getElementById('btnSettingsRestore')?.click(), 300); } },
+      { sep: true },
+      { icon: '⚙', label: 'Ayarlar', shortcut: 'Ctrl+,', action: () => openSettings() },
+      { sep: true },
+      { icon: '✕', label: 'Çıkış', shortcut: 'Ctrl+Q', action: () => window.api.app?.quit?.() || window.close() }
+    ]
+  },
+  mesaj: {
+    label: 'Mesaj',
+    items: [
+      { icon: '↩', label: 'Yanıtla', shortcut: 'R', action: () => state.selectedMessage && openCompose({ replyTo: state.selectedMessage }), enabled: () => !!state.selectedMessage },
+      { icon: '↩↩', label: 'Tümünü Yanıtla', shortcut: 'Shift+R', action: () => state.selectedMessage && openCompose({ replyTo: state.selectedMessage, replyAll: true }), enabled: () => !!state.selectedMessage },
+      { icon: '→', label: 'İlet', shortcut: 'F', action: () => state.selectedMessage && openCompose({ forward: state.selectedMessage }), enabled: () => !!state.selectedMessage },
+      { sep: true },
+      { icon: '📦', label: 'Arşivle', shortcut: 'E', action: () => state.selectedMessage && document.getElementById('btnArchiveMsg')?.click(), enabled: () => !!state.selectedMessage },
+      { icon: '🗑', label: 'Sil', shortcut: 'Del', action: deleteCurrentMessage, enabled: () => !!state.selectedMessage },
+      { sep: true },
+      { icon: '⭐', label: 'Önemli İşaretle', action: () => document.getElementById('btnToggleImportant')?.click(), enabled: () => !!state.selectedMessage },
+      { icon: '✉', label: 'Okundu/Okunmadı', shortcut: 'Ctrl+U', action: () => document.getElementById('btnToggleRead')?.click(), enabled: () => !!state.selectedMessage },
+      { icon: '🛡', label: 'Spam İşaretle', action: () => document.getElementById('btnMarkSpam')?.click(), enabled: () => !!state.selectedMessage && !state.selectedMessage.is_spam },
+      { sep: true },
+      { icon: '🪟', label: 'Yeni Pencerede Aç', action: () => state.selectedMessage && window.api.messages.openInWindow(state.selectedMessage.id), enabled: () => !!state.selectedMessage }
+    ]
+  },
+  gorunum: {
+    label: 'Görünüm',
+    items: [
+      { section: 'Yoğunluk' },
+      { icon: '☰', label: 'Kompakt', action: () => setDensity('compact') },
+      { icon: '☰', label: 'Normal', action: () => setDensity('normal') },
+      { icon: '☰', label: 'Geniş', action: () => setDensity('wide') },
+      { sep: true },
+      { section: 'Düzen' },
+      { icon: '⫾', label: 'Sağda Önizleme', action: () => setLayout('right') },
+      { icon: '⊟', label: 'Altta Önizleme', action: () => setLayout('bottom') },
+      { icon: '☐', label: 'Önizleme Kapalı', action: () => setLayout('off') },
+      { sep: true },
+      { section: 'Tema' },
+      { icon: '☀', label: 'Açık Tema', action: () => setTheme('light') },
+      { icon: '🌙', label: 'Koyu Tema', action: () => setTheme('dark') },
+      { icon: '⚙', label: 'Sistem', action: () => setTheme('system') },
+      { sep: true },
+      { icon: '💬', label: 'Konuşma Görünümü', action: () => document.getElementById('btnConversationView').click() },
+      { icon: '🔍', label: 'Gelişmiş Arama', shortcut: 'Ctrl+Shift+F', action: () => document.getElementById('btnAdvancedSearch').click() },
+      { icon: '📊', label: 'Gösterge Paneli', shortcut: 'Ctrl+Shift+D', action: () => openDashboard() },
+      { icon: '⌨', label: 'Komut Paleti', shortcut: 'Ctrl+K', action: () => openCommandPalette() }
+    ]
+  },
+  araclar: {
+    label: 'Araçlar',
+    items: [
+      { section: 'Otomasyon' },
+      { icon: '⚙', label: 'Mail Kuralları', action: () => document.getElementById('btnRules').click() },
+      { icon: '⚡', label: 'Quick Steps', action: () => document.getElementById('btnQuickSteps').click() },
+      { icon: '📝', label: 'Şablonlar', action: () => document.getElementById('btnTemplates').click() },
+      { icon: '🎨', label: 'İmza Şablonları', action: () => { openSettings(); setTimeout(() => openSignatureBuilder?.(), 300); } },
+      { icon: '⏰', label: 'Zamanlanmış Mesajlar', action: () => document.getElementById('btnScheduled').click() },
+      { sep: true },
+      { section: 'Güvenlik' },
+      { icon: '🛡', label: 'Spam Kuralları', action: () => document.getElementById('btnSpamRules').click() },
+      { icon: '✓', label: 'Güvenilir Göndericiler', action: () => document.getElementById('btnTrustedSenders').click() },
+      { icon: '🔐', label: 'PGP Anahtarları', action: () => document.getElementById('btnPGP').click() },
+      { sep: true },
+      { section: 'Diğer Modüller' },
+      { icon: '🏷', label: 'Kategoriler', action: () => document.getElementById('btnCategories').click() },
+      { icon: '👥', label: 'Kişiler', action: () => document.getElementById('btnContacts').click() },
+      { icon: '📅', label: 'Takvim', action: () => document.getElementById('btnCalendar').click() },
+      { icon: '📓', label: 'Notlar', action: () => document.getElementById('btnNotes').click() },
+      { icon: '✅', label: 'Görevler', action: () => document.getElementById('btnTasks').click() },
+      { icon: '📦', label: 'Arşiv', action: () => document.getElementById('btnArchive').click() }
+    ]
+  },
+  hesap: {
+    label: 'Hesap',
+    items: [] // Dinamik doldurulacak (state.accounts'tan)
+  },
+  yardim: {
+    label: 'Yardım',
+    items: [
+      { icon: '⌨', label: 'Klavye Kısayolları', shortcut: 'F1', action: () => document.getElementById('modalKeyboardHelp')?.classList.remove('hidden') },
+      { icon: '🚀', label: 'Güncellemeyi Kontrol Et', action: () => window.api.app?.checkForUpdates?.() },
+      { icon: '🌐', label: 'GitHub Sayfası', action: () => openExternalLink('https://github.com/codegatr/codegamailapp') },
+      { icon: '🐛', label: 'Hata Bildir', action: () => openExternalLink('https://github.com/codegatr/codegamailapp/issues/new') },
+      { sep: true },
+      { icon: 'ℹ', label: 'Hakkında', action: () => document.getElementById('btnAbout').click() }
+    ]
+  }
+};
+
+let _currentDropdown = null;
+
+function buildHesapMenu() {
+  const items = [];
+  if (state.accounts && state.accounts.length) {
+    items.push({ section: 'Hesaplar' });
+    state.accounts.forEach(acc => {
+      items.push({
+        icon: acc.auth_type?.startsWith('oauth2_')
+          ? (acc.auth_type === 'oauth2_microsoft' ? '🟦' : '🟥')
+          : '📧',
+        label: acc.display_name + ' (' + acc.email + ')',
+        action: () => editAccount(acc.id)
+      });
+    });
+    items.push({ sep: true });
+  }
+  items.push({ icon: '+', label: 'Yeni Hesap Ekle', action: () => document.getElementById('btnAddAccount').click() });
+  items.push({ icon: '🔐', label: 'OAuth2 Kurulum Sihirbazı', action: () => openOAuth2Setup() });
+  items.push({ sep: true });
+  items.push({ icon: '↻', label: 'Tüm Hesapları Senkronize Et', shortcut: 'F5', action: () => document.getElementById('btnSyncAll').click() });
+  return items;
+}
+
+function showDropdown(menuId, anchorEl) {
+  closeDropdown();
+  let menu = MENUS[menuId];
+  if (!menu) return;
+  if (menuId === 'hesap') menu = { ...menu, items: buildHesapMenu() };
+
+  const container = document.getElementById('dropdownContainer');
+  let html = '';
+  menu.items.forEach(item => {
+    if (item.sep) { html += '<div class="dropdown-separator"></div>'; return; }
+    if (item.section) { html += `<div class="dropdown-section">${escapeHtml(item.section)}</div>`; return; }
+    const enabled = item.enabled ? item.enabled() : true;
+    const cls = enabled ? '' : 'disabled';
+    const itemId = 'di_' + Math.random().toString(36).slice(2, 8);
+    html += `<div class="dropdown-item ${cls}" data-itemid="${itemId}">
+      <span class="dropdown-icon">${item.icon || ''}</span>
+      <span class="dropdown-label">${escapeHtml(item.label)}</span>
+      ${item.shortcut ? `<span class="dropdown-shortcut">${item.shortcut}</span>` : ''}
+    </div>`;
+    item._itemId = itemId;
+  });
+
+  container.innerHTML = html;
+  container.classList.remove('hidden');
+
+  // Position
+  const rect = anchorEl.getBoundingClientRect();
+  container.style.left = rect.left + 'px';
+  container.style.top = rect.bottom + 'px';
+
+  // Tüm öğelere click handler
+  menu.items.forEach(item => {
+    if (item.sep || item.section || !item._itemId) return;
+    const enabled = item.enabled ? item.enabled() : true;
+    if (!enabled) return;
+    const el = container.querySelector(`[data-itemid="${item._itemId}"]`);
+    if (el) {
+      el.onclick = () => {
+        try { item.action(); } catch (e) { console.error('Menu action failed:', e); }
+        closeDropdown();
+      };
+    }
+  });
+
+  _currentDropdown = { menuId, anchorEl };
+  // Active class
+  document.querySelectorAll('.menu-item').forEach(m => m.classList.toggle('active', m.dataset.menu === menuId));
+}
+
+function closeDropdown() {
+  document.getElementById('dropdownContainer')?.classList.add('hidden');
+  document.querySelectorAll('.menu-item').forEach(m => m.classList.remove('active'));
+  _currentDropdown = null;
+}
+
+// Menü click handler
+document.addEventListener('click', (e) => {
+  const menuItem = e.target.closest('.menu-item[data-menu]');
+  if (menuItem) {
+    e.stopPropagation();
+    const menuId = menuItem.dataset.menu;
+    if (_currentDropdown?.menuId === menuId) {
+      closeDropdown();
+    } else {
+      showDropdown(menuId, menuItem);
+    }
+    return;
+  }
+  // Dışarı tıklayınca kapan
+  if (!e.target.closest('#dropdownContainer')) {
+    closeDropdown();
+  }
+});
+
+// Hover ile menü değiştirme (Outlook tarzı - menü açıkken üzerine gelinen menü açılır)
+document.addEventListener('mouseover', (e) => {
+  if (!_currentDropdown) return;
+  const menuItem = e.target.closest('.menu-item[data-menu]');
+  if (menuItem && menuItem.dataset.menu !== _currentDropdown.menuId) {
+    showDropdown(menuItem.dataset.menu, menuItem);
+  }
+});
+
+// Alt+harf kısayolları (Alt+D = Dosya vs)
+document.addEventListener('keydown', (e) => {
+  if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+    const map = { d: 'dosya', m: 'mesaj', g: 'gorunum', a: 'araclar', h: 'hesap', y: 'yardim' };
+    const key = e.key.toLowerCase();
+    if (map[key]) {
+      e.preventDefault();
+      const item = document.querySelector(`.menu-item[data-menu="${map[key]}"]`);
+      if (item) showDropdown(map[key], item);
+    }
+  }
+  if (e.key === 'Escape' && _currentDropdown) closeDropdown();
+});
+
+// Ctrl+, ile ayarlar
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === ',') {
+    e.preventDefault();
+    openSettings();
+  }
+});
+
+// Status göstergesi yardımcılar
+function setMenubarStatus(text, type = 'ready') {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (txt) txt.textContent = text;
+  if (dot) {
+    dot.classList.remove('syncing', 'offline');
+    if (type === 'syncing') dot.classList.add('syncing');
+    if (type === 'offline') dot.classList.add('offline');
+  }
+}
+
+// Mevcut setStatus fonksiyonu varsa onunla bütünleş - status değiştiğinde menübar de güncellesin
+const _origSetStatus = window.setStatus;
+if (typeof _origSetStatus === 'function') {
+  window.setStatus = function(text, type) {
+    try { _origSetStatus(text, type); } catch (_) {}
+    if (text && text.includes('Senkronize')) setMenubarStatus(text, 'syncing');
+    else if (text) setMenubarStatus(text);
+  };
+}
+
+// Brand text/icon mevcut özellikten menubarına da yansıt
+function syncBrandToMenubar() {
+  const txt1 = document.getElementById('brandText');
+  const icon1 = document.getElementById('brandIcon');
+  const img1 = document.getElementById('customLogoImg');
+  const txt2 = document.getElementById('brandText2');
+  const icon2 = document.getElementById('brandIcon2');
+  const img2 = document.getElementById('customLogoImg2');
+
+  if (txt2 && txt1) txt2.textContent = txt1.textContent;
+  if (icon2 && icon1) icon2.textContent = icon1.textContent;
+  if (img2 && img1 && img1.src) {
+    img2.src = img1.src;
+    img2.classList.toggle('hidden', img1.classList.contains('hidden'));
+    icon2?.classList.toggle('hidden', !img1.classList.contains('hidden'));
+  }
+}
+// İlk yüklemede ve değişiklikte sync
+setTimeout(syncBrandToMenubar, 500);
+const brandObserver = new MutationObserver(syncBrandToMenubar);
+const brandTextEl = document.getElementById('brandText');
+if (brandTextEl) brandObserver.observe(brandTextEl, { childList: true, characterData: true, subtree: true });
+
+// Yardımcılar (eğer yoksa)
+function setDensity(d) {
+  document.documentElement.setAttribute('data-density', d);
+  try { window.api.config.set({ density: d }); } catch (_) {}
+  setStatus('Yoğunluk: ' + d);
+}
+function setLayout(l) {
+  if (typeof setLayoutMode === 'function') return setLayoutMode(l);
+  // Fallback
+  document.documentElement.classList.remove('layout-right', 'layout-bottom', 'layout-off');
+  document.documentElement.classList.add('layout-' + l);
+  try { window.api.config.set({ layout: l }); } catch (_) {}
+  setStatus('Düzen: ' + l);
+}
+function setTheme(t) {
+  if (typeof applyTheme === 'function') return applyTheme(t);
+  document.documentElement.setAttribute('data-theme', t);
+  try { window.api.config.set({ theme: t }); } catch (_) {}
+  setStatus('Tema: ' + t);
+}
+
+function editAccount(id) {
+  // Hesap düzenleme - settings içinde
+  openSettings();
+  setTimeout(() => {
+    const tab = document.querySelector('[data-tab="accounts"]');
+    if (tab) tab.click();
+  }, 200);
+}

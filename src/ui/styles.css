@@ -4547,3 +4547,184 @@ html.dark .mdn-banner {
   color: #ffd99b;
   border-color: #8a6d3b;
 }
+
+/* ============= v1.46: Outlook Tarzı Menü Çubuğu ============= */
+.menubar {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  background: linear-gradient(to bottom, var(--bg-2), var(--bg-3));
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+  font-size: 12px;
+  user-select: none;
+  position: relative;
+  z-index: 100;
+}
+.menubar-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+  margin-right: 8px;
+}
+.menubar-icon {
+  font-size: 14px;
+  color: var(--primary);
+}
+.menubar-logo-img {
+  height: 20px;
+  max-width: 30px;
+  object-fit: contain;
+}
+.menubar-name {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  letter-spacing: 0.3px;
+}
+.menubar-items {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+.menu-item {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  cursor: pointer;
+  color: var(--text);
+  border-bottom: 2px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+  font-weight: 500;
+}
+.menu-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.menu-item.active {
+  background: var(--surface);
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
+.menu-key {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.menubar-spacer {
+  flex: 1;
+}
+.menubar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+.status-dot.syncing {
+  background: var(--primary);
+  animation: pulse 1.2s infinite;
+}
+.status-dot.offline {
+  background: var(--muted);
+  box-shadow: none;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Dropdown */
+.dropdown-container {
+  position: fixed;
+  z-index: 1000;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.25);
+  min-width: 280px;
+  max-width: 360px;
+  padding: 4px 0;
+  animation: dropdownFadeIn 0.12s ease;
+}
+@keyframes dropdownFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.dropdown-item:hover {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+.dropdown-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dropdown-item.disabled:hover {
+  background: transparent;
+  color: var(--text);
+}
+.dropdown-icon {
+  width: 18px;
+  text-align: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.dropdown-label {
+  flex: 1;
+}
+.dropdown-shortcut {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: 30px;
+  font-family: 'Consolas', monospace;
+}
+.dropdown-item:hover .dropdown-shortcut {
+  color: rgba(255, 255, 255, 0.7);
+}
+.dropdown-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.dropdown-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 14px 4px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+/* Sadeleştirilmiş toolbar */
+.toolbar-compact {
+  height: 44px;
+  padding: 4px 8px;
+}
+.brand-mini {
+  width: 28px;
+  border-right: none;
+}
+.brand-mini .brand-icon {
+  font-size: 18px;
+}
