@@ -160,6 +160,12 @@ contextBridge.exposeInMainWorld('api', {
     recent: (hours, limit) => ipcRenderer.invoke('notifications:recent', hours, limit),
     unreadByAccount: () => ipcRenderer.invoke('notifications:unreadByAccount')
   },
+  snooze: {
+    message: (messageId, untilIso) => ipcRenderer.invoke('snooze:message', messageId, untilIso),
+    list: () => ipcRenderer.invoke('snooze:list'),
+    count: () => ipcRenderer.invoke('snooze:count'),
+    unsnooze: (messageId) => ipcRenderer.invoke('snooze:unsnooze', messageId)
+  },
   readReceipt: {
     send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
     ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),
@@ -301,7 +307,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done', 'event:reminder', 'compose-action-from-popup', 'snooze:matured'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

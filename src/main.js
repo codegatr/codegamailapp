@@ -2189,6 +2189,45 @@ ipcMain.handle('notifications:recent', (_, hours, limit) => {
 ipcMain.handle('notifications:unreadByAccount', () => db.getUnreadByAccount());
 
 // =====================================================================
+// v1.52 IPC: Snooze (Erteleme)
+// =====================================================================
+ipcMain.handle('snooze:message', (_, messageId, untilIso) => {
+  try {
+    db.snoozeMessage(messageId, untilIso);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('snooze:list', () => db.listSnoozedMessages(200));
+ipcMain.handle('snooze:count', () => db.getSnoozedCount());
+
+ipcMain.handle('snooze:unsnooze', (_, messageId) => {
+  try {
+    db.snoozeMessage(messageId, null);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Auto-unsnooze: 30 saniyede bir vadesi gelen mailleri uyandır
+setInterval(() => {
+  try {
+    const matured = db.unsnoozeMatured();
+    if (matured.length && mainWindow && !mainWindow.isDestroyed()) {
+      db.save();
+      mainWindow.webContents.send('snooze:matured', { count: matured.length, messages: matured });
+      // Bildirim göster
+      mainWindow.webContents.send('inapp-notification', {
+        type: 'info',
+        title: '💤 Ertelenmiş mail uyandı',
+        message: `${matured.length} ertelenmiş mail tekrar gelen kutusunda`
+      });
+    }
+  } catch (e) { console.warn('unsnoozeMatured hata:', e.message); }
+}, 30000);
+
+// =====================================================================
 // v1.46 IPC: Read Receipt (RFC 3798 MDN)
 // =====================================================================
 const ReadReceiptService = require('./services/read-receipt');

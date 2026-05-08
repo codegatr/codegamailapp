@@ -266,6 +266,9 @@ class Database {
     this._safeAlter('ALTER TABLE accounts ADD COLUMN spam_threshold INTEGER DEFAULT 50');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN sort_order INTEGER DEFAULT 0');
     this._safeAlter('ALTER TABLE accounts ADD COLUMN signature_data TEXT'); // v1.38: imza şablonu JSON
+    // v1.52: Snooze (erteleme)
+    this._safeAlter('ALTER TABLE messages ADD COLUMN snoozed_until TEXT'); // ISO timestamp - null=snooze yok
+    try { this.prepare('CREATE INDEX IF NOT EXISTS idx_messages_snoozed ON messages(snoozed_until)').run(); } catch (_) {}
     // v1.46: Read receipt
     this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_requested INTEGER DEFAULT 0');     // alınan: gönderici onay istiyor mu
     this._safeAlter('ALTER TABLE messages ADD COLUMN mdn_responded INTEGER DEFAULT 0');     // alınan: yanıt verildi mi
@@ -787,6 +790,13 @@ class Database {
       where += ' AND m.is_archived = 1';
     } else if (!opts.includeArchived) {
       where += ' AND (m.is_archived = 0 OR m.is_archived IS NULL)';
+    }
+
+    // v1.52: Snooze - vadesi gelmemiş ertelenmiş mesajlar gizli
+    if (!opts.includeSnoozed && !opts.snoozedOnly) {
+      where += " AND (m.snoozed_until IS NULL OR m.snoozed_until <= datetime('now'))";
+    } else if (opts.snoozedOnly) {
+      where += " AND m.snoozed_until IS NOT NULL AND m.snoozed_until > datetime('now')";
     }
 
     if (opts.search) {
@@ -2433,6 +2443,48 @@ class Database {
     if (!opts.includeArchived) conditions.push('(is_archived = 0 OR is_archived IS NULL)');
     const where = conditions.length ? conditions.join(' AND ') : '1=1';
     return this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
+  }
+
+  // ====== v1.52: Snooze (Erteleme) ======
+  snoozeMessage(messageId, untilIso) {
+    this.prepare('UPDATE messages SET snoozed_until = ? WHERE id = ?').run(untilIso || null, messageId);
+  }
+
+  listSnoozedMessages(limit = 200) {
+    return this.prepare(`
+      SELECT m.id, m.account_id, m.folder_id, m.from_addr, m.from_name, m.subject,
+             m.date, m.is_read, m.is_important, m.has_attachments, m.snoozed_until,
+             SUBSTR(m.body_text, 1, 200) AS preview,
+             a.display_name AS _account_name, a.email AS _account_email,
+             f.name AS _folder_name
+      FROM messages m
+      LEFT JOIN accounts a ON a.id = m.account_id
+      LEFT JOIN folders f ON f.id = m.folder_id
+      WHERE m.snoozed_until IS NOT NULL AND m.snoozed_until > datetime('now')
+      ORDER BY m.snoozed_until ASC
+      LIMIT ?
+    `).all(limit);
+  }
+
+  getSnoozedCount() {
+    return this.prepare(
+      `SELECT COUNT(*) AS c FROM messages WHERE snoozed_until IS NOT NULL AND snoozed_until > datetime('now')`
+    ).get()?.c || 0;
+  }
+
+  unsnoozeMatured() {
+    const matured = this.prepare(`
+      SELECT m.id, m.subject, m.from_addr, m.from_name, m.account_id
+      FROM messages m
+      WHERE m.snoozed_until IS NOT NULL AND m.snoozed_until <= datetime('now')
+    `).all();
+    if (matured.length) {
+      this.prepare(`
+        UPDATE messages SET snoozed_until = NULL, is_read = 0
+        WHERE snoozed_until IS NOT NULL AND snoozed_until <= datetime('now')
+      `).run();
+    }
+    return matured;
   }
 
   /**

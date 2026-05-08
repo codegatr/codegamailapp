@@ -85,6 +85,8 @@
               <button class="ribbon-btn-sm" data-action="reply-all" data-needs-msg><span>↩↩</span> Tümünü Yanıtla</button>
               <button class="ribbon-btn-sm" data-action="forward" data-needs-msg><span>→</span> İlet</button>
               <button class="ribbon-btn-sm" data-action="quick-steps"><span>⚡</span> Quick Steps</button>
+              <button class="ribbon-btn-sm" data-action="snooze" data-needs-msg><span>💤</span> Ertele (H)</button>
+              <button class="ribbon-btn-sm" data-action="view-snoozed"><span>💤</span> Ertelenmişleri Göster</button>
             </div>
           </div>
         </div>
@@ -185,6 +187,8 @@
             <div class="ribbon-btn-col">
               <button class="ribbon-btn-sm" data-action="rules"><span>⚙</span> Mail Kuralları</button>
               <button class="ribbon-btn-sm" data-action="quick-steps"><span>⚡</span> Quick Steps</button>
+              <button class="ribbon-btn-sm" data-action="snooze" data-needs-msg><span>💤</span> Ertele (H)</button>
+              <button class="ribbon-btn-sm" data-action="view-snoozed"><span>💤</span> Ertelenmişleri Göster</button>
               <button class="ribbon-btn-sm" data-action="categories"><span>🏷</span> Kategoriler</button>
             </div>
           </div>
@@ -366,6 +370,34 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.52: Snooze (Erteleme) Modal ===== -->
+  <div id="modalSnooze" class="modal hidden">
+    <div class="modal-content" style="max-width:420px;">
+      <div class="modal-header">
+        <h2>💤 Maili Ertele</h2>
+        <button class="modal-close" data-close="modalSnooze">×</button>
+      </div>
+      <div class="modal-body" style="padding:20px;">
+        <p style="color:var(--text-2);font-size:13px;margin-top:0;">Bu mail seçilen zamana kadar gelen kutusundan gizlenecek. Vadesi geldiğinde okunmamış olarak tekrar görünecek.</p>
+        <div class="snooze-options">
+          <button class="snooze-opt" data-snooze="1h">⏰ 1 saat sonra<small id="snooze-preview-1h"></small></button>
+          <button class="snooze-opt" data-snooze="3h">⏰ 3 saat sonra<small id="snooze-preview-3h"></small></button>
+          <button class="snooze-opt" data-snooze="evening">🌆 Bu akşam<small>18:00</small></button>
+          <button class="snooze-opt" data-snooze="tomorrow">🌅 Yarın<small>09:00</small></button>
+          <button class="snooze-opt" data-snooze="weekend">🌴 Hafta sonu<small>Cumartesi 09:00</small></button>
+          <button class="snooze-opt" data-snooze="nextweek">📅 Gelecek hafta<small>Pazartesi 09:00</small></button>
+        </div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+          <label style="font-size:12px;color:var(--text-2);">Veya özel tarih:</label>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <input type="datetime-local" id="snoozeCustom" style="flex:1;padding:8px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:4px;">
+            <button class="btn btn-primary" id="snoozeCustomConfirm">Ertele</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.50: Birleşik Bildirim Paneli ===== -->
   <div id="notifPanel" class="notif-panel hidden">

@@ -5283,3 +5283,60 @@ html.dark .mdn-banner {
   height: 38px;
   padding: 4px 8px;
 }
+
+/* ============= v1.52: Snooze (Erteleme) ============= */
+.snooze-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.snooze-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  transition: all 0.15s;
+  text-align: left;
+}
+.snooze-opt:hover {
+  border-color: var(--primary);
+  background: var(--bg-3);
+  transform: translateY(-1px);
+}
+.snooze-opt small {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 4px;
+}
+
+/* Sidebar snoozed folder */
+.snoozed-folder {
+  background: rgba(155, 89, 182, 0.08);
+  border-left: 3px solid #9b59b6;
+}
+.snoozed-folder.hidden { display: none !important; }
+.snoozed-folder.active {
+  background: rgba(155, 89, 182, 0.18);
+}
+.snoozed-count {
+  margin-left: auto;
+  background: #9b59b6;
+  color: white;
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+/* Mail listesi snooze ikonu */
+.flag-snoozed {
+  color: #9b59b6;
+  margin-right: 4px;
+  font-size: 12px;
+}

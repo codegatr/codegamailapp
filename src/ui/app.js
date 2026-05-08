@@ -1782,7 +1782,7 @@ function renderMessageList() {
           <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
           ${catDots}
           <div class="msg-preview">
-            <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}${m.request_read_receipt ? (m.read_receipt_received ? '<span class="flag-mdn-ok" title="Okundu">📬</span>' : '<span class="flag-mdn-pending" title="Okundu onayı istendi">📬</span>') : ''}</span>
+            <span class="msg-flags">${m.snoozed_until ? '<span class="flag-snoozed" title="Ertelenmiş">💤</span>' : ''}${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}${m.request_read_receipt ? (m.read_receipt_received ? '<span class="flag-mdn-ok" title="Okundu">📬</span>' : '<span class="flag-mdn-pending" title="Okundu onayı istendi">📬</span>') : ''}</span>
             ${escapeHtml((m.preview || '').replace(/\s+/g, ' ').slice(0, 100))}
           </div>
         </div>
@@ -2147,6 +2147,7 @@ function renderMessageView(msg) {
       ${msg.is_spam
         ? '<button class="btn btn-ghost" id="btnNotSpam" title="Spam değil">✓ Spam değil</button>'
         : '<button class="btn btn-ghost" id="btnMarkSpam" title="Spam olarak işaretle">🛡</button>'}
+      <button class="btn btn-ghost" id="btnSnoozeMsg" title="Maili ertele (H)">💤</button>
       <button class="btn btn-ghost" id="btnOpenInWindow" title="Yeni pencerede aç">🪟</button>
       <div class="msg-actions-sep"></div>
       <button class="btn btn-ghost" id="btnDelete" title="Sil (Del)" style="color:var(--danger);"><span style="font-size:14px;">🗑</span></button>
@@ -2187,6 +2188,9 @@ function renderMessageView(msg) {
     await loadAccounts(); await loadMessages();
   };
   document.getElementById('btnOpenInWindow').onclick = () => window.api.messages.openInWindow(msg.id);
+  // v1.52: Snooze
+  const btnSnoozeMsg = document.getElementById('btnSnoozeMsg');
+  if (btnSnoozeMsg) btnSnoozeMsg.onclick = () => openSnoozeModal(msg);
 
   // v1.47: MDN banner butonları
   const btnMdnSend = document.getElementById('btnMdnSend');
@@ -10510,3 +10514,177 @@ setTimeout(refreshRibbonState, 1000);
     if (cfg.ribbonCollapsed) document.getElementById('ribbon')?.classList.add('collapsed');
   } catch (_) {}
 })();
+
+// ============= v1.52: Snooze (Erteleme) =============
+let _snoozeTargetMsg = null;
+
+function openSnoozeModal(msg) {
+  _snoozeTargetMsg = msg;
+  document.getElementById('modalSnooze').classList.remove('hidden');
+
+  // Ön izleme tarihlerini hesapla
+  const now = new Date();
+  const fmt = (d) => d.toLocaleString('tr-TR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+
+  const h1 = new Date(now.getTime() + 60 * 60 * 1000);
+  const h3 = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  document.getElementById('snooze-preview-1h').textContent = fmt(h1);
+  document.getElementById('snooze-preview-3h').textContent = fmt(h3);
+
+  // Default custom: 1 saat sonra
+  const ds = new Date(now.getTime() + 60 * 60 * 1000);
+  ds.setSeconds(0, 0);
+  document.getElementById('snoozeCustom').value = ds.toISOString().slice(0, 16);
+}
+
+function closeSnoozeModal() {
+  document.getElementById('modalSnooze').classList.add('hidden');
+  _snoozeTargetMsg = null;
+}
+
+function calculateSnoozeDate(option) {
+  const now = new Date();
+  let d;
+  switch (option) {
+    case '1h': d = new Date(now.getTime() + 60 * 60 * 1000); break;
+    case '3h': d = new Date(now.getTime() + 3 * 60 * 60 * 1000); break;
+    case 'evening':
+      d = new Date(now);
+      d.setHours(18, 0, 0, 0);
+      if (d <= now) d.setDate(d.getDate() + 1);
+      break;
+    case 'tomorrow':
+      d = new Date(now);
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      break;
+    case 'weekend':
+      d = new Date(now);
+      const dayToSat = (6 - d.getDay() + 7) % 7 || 7;
+      d.setDate(d.getDate() + dayToSat);
+      d.setHours(9, 0, 0, 0);
+      break;
+    case 'nextweek':
+      d = new Date(now);
+      const dayToMon = (1 - d.getDay() + 7) % 7 || 7;
+      d.setDate(d.getDate() + dayToMon);
+      d.setHours(9, 0, 0, 0);
+      break;
+    default: d = new Date(now.getTime() + 60 * 60 * 1000);
+  }
+  return d;
+}
+
+async function snoozeMessage(option, customDate) {
+  if (!_snoozeTargetMsg) return;
+  const date = customDate || calculateSnoozeDate(option);
+  const r = await window.api.snooze.message(_snoozeTargetMsg.id, date.toISOString());
+  if (r.ok) {
+    setStatus(`💤 Ertelendi: ${date.toLocaleString('tr-TR')}`);
+    closeSnoozeModal();
+    state.selectedMessage = null;
+    document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+    await loadMessages();
+    await refreshSnoozedCount();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const opt = e.target.closest('.snooze-opt');
+  if (opt && opt.dataset.snooze) {
+    snoozeMessage(opt.dataset.snooze);
+  }
+  if (e.target.closest('#snoozeCustomConfirm')) {
+    const v = document.getElementById('snoozeCustom').value;
+    if (!v) { alert('Lütfen bir tarih seçin'); return; }
+    const date = new Date(v);
+    if (date <= new Date()) { alert('Tarih gelecekte olmalı'); return; }
+    snoozeMessage(null, date);
+  }
+  // Sidebar Ertelenen klasörüne tıklayınca
+  if (e.target.closest('#sidebarSnoozedFolder')) {
+    selectSnoozedFolder();
+  }
+});
+
+// Klavye: H = snooze (Outlook gibi)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'h' && state.selectedMessage && !e.ctrlKey && !e.altKey) {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+    e.preventDefault();
+    openSnoozeModal(state.selectedMessage);
+  }
+});
+
+// Sidebar - Ertelenen virtual folder
+async function refreshSnoozedCount() {
+  const el = document.getElementById('sidebarSnoozedFolder');
+  if (!el) return;
+  try {
+    const count = await window.api.snooze.count();
+    const badge = el.querySelector('.snoozed-count');
+    if (count > 0) {
+      el.classList.remove('hidden');
+      if (badge) badge.textContent = count;
+    } else {
+      el.classList.add('hidden');
+    }
+  } catch (_) {}
+}
+
+async function selectSnoozedFolder() {
+  state.selectedFolder = { snoozed: true };
+  state.selectedMessage = null;
+  document.querySelectorAll('.folder-item.active').forEach(el => el.classList.remove('active'));
+  document.getElementById('unifiedInbox')?.classList.remove('active');
+  document.getElementById('sidebarSnoozedFolder')?.classList.add('active');
+  document.getElementById('messageView').innerHTML = '<div class="empty-state">Okumak için bir mesaj seçin</div>';
+
+  // Listele
+  state.messages = await window.api.snooze.list();
+  document.getElementById('folderTitle').textContent = `💤 Ertelenmiş Mailler · ${state.messages.length}`;
+
+  // Render - mevcut renderMessageList işine yarayacak (hesap badge, vs)
+  renderMessageList();
+}
+
+// Sidebar'a HTML enjekte
+function injectSnoozedSidebarFolder() {
+  const ub = document.getElementById('unifiedInbox');
+  if (!ub) return;
+  if (document.getElementById('sidebarSnoozedFolder')) return;
+  const html = `
+    <div id="sidebarSnoozedFolder" class="folder-item snoozed-folder hidden">
+      <span class="folder-icon">💤</span>
+      <span class="folder-name">Ertelenmiş</span>
+      <span class="snoozed-count">0</span>
+    </div>
+  `;
+  ub.insertAdjacentHTML('afterend', html);
+}
+setTimeout(() => {
+  injectSnoozedSidebarFolder();
+  refreshSnoozedCount();
+}, 1500);
+setInterval(refreshSnoozedCount, 30000);
+
+// Snooze matured event
+window.api.on('snooze:matured', async (data) => {
+  setStatus(`💤 ${data.count} ertelenmiş mail uyandı!`);
+  await refreshSnoozedCount();
+  await loadAccounts();
+  if (state.selectedFolder && !state.selectedFolder.snoozed) {
+    await loadMessages();
+  }
+});
+
+// Ribbon'a snooze action
+if (typeof RIBBON_ACTIONS !== 'undefined') {
+  RIBBON_ACTIONS['snooze'] = () => state.selectedMessage && openSnoozeModal(state.selectedMessage);
+  RIBBON_ACTIONS['view-snoozed'] = () => selectSnoozedFolder();
+}
+
+// Komut paletine ekle (basit)
