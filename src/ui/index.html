@@ -1306,8 +1306,18 @@
       </div>
       <div class="modal-body">
         <div class="form-group"><label>Gönderen Hesap</label><select id="compose_from"></select></div>
-        <div class="form-group"><label>Kime</label><input type="text" id="compose_to" placeholder="ornek@adres.com"></div>
-        <div class="form-group"><label>CC</label><input type="text" id="compose_cc"></div>
+        <div class="form-group">
+          <label>Kime <button class="btn btn-ghost compose-group-pick" data-target="to" style="font-size:10px;padding:2px 8px;margin-left:6px;" title="Gruptan ekle">+ Grup</button></label>
+          <input type="text" id="compose_to" placeholder="ornek@adres.com">
+        </div>
+        <div class="form-group">
+          <label>CC <button class="btn btn-ghost compose-group-pick" data-target="cc" style="font-size:10px;padding:2px 8px;margin-left:6px;" title="Gruptan ekle">+ Grup</button> <button class="btn btn-ghost" id="composeBccToggle" style="font-size:10px;padding:2px 8px;" title="Bcc alanını göster">+ Bcc</button></label>
+          <input type="text" id="compose_cc">
+        </div>
+        <div class="form-group hidden" id="composeBccGroup">
+          <label>Bcc <button class="btn btn-ghost compose-group-pick" data-target="bcc" style="font-size:10px;padding:2px 8px;margin-left:6px;" title="Gruptan ekle">+ Grup</button> <small style="color:var(--muted);">(Gizli, alıcılar birbirini görmez - toplu mail için önerilir)</small></label>
+          <input type="text" id="compose_bcc" placeholder="">
+        </div>
         <div class="form-group"><label>Konu</label><input type="text" id="compose_subject" spellcheck="true"></div>
         <div class="form-group">
           <label>Ekler (Drag-Drop / Tıkla / Yapıştır)</label>
@@ -1613,7 +1623,15 @@
         <button class="modal-close" data-close="modalContacts" style="margin-left:8px;">×</button>
       </div>
       <div class="modal-body" style="padding:0;display:flex;height:calc(90vh - 110px);overflow:hidden;">
-        <!-- Sol: arama + liste -->
+        <!-- Gruplar paneli (en sol) -->
+        <div class="groups-sidebar">
+          <div style="padding:10px;border-bottom:1px solid var(--border);display:flex;gap:4px;">
+            <strong style="flex:1;font-size:12px;">👥 Gruplar</strong>
+            <button class="btn btn-ghost" id="btnNewGroup" style="font-size:11px;padding:3px 8px;" title="Yeni grup oluştur">+ Yeni</button>
+          </div>
+          <div id="groupsList" class="groups-list"></div>
+        </div>
+        <!-- Sol: arama + kişi listesi -->
         <div class="contacts-sidebar">
           <div style="padding:10px;border-bottom:1px solid var(--border);">
             <input type="text" id="contactsSearchInput" placeholder="🔍 İsim, e-posta, kurum..." style="width:100%;padding:7px 10px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:13px;">
@@ -1662,6 +1680,13 @@
               <div class="form-row">
                 <label class="form-label">Etiketler (virgülle)</label>
                 <input type="text" id="ct_tags" placeholder="müşteri, vip, tedarikçi">
+              </div>
+              <div class="form-row">
+                <label class="form-label">👥 Gruplar</label>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+                  <div id="contactGroupsBadges" style="display:flex;flex-wrap:wrap;gap:6px;flex:1;"></div>
+                  <button class="btn" id="btnAddToGroup" style="font-size:11px;padding:3px 10px;">+ Gruba Ekle</button>
+                </div>
               </div>
               <div class="form-row">
                 <label class="form-label">Notlar</label>

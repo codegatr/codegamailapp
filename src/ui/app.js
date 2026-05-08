@@ -2612,11 +2612,12 @@ async function sendMail() {
   const accountId = parseInt(document.getElementById('compose_from').value, 10);
   const to = document.getElementById('compose_to').value.trim();
   const cc = document.getElementById('compose_cc').value.trim();
+  const bcc = (document.getElementById('compose_bcc')?.value || '').trim();
   const subject = document.getElementById('compose_subject').value.trim();
   // v1.6: zengin editör'den HTML + text al
   const html = state.composeEditor ? state.composeEditor.getHTML() : '';
   const text = state.composeEditor ? state.composeEditor.getText() : '';
-  if (!to) return alert('Alıcı gerekli');
+  if (!to && !cc && !bcc) return alert('En az bir alıcı (Kime/Cc/Bcc) gerekli');
   if (!subject && !confirm('Konu boş - yine de göndermek istiyor musunuz?')) return;
 
   // v1.4: ek dosya boyut uyarısı
@@ -2681,7 +2682,7 @@ async function sendMail() {
     }
 
     await window.api.mail.send(accountId, {
-      to, cc: cc || undefined, subject,
+      to: to || undefined, cc: cc || undefined, bcc: bcc || undefined, subject,
       text: finalText, html: finalHtml,
       attachments: attachments.length ? attachments : undefined
     });
@@ -4363,6 +4364,7 @@ async function openContacts() {
     contactsUIBound = true;
     bindContactsUI();
   }
+  await renderGroupsList();
   await renderContactsList();
 }
 
@@ -4394,6 +4396,10 @@ function bindContactsUI() {
   document.addEventListener('click', () => {
     document.getElementById('contactsExportMenu')?.classList.add('hidden');
   });
+
+  // v1.34: Yeni Grup oluştur
+  const btnNewGrp = document.getElementById('btnNewGroup');
+  if (btnNewGrp) btnNewGrp.onclick = createNewGroup;
 }
 
 async function renderContactsList() {
@@ -4401,9 +4407,28 @@ async function renderContactsList() {
   const sortBy = document.getElementById('contactsSortSelect').value;
   const favOnly = document.getElementById('contactsFavOnly').checked;
 
-  const list = await window.api.contacts.list({ search, sortBy, favoritesOnly: favOnly });
+  // v1.34: Grup filtresi
+  let list;
+  if (groupsState.selectedGroupId) {
+    list = await window.api.groups.members(groupsState.selectedGroupId);
+    // İstemci tarafında arama filtresi (üyelerde)
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(c =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        (c.organization || '').toLowerCase().includes(q)
+      );
+    }
+    if (favOnly) list = list.filter(c => c.is_favorite);
+  } else {
+    list = await window.api.contacts.list({ search, sortBy, favoritesOnly: favOnly });
+  }
   const stats = await window.api.contacts.stats();
-  document.getElementById('contactsCount').textContent = `(${stats.total} toplam, ${stats.favorites} sık)`;
+  const grpInfo = groupsState.selectedGroupId
+    ? `(Grup: ${list.length} kişi)`
+    : `(${stats.total} toplam, ${stats.favorites} sık)`;
+  document.getElementById('contactsCount').textContent = grpInfo;
 
   const el = document.getElementById('contactsList');
   if (!list.length) {
@@ -4460,6 +4485,13 @@ async function loadContactIntoDetail(id) {
 
   document.querySelectorAll('.contact-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.contact-item[data-id="${id}"]`)?.classList.add('active');
+
+  // v1.34: Üye olduğu gruplar
+  await refreshContactGroupsBadges(id);
+  const btnAdd = document.getElementById('btnAddToGroup');
+  if (btnAdd) {
+    btnAdd.onclick = () => showAddToGroupDialog(id);
+  }
 }
 
 async function createNewContact() {
@@ -7258,3 +7290,241 @@ function updateMultiSelectIndicator() {
 
 // Klasör değişince çoklu seçimi temizle
 const _origLoadMessages = typeof loadMessages === 'function' ? loadMessages : null;
+
+// ============= v1.34: Kişi Grupları + Toplu Mail =============
+const groupsState = {
+  selectedGroupId: null,
+  bound: false
+};
+
+async function renderGroupsList() {
+  const groups = await window.api.groups.list();
+  const el = document.getElementById('groupsList');
+  if (!el) return;
+
+  let html = `
+    <div class="group-item ${!groupsState.selectedGroupId ? 'active' : ''}" data-group-id="">
+      <span class="group-icon" style="color:var(--text-2);">📋</span>
+      <span class="group-name">Tüm Kişiler</span>
+    </div>
+  `;
+  for (const g of groups) {
+    html += `
+      <div class="group-item ${groupsState.selectedGroupId === g.id ? 'active' : ''}" data-group-id="${g.id}">
+        <span class="group-icon" style="color:${escapeHtml(g.color)};">●</span>
+        <span class="group-name">${escapeHtml(g.name)}</span>
+        <span class="group-count">${g.member_count}</span>
+      </div>
+    `;
+  }
+  el.innerHTML = html;
+
+  el.querySelectorAll('.group-item').forEach(item => {
+    item.onclick = () => {
+      const gid = item.dataset.groupId;
+      groupsState.selectedGroupId = gid ? parseInt(gid, 10) : null;
+      renderGroupsList();
+      renderContactsList();
+    };
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      const gid = item.dataset.groupId;
+      if (!gid) return;  // "Tüm Kişiler" sağ tık menüsü yok
+      showGroupContextMenu(e, parseInt(gid, 10));
+    };
+  });
+}
+
+function showGroupContextMenu(event, groupId) {
+  // Mevcut showContextMenu var mı kontrol
+  const items = [
+    { label: '📨 Bu Gruba Mail Gönder', action: () => composeToGroup(groupId, 'bcc') },
+    { label: '✏ Grubu Düzenle', action: () => editGroup(groupId) },
+    { divider: true },
+    { label: '🗑 Grubu Sil', danger: true, action: () => deleteGroupConfirm(groupId) }
+  ];
+  showContextMenu(event, items);
+}
+
+async function createNewGroup() {
+  const name = prompt('Grup adı:');
+  if (!name || !name.trim()) return;
+  const r = await window.api.groups.add({ name: name.trim() });
+  if (r.ok) {
+    setStatus(`✓ Grup oluşturuldu: ${name}`);
+    await renderGroupsList();
+    groupsState.selectedGroupId = r.id;
+    await renderGroupsList();
+    await renderContactsList();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+async function editGroup(groupId) {
+  const g = await window.api.groups.get(groupId);
+  if (!g) return;
+  const newName = prompt('Yeni grup adı:', g.name);
+  if (!newName || !newName.trim() || newName === g.name) return;
+  const r = await window.api.groups.update(groupId, { name: newName.trim() });
+  if (r.ok) {
+    setStatus('Grup güncellendi');
+    await renderGroupsList();
+  }
+}
+
+async function deleteGroupConfirm(groupId) {
+  const g = await window.api.groups.get(groupId);
+  if (!g) return;
+  if (!confirm(`"${g.name}" grubu silinsin mi?\n\nNot: Gruptaki kişiler silinmez, sadece gruplama kaldırılır.`)) return;
+  await window.api.groups.delete(groupId);
+  setStatus('Grup silindi');
+  if (groupsState.selectedGroupId === groupId) groupsState.selectedGroupId = null;
+  await renderGroupsList();
+  await renderContactsList();
+}
+
+/**
+ * Bir gruba mail göndermek için Compose'u aç
+ * @param {number} groupId
+ * @param {string} target - 'to' | 'cc' | 'bcc' (default 'bcc' - gizlilik için)
+ */
+async function composeToGroup(groupId, target = 'bcc') {
+  const emails = await window.api.groups.emails(groupId);
+  if (!emails.length) {
+    alert('Bu grupta email adresi olan kişi yok');
+    return;
+  }
+  const g = await window.api.groups.get(groupId);
+  // Compose'u aç
+  openCompose();
+  // Hedef alanı doldur
+  setTimeout(() => {
+    const emailList = emails.map(e => e.name ? `"${e.name}" <${e.email}>` : e.email).join(', ');
+    if (target === 'bcc') {
+      // Bcc alanını göster
+      document.getElementById('composeBccGroup')?.classList.remove('hidden');
+      const bccEl = document.getElementById('compose_bcc');
+      if (bccEl) {
+        bccEl.value = bccEl.value ? bccEl.value + ', ' + emailList : emailList;
+      }
+    } else if (target === 'cc') {
+      const ccEl = document.getElementById('compose_cc');
+      if (ccEl) ccEl.value = ccEl.value ? ccEl.value + ', ' + emailList : emailList;
+    } else {
+      const toEl = document.getElementById('compose_to');
+      if (toEl) toEl.value = toEl.value ? toEl.value + ', ' + emailList : emailList;
+    }
+    // Subject'i grup adı ile prefix'le
+    const subjEl = document.getElementById('compose_subject');
+    if (subjEl && !subjEl.value && g) subjEl.value = `[${g.name}] `;
+    setStatus(`✓ ${emails.length} alıcı eklendi (${g?.name || 'Grup'} - ${target.toUpperCase()})`);
+  }, 100);
+}
+
+// Adres Defteri kişi detayında "Bu kişi şu gruplarda" ve "+ Gruba ekle" butonu
+async function refreshContactGroupsBadges(contactId) {
+  const containerId = 'contactGroupsBadges';
+  let container = document.getElementById(containerId);
+  if (!container) return;
+  const groups = await window.api.groups.contactGroups(contactId);
+  if (!groups.length) {
+    container.innerHTML = '<small style="color:var(--muted);">Hiçbir grupta değil</small>';
+    return;
+  }
+  container.innerHTML = groups.map(g =>
+    `<span class="group-badge" style="background:${escapeHtml(g.color)}20;color:${escapeHtml(g.color)};border:1px solid ${escapeHtml(g.color)}40;" data-gid="${g.id}">
+       👥 ${escapeHtml(g.name)}
+       <button class="group-badge-remove" data-cid="${contactId}" data-gid="${g.id}" title="Bu gruptan çıkar">×</button>
+     </span>`
+  ).join('');
+  container.querySelectorAll('.group-badge-remove').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const cid = parseInt(btn.dataset.cid, 10);
+      const gid = parseInt(btn.dataset.gid, 10);
+      await window.api.groups.removeMember(gid, cid);
+      setStatus('Gruptan çıkarıldı');
+      await refreshContactGroupsBadges(cid);
+      await renderGroupsList();
+    };
+  });
+}
+
+async function showAddToGroupDialog(contactId) {
+  const groups = await window.api.groups.list();
+  if (!groups.length) {
+    if (confirm('Henüz grup yok. Yeni grup oluşturayım mı?')) {
+      await createNewGroup();
+      // Yeni oluşturulduysa eklemek için yine sor (basit MVP)
+    }
+    return;
+  }
+  // Dropdown menü göster
+  const items = groups.map(g => ({
+    label: `👥 ${g.name} (${g.member_count})`,
+    action: async () => {
+      await window.api.groups.addMember(g.id, contactId);
+      setStatus(`✓ "${g.name}" grubuna eklendi`);
+      await refreshContactGroupsBadges(contactId);
+      await renderGroupsList();
+    }
+  }));
+  items.push({ divider: true });
+  items.push({ label: '+ Yeni grup oluştur ve ekle', action: async () => {
+    const name = prompt('Yeni grup adı:');
+    if (!name || !name.trim()) return;
+    const r = await window.api.groups.add({ name: name.trim() });
+    if (r.ok) {
+      await window.api.groups.addMember(r.id, contactId);
+      setStatus(`✓ "${name}" grubu oluşturuldu ve kişi eklendi`);
+      await refreshContactGroupsBadges(contactId);
+      await renderGroupsList();
+    }
+  }});
+  // Show menu at the button position
+  const btn = document.getElementById('btnAddToGroup');
+  const rect = btn ? btn.getBoundingClientRect() : { left: 100, bottom: 100 };
+  showContextMenu({ preventDefault: () => {}, stopPropagation: () => {},
+                    clientX: rect.left, clientY: rect.bottom + 4 }, items);
+}
+
+// Compose'da "+ Grup" butonu için handler
+document.addEventListener('click', async (e) => {
+  if (e.target.classList?.contains('compose-group-pick')) {
+    e.preventDefault();
+    const target = e.target.dataset.target || 'to';
+    const groups = await window.api.groups.list();
+    if (!groups.length) {
+      alert('Henüz grup yok. Adres Defteri\'nde grup oluşturun.');
+      return;
+    }
+    const items = groups.map(g => ({
+      label: `👥 ${g.name} (${g.member_count} kişi)`,
+      action: async () => {
+        const emails = await window.api.groups.emails(g.id);
+        if (!emails.length) {
+          alert('Bu grupta email adresi olan kişi yok');
+          return;
+        }
+        const list = emails.map(em => em.name ? `"${em.name}" <${em.email}>` : em.email).join(', ');
+        let elId = 'compose_to';
+        if (target === 'cc') elId = 'compose_cc';
+        else if (target === 'bcc') {
+          elId = 'compose_bcc';
+          document.getElementById('composeBccGroup')?.classList.remove('hidden');
+        }
+        const inp = document.getElementById(elId);
+        if (inp) inp.value = inp.value ? inp.value + ', ' + list : list;
+        setStatus(`✓ ${emails.length} kişi eklendi (${g.name})`);
+      }
+    }));
+    const rect = e.target.getBoundingClientRect();
+    showContextMenu({ preventDefault: () => {}, stopPropagation: () => {},
+                      clientX: rect.left, clientY: rect.bottom + 4 }, items);
+  }
+  if (e.target.id === 'composeBccToggle') {
+    e.preventDefault();
+    document.getElementById('composeBccGroup')?.classList.toggle('hidden');
+  }
+});

@@ -1814,6 +1814,65 @@ ipcMain.handle('messages:openInWindow', (_, messageId) => {
 });
 
 // =====================================================================
+// v1.34 IPC: Kişi Grupları + Toplu Mail
+// =====================================================================
+ipcMain.handle('groups:list', () => db.listGroups());
+ipcMain.handle('groups:get', (_, id) => db.getGroup(id));
+ipcMain.handle('groups:members', (_, id) => db.listGroupMembers(id));
+ipcMain.handle('groups:emails', (_, id) => db.getGroupEmails(id));
+
+ipcMain.handle('groups:add', (_, group) => {
+  try {
+    if (!group.name || !group.name.trim()) return { ok: false, error: 'Grup adı gerekli' };
+    const id = db.addGroup(group);
+    db.save();
+    return { ok: true, id };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('groups:update', (_, id, updates) => {
+  try {
+    db.updateGroup(id, updates);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('groups:delete', (_, id) => {
+  try {
+    db.deleteGroup(id);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('groups:addMember', (_, groupId, contactId) => {
+  try {
+    db.addMemberToGroup(groupId, contactId);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('groups:addMembers', (_, groupId, contactIds) => {
+  try {
+    const added = db.addMembersToGroup(groupId, contactIds);
+    db.save();
+    return { ok: true, added };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('groups:removeMember', (_, groupId, contactId) => {
+  try {
+    db.removeMemberFromGroup(groupId, contactId);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('groups:contactGroups', (_, contactId) => db.getContactGroups(contactId));
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));

@@ -112,6 +112,19 @@ contextBridge.exposeInMainWorld('api', {
     export: (format) => ipcRenderer.invoke('contacts:export', format),
     import: () => ipcRenderer.invoke('contacts:import')
   },
+  groups: {
+    list: () => ipcRenderer.invoke('groups:list'),
+    get: (id) => ipcRenderer.invoke('groups:get', id),
+    members: (id) => ipcRenderer.invoke('groups:members', id),
+    emails: (id) => ipcRenderer.invoke('groups:emails', id),
+    add: (g) => ipcRenderer.invoke('groups:add', g),
+    update: (id, u) => ipcRenderer.invoke('groups:update', id, u),
+    delete: (id) => ipcRenderer.invoke('groups:delete', id),
+    addMember: (gid, cid) => ipcRenderer.invoke('groups:addMember', gid, cid),
+    addMembers: (gid, cids) => ipcRenderer.invoke('groups:addMembers', gid, cids),
+    removeMember: (gid, cid) => ipcRenderer.invoke('groups:removeMember', gid, cid),
+    contactGroups: (cid) => ipcRenderer.invoke('groups:contactGroups', cid)
+  },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },

@@ -348,6 +348,25 @@ class Database {
         CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
         CREATE INDEX IF NOT EXISTS idx_contacts_use ON contacts(use_count DESC, last_used DESC);
 
+        CREATE TABLE IF NOT EXISTS contact_groups (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          color TEXT DEFAULT '#3498db',
+          description TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS contact_group_members (
+          group_id INTEGER NOT NULL,
+          contact_id INTEGER NOT NULL,
+          added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (group_id, contact_id),
+          FOREIGN KEY (group_id) REFERENCES contact_groups(id) ON DELETE CASCADE,
+          FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_cgm_group ON contact_group_members(group_id);
+        CREATE INDEX IF NOT EXISTS idx_cgm_contact ON contact_group_members(contact_id);
+
         CREATE TABLE IF NOT EXISTS tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           title TEXT NOT NULL,
@@ -1929,6 +1948,109 @@ class Database {
 
   setPgpContactTrust(id, level) {
     this.prepare('UPDATE pgp_contacts SET trust_level = ? WHERE id = ?').run(level, id);
+  }
+
+  // ====== v1.34: Kişi Grupları ======
+  listGroups() {
+    return this.prepare(`
+      SELECT g.id, g.name, g.color, g.description, g.created_at,
+             (SELECT COUNT(*) FROM contact_group_members WHERE group_id = g.id) AS member_count
+      FROM contact_groups g
+      ORDER BY g.name COLLATE NOCASE ASC
+    `).all();
+  }
+
+  getGroup(id) {
+    return this.prepare('SELECT * FROM contact_groups WHERE id = ?').get(id);
+  }
+
+  addGroup(g) {
+    const r = this.prepare(`
+      INSERT INTO contact_groups (name, color, description)
+      VALUES (?, ?, ?)
+    `).run(g.name, g.color || '#3498db', g.description || null);
+    return r.lastInsertRowid;
+  }
+
+  updateGroup(id, updates) {
+    const allowed = ['name', 'color', 'description'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ');
+    const vals = fields.map(f => updates[f]);
+    this.prepare(`UPDATE contact_groups SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteGroup(id) {
+    this.prepare('DELETE FROM contact_groups WHERE id = ?').run(id);
+  }
+
+  /**
+   * Bir grubun üyelerini listele (kişi detayları ile)
+   */
+  listGroupMembers(groupId) {
+    return this.prepare(`
+      SELECT c.id, c.email, c.name, c.organization, c.phone, c.is_favorite, c.tags,
+             cgm.added_at
+      FROM contacts c
+      JOIN contact_group_members cgm ON cgm.contact_id = c.id
+      WHERE cgm.group_id = ?
+      ORDER BY c.name COLLATE NOCASE ASC, c.email ASC
+    `).all(groupId);
+  }
+
+  /**
+   * Bir kişinin üye olduğu grupları listele
+   */
+  getContactGroups(contactId) {
+    return this.prepare(`
+      SELECT g.id, g.name, g.color
+      FROM contact_groups g
+      JOIN contact_group_members cgm ON cgm.group_id = g.id
+      WHERE cgm.contact_id = ?
+      ORDER BY g.name COLLATE NOCASE ASC
+    `).all(contactId);
+  }
+
+  addMemberToGroup(groupId, contactId) {
+    try {
+      this.prepare(`
+        INSERT OR IGNORE INTO contact_group_members (group_id, contact_id) VALUES (?, ?)
+      `).run(groupId, contactId);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  removeMemberFromGroup(groupId, contactId) {
+    this.prepare('DELETE FROM contact_group_members WHERE group_id = ? AND contact_id = ?')
+      .run(groupId, contactId);
+  }
+
+  /**
+   * Toplu üye ekleme (birden fazla kişiyi tek seferde gruba ekle)
+   */
+  addMembersToGroup(groupId, contactIds) {
+    if (!Array.isArray(contactIds) || !contactIds.length) return 0;
+    const stmt = this.prepare('INSERT OR IGNORE INTO contact_group_members (group_id, contact_id) VALUES (?, ?)');
+    let added = 0;
+    for (const cid of contactIds) {
+      const r = stmt.run(groupId, cid);
+      if (r.changes > 0) added++;
+    }
+    return added;
+  }
+
+  /**
+   * Grup adıyla email listesi (compose için)
+   */
+  getGroupEmails(groupId) {
+    return this.prepare(`
+      SELECT c.email, c.name
+      FROM contacts c
+      JOIN contact_group_members cgm ON cgm.contact_id = c.id
+      WHERE cgm.group_id = ? AND c.email IS NOT NULL AND c.email != ''
+      ORDER BY c.name ASC
+    `).all(groupId);
   }
 
   // ====== v1.27: Takvim / Events ======
