@@ -2222,6 +2222,47 @@ ipcMain.handle('readReceipt:ignore', (_, senderEmail) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
+// v1.47: Alias + ek handler'lar
+ipcMain.handle('readReceipt:ignoreSender', (_, senderEmail) => {
+  const list = appConfig.get('readReceiptIgnoredSenders') || [];
+  if (!list.includes(senderEmail)) {
+    list.push(senderEmail);
+    appConfig.set('readReceiptIgnoredSenders', list);
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('readReceipt:dismiss', (_, messageId) => {
+  db.updateMessage(messageId, { mdn_responded: 1 });
+  db.save();
+  return { ok: true };
+});
+
+ipcMain.handle('readReceipt:getPolicy', () => ({
+  policy: appConfig.get('readReceiptResponsePolicy') || 'ask',
+  requestDefault: appConfig.get('readReceiptRequestDefault') || false,
+  ignored: appConfig.get('readReceiptIgnoredSenders') || []
+}));
+
+ipcMain.handle('readReceipt:setPolicy', (_, policy) => {
+  if (['always', 'never', 'ask'].includes(policy)) {
+    appConfig.set('readReceiptResponsePolicy', policy);
+    return { ok: true };
+  }
+  return { ok: false, error: 'Geçersiz politika' };
+});
+
+ipcMain.handle('readReceipt:setRequestDefault', (_, val) => {
+  appConfig.set('readReceiptRequestDefault', !!val);
+  return { ok: true };
+});
+
+ipcMain.handle('readReceipt:removeIgnored', (_, senderEmail) => {
+  const list = (appConfig.get('readReceiptIgnoredSenders') || []).filter(e => e !== senderEmail);
+  appConfig.set('readReceiptIgnoredSenders', list);
+  return { ok: true };
+});
+
 ipcMain.handle('readReceipt:markResponded', (_, messageId) => {
   db.updateMessage(messageId, { mdn_responded: 1 });
   db.save();
@@ -2823,6 +2864,15 @@ ipcMain.handle('app:dataPath', () => appConfig.getDataPath());
 ipcMain.handle('app:openDataFolder', () => shell.openPath(appConfig.getDataPath()));
 ipcMain.handle('app:openLogFolder', () => shell.openPath(app.getPath('userData')));
 ipcMain.handle('app:quit', () => { isQuitting = true; app.quit(); });
+ipcMain.handle('app:checkForUpdates', () => {
+  try {
+    if (typeof autoUpdater !== 'undefined' && autoUpdater) {
+      autoUpdater.checkForUpdates();
+      return { ok: true };
+    }
+    return { ok: false, error: 'Updater yapılandırılmamış' };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
 
 // =====================================================================
 // Otomatik Güncelleme (electron-updater)

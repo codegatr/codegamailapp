@@ -280,7 +280,9 @@ class MailService {
         body_html: mailData.html,
         flags: ['\\Seen'],
         is_read: true,
-        size: (mailData.html || mailData.text || '').length
+        size: (mailData.html || mailData.text || '').length,
+        // v1.47: Read receipt isteği işaretle
+        request_read_receipt: mailData.requestReadReceipt ? 1 : 0
       });
       this.db.updateFolderCounts(sentFolder.id);
     } catch (e) {

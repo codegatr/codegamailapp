@@ -1469,7 +1469,25 @@
           ⚠ Geri yükleme mevcut tüm verileri silip yedekteki ile değiştirir. Önemli verileriniz varsa önce yedek alın.
         </div>
 
-        <!-- v1.44: OAuth2 Setup -->
+        <!-- v1.47: Read Receipt Policy -->
+            <div class="form-section full">📬 Okundu Onayı (Read Receipt)</div>
+            <div class="form-group full">
+              <label>Aldığınız mailde gönderici okundu onayı isterse:</label>
+              <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;">
+                <label class="radio-row"><input type="radio" name="mdn_policy" value="ask" id="mdnPolicyAsk"> <span>Bana sor (önerilen)</span></label>
+                <label class="radio-row"><input type="radio" name="mdn_policy" value="always" id="mdnPolicyAlways"> <span>Otomatik gönder</span></label>
+                <label class="radio-row"><input type="radio" name="mdn_policy" value="never" id="mdnPolicyNever"> <span>Asla gönderme</span></label>
+              </div>
+            </div>
+            <div class="form-group full">
+              <label class="toggle-row"><input type="checkbox" id="mdnRequestDefault"> <span>Yeni mail yazarken varsayılan olarak okundu onayı iste</span></label>
+            </div>
+            <div class="form-group full">
+              <label>🔇 Yok sayılan göndericiler <small style="color:var(--muted);">(bu adreslere asla onay sormaz)</small></label>
+              <div id="mdnIgnoredList" class="mdn-ignored-list"></div>
+            </div>
+
+            <!-- v1.44: OAuth2 Setup -->
             <div class="form-section full">🔐 OAuth2 (Modern Auth)</div>
             <div class="form-group full">
               <label>Microsoft + Google için OAuth2 yapılandırması</label>

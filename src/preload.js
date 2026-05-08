@@ -168,6 +168,15 @@ contextBridge.exposeInMainWorld('api', {
     saveClientId: (provider, clientId) => ipcRenderer.invoke('oauth2:saveClientId', provider, clientId),
     getClientIds: () => ipcRenderer.invoke('oauth2:getClientIds')
   },
+  readReceipt: {
+    send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
+    dismiss: (messageId) => ipcRenderer.invoke('readReceipt:dismiss', messageId),
+    ignoreSender: (email) => ipcRenderer.invoke('readReceipt:ignoreSender', email),
+    getPolicy: () => ipcRenderer.invoke('readReceipt:getPolicy'),
+    setPolicy: (policy) => ipcRenderer.invoke('readReceipt:setPolicy', policy),
+    setRequestDefault: (val) => ipcRenderer.invoke('readReceipt:setRequestDefault', val),
+    removeIgnored: (email) => ipcRenderer.invoke('readReceipt:removeIgnored', email)
+  },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },

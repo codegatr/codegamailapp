@@ -1782,7 +1782,7 @@ function renderMessageList() {
           <div class="msg-subject">${spamBadge}${scoreBadge}${escapeHtml(m.subject || '(Konu yok)')}</div>
           ${catDots}
           <div class="msg-preview">
-            <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}</span>
+            <span class="msg-flags">${m.has_attachments ? '<span class="flag-attach">📎</span>' : ''}${m.request_read_receipt ? (m.read_receipt_received ? '<span class="flag-mdn-ok" title="Okundu">📬</span>' : '<span class="flag-mdn-pending" title="Okundu onayı istendi">📬</span>') : ''}</span>
             ${escapeHtml((m.preview || '').replace(/\s+/g, ' ').slice(0, 100))}
           </div>
         </div>
@@ -2010,6 +2010,36 @@ function renderMessageView(msg) {
     spamBanner = `<div class="spam-banner warn">⚠ Bu mesaj şüpheli görünüyor (puan: ${msg.spam_score}).</div>`;
   }
 
+  // v1.47: Read receipt (MDN) banner
+  let mdnBanner = '';
+  const policyState = window._mdnPolicyState || { policy: 'ask', ignored: [] };
+  const senderEmail = (msg.from_addr || '').toLowerCase();
+  const isIgnored = policyState.ignored.includes(senderEmail);
+  if (msg.requested_read_receipt && !msg.mdn_responded && policyState.policy !== 'never' && !isIgnored) {
+    if (policyState.policy === 'always') {
+      // Otomatik gönder (sessizce)
+      window.api.readReceipt.send(msg.id).then(r => {
+        if (r.ok) setStatus('📬 Okundu onayı otomatik gönderildi');
+      });
+      mdnBanner = `<div class="mdn-banner mdn-sent">📬 Bu mailin göndericisi okundu onayı istemişti — politikanız gereği <strong>otomatik gönderildi</strong>.</div>`;
+    } else {
+      // Sor
+      mdnBanner = `<div class="mdn-banner">
+        <div class="mdn-banner-text">
+          📬 <strong>${escapeHtml(msg.from_name || msg.from_addr || 'Gönderici')}</strong> okundu onayı istiyor.
+          <small>Onay yollarsanız mailin görüntülendiğini bilecekler.</small>
+        </div>
+        <div class="mdn-banner-actions">
+          <button class="btn btn-primary btn-sm" id="btnMdnSend">✓ Gönder</button>
+          <button class="btn btn-sm" id="btnMdnDismiss">✕ Reddet</button>
+          <button class="btn btn-ghost btn-sm" id="btnMdnIgnore">🔇 Bu kişiye asla sorma</button>
+        </div>
+      </div>`;
+    }
+  } else if (msg.mdn_responded) {
+    mdnBanner = '';  // Yanıt verildi, banner gizle
+  }
+
   // v1.12: Güvenlik durumu banner'ı (DKIM/SPF/DMARC + phishing)
   let securityBanner = '';
   let securityFlags = null;
@@ -2083,6 +2113,7 @@ function renderMessageView(msg) {
       </div>
     </div>
     ${spamBanner}
+    ${mdnBanner}
     ${securityBanner}
     ${(() => {
       // v1.46: Read receipt isteği var mı banner'ı
@@ -2156,6 +2187,41 @@ function renderMessageView(msg) {
     await loadAccounts(); await loadMessages();
   };
   document.getElementById('btnOpenInWindow').onclick = () => window.api.messages.openInWindow(msg.id);
+
+  // v1.47: MDN banner butonları
+  const btnMdnSend = document.getElementById('btnMdnSend');
+  const btnMdnDismiss = document.getElementById('btnMdnDismiss');
+  const btnMdnIgnore = document.getElementById('btnMdnIgnore');
+  if (btnMdnSend) btnMdnSend.onclick = async () => {
+    btnMdnSend.disabled = true;
+    btnMdnSend.textContent = 'Gönderiliyor...';
+    const r = await window.api.readReceipt.send(msg.id);
+    if (r.ok) {
+      setStatus('📬 Okundu onayı gönderildi');
+      msg.mdn_responded = 1;
+      renderMessageView(msg);
+    } else {
+      alert('Hata: ' + r.error);
+      btnMdnSend.disabled = false;
+      btnMdnSend.textContent = '✓ Gönder';
+    }
+  };
+  if (btnMdnDismiss) btnMdnDismiss.onclick = async () => {
+    await window.api.readReceipt.dismiss(msg.id);
+    msg.mdn_responded = 1;
+    renderMessageView(msg);
+    setStatus('📬 Okundu onayı reddedildi');
+  };
+  if (btnMdnIgnore) btnMdnIgnore.onclick = async () => {
+    if (confirm(`${msg.from_addr} adresinden gelen okundu onayı isteklerine bir daha sorulmasın mı?`)) {
+      await window.api.readReceipt.ignoreSender((msg.from_addr || '').toLowerCase());
+      await window.api.readReceipt.dismiss(msg.id);
+      window._mdnPolicyState = await window.api.readReceipt.getPolicy();
+      msg.mdn_responded = 1;
+      renderMessageView(msg);
+      setStatus('🔇 Bu gönderici yok sayıldı');
+    }
+  };
 
   // v1.46: MDN banner butonları
   const btnSendMDN = document.getElementById('btnSendMDN');
@@ -9701,6 +9767,16 @@ function renderAccountChart(accounts) {
   `;
 }
 
+// v1.47: MDN politika state'i load
+async function loadMdnPolicy() {
+  try {
+    window._mdnPolicyState = await window.api.readReceipt.getPolicy();
+  } catch (_) {
+    window._mdnPolicyState = { policy: 'ask', requestDefault: false, ignored: [] };
+  }
+}
+loadMdnPolicy();
+
 // ============= v1.46: Outlook Tarzı Menü Çubuğu =============
 const MENUS = {
   dosya: {
@@ -10006,4 +10082,54 @@ function editAccount(id) {
     const tab = document.querySelector('[data-tab="accounts"]');
     if (tab) tab.click();
   }, 200);
+}
+
+// ============= v1.47: Settings - MDN Politika UI =============
+async function loadMdnSettingsUI() {
+  const policy = await window.api.readReceipt.getPolicy();
+  document.getElementById('mdnPolicyAsk').checked = policy.policy === 'ask';
+  document.getElementById('mdnPolicyAlways').checked = policy.policy === 'always';
+  document.getElementById('mdnPolicyNever').checked = policy.policy === 'never';
+  document.getElementById('mdnRequestDefault').checked = !!policy.requestDefault;
+
+  const list = document.getElementById('mdnIgnoredList');
+  if (policy.ignored.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:8px;">Henüz yok sayılan gönderici yok.</div>';
+  } else {
+    list.innerHTML = policy.ignored.map(email => `
+      <div class="mdn-ignored-item">
+        <span>📧 ${escapeHtml(email)}</span>
+        <button class="btn btn-ghost btn-sm" data-mdn-remove="${escapeHtml(email)}">✕ Kaldır</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('[data-mdn-remove]').forEach(btn => {
+      btn.onclick = async () => {
+        await window.api.readReceipt.removeIgnored(btn.dataset.mdnRemove);
+        await loadMdnSettingsUI();
+        await loadMdnPolicy();
+      };
+    });
+  }
+}
+
+document.addEventListener('change', async (e) => {
+  if (e.target.name === 'mdn_policy') {
+    await window.api.readReceipt.setPolicy(e.target.value);
+    await loadMdnPolicy();
+    setStatus('Okundu onayı politikası: ' + e.target.value);
+  }
+  if (e.target.id === 'mdnRequestDefault') {
+    await window.api.readReceipt.setRequestDefault(e.target.checked);
+    setStatus('Onay iste varsayılan: ' + (e.target.checked ? 'açık' : 'kapalı'));
+  }
+});
+
+// Settings açılınca MDN UI yükle
+const _origOpenSettings = window.openSettings;
+if (typeof _origOpenSettings === 'function') {
+  window.openSettings = function() {
+    const r = _origOpenSettings.apply(this, arguments);
+    setTimeout(() => loadMdnSettingsUI().catch(() => {}), 200);
+    return r;
+  };
 }

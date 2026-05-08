@@ -4728,3 +4728,88 @@ html.dark .mdn-banner {
 .brand-mini .brand-icon {
   font-size: 18px;
 }
+
+/* ============= v1.47: Read Receipt (MDN) ============= */
+.mdn-banner {
+  background: linear-gradient(135deg, #fff8dc, #ffeaa7);
+  color: #5a4a00;
+  border-left: 4px solid #f5a623;
+  padding: 12px 16px;
+  margin: 0 0 8px 0;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+[data-theme="dark"] .mdn-banner {
+  background: linear-gradient(135deg, rgba(245, 166, 35, 0.15), rgba(245, 166, 35, 0.08));
+  color: #ffd97a;
+}
+.mdn-banner-text {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mdn-banner-text small {
+  display: block;
+  margin-top: 4px;
+  opacity: 0.75;
+  font-size: 11px;
+}
+.mdn-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mdn-banner-actions .btn {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+.mdn-banner.mdn-sent {
+  background: rgba(46, 204, 113, 0.1);
+  color: var(--success);
+  border-left-color: var(--success);
+}
+
+/* Mail listesi MDN ikonu */
+.flag-mdn-pending {
+  color: #f5a623;
+  margin-left: 4px;
+  font-size: 12px;
+}
+.flag-mdn-ok {
+  color: var(--success);
+  margin-left: 4px;
+  font-size: 12px;
+}
+
+/* Settings'te ignored senders */
+.mdn-ignored-list {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-2);
+  max-height: 160px;
+  overflow-y: auto;
+}
+.mdn-ignored-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.mdn-ignored-item:last-child {
+  border-bottom: none;
+}
+.btn.btn-sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.radio-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}

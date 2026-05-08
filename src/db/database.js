@@ -886,8 +886,8 @@ class Database {
         is_read, is_flagged, is_spam, spam_score,
         size, has_attachments,
         in_reply_to, msg_references, thread_id, subject_normalized,
-        read_receipt_to
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        read_receipt_to, requested_read_receipt, request_read_receipt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       msg.account_id, msg.folder_id, msg.uid || null, msg.uidl || null, msg.message_id || null,
       msg.from_addr || null, msg.from_name || null, msg.reply_to_addr || null,
@@ -900,7 +900,9 @@ class Database {
       msg.size || 0, msg.has_attachments ? 1 : 0,
       msg.in_reply_to || null, msg.msg_references || null,
       threadId, subjectNormalized,
-      msg.read_receipt_to || null
+      msg.read_receipt_to || null,
+      msg.requested_read_receipt ? 1 : 0,
+      msg.request_read_receipt ? 1 : 0
     );
     return r.lastInsertRowid;
   }
