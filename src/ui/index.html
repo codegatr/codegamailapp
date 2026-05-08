@@ -29,6 +29,7 @@
       <button id="btnScheduled" class="btn btn-ghost" title="Zamanlanmış mesajlar">⏰ Zamanlanmış</button>
       <button id="btnNotes" class="btn btn-ghost" title="Notlar">📓 Notlar</button>
       <button id="btnTasks" class="btn btn-ghost" title="Görevler / To-Do">✅ Görevler <span id="tasksBadge" class="tasks-badge hidden">0</span></button>
+      <button id="btnArchive" class="btn btn-ghost" title="Arşiv (eski mesajlar)">📦 Arşiv</button>
       <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
@@ -79,6 +80,78 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.24: Arşiv Görünümü ===== -->
+  <div id="modalArchive" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>📦 Arşiv <span id="archiveHeaderCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
+        <div style="flex:1;"></div>
+        <button class="btn btn-ghost" id="btnArchiveOldDialog" title="Eski mesajları toplu arşivle">📥 Toplu Arşivle</button>
+        <button class="modal-close" data-close="modalArchive" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:0;display:flex;height:calc(90vh - 110px);overflow:hidden;">
+        <!-- Sol: hesaplara göre filtre -->
+        <div class="archive-sidebar">
+          <div style="padding:10px;border-bottom:1px solid var(--border);">
+            <input type="text" id="archiveSearchInput" placeholder="🔍 Konu, gönderici..." style="width:100%;padding:7px 10px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;font-size:13px;">
+          </div>
+          <div id="archiveAccountFilters"></div>
+          <div style="padding:14px 10px;border-top:1px solid var(--border);font-size:11px;color:var(--text-2);">
+            <div id="archiveSummary">Yükleniyor...</div>
+          </div>
+        </div>
+        <!-- Orta: arşivlenmiş mesaj listesi -->
+        <div class="archive-list-pane">
+          <div id="archiveList" class="archive-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== v1.24: Toplu Arşivleme Diyaloğu ===== -->
+  <div id="modalArchiveOld" class="modal hidden">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h2>📥 Eski Mesajları Toplu Arşivle</h2>
+        <button class="modal-close" data-close="modalArchiveOld">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-2);">
+          Belirli bir tarihten eski tüm mesajları arşive taşıyın. Arşivdeki mesajlar listeden gizlenir
+          ama silinmez - istediğinizde geri alabilirsiniz.
+        </p>
+        <div class="form-group">
+          <label>Kaç aydan eski mesajlar arşivlensin?</label>
+          <select id="archiveOldMonths" style="font-size:14px;">
+            <option value="1">1 aydan eski</option>
+            <option value="3">3 aydan eski</option>
+            <option value="6" selected>6 aydan eski (önerilen)</option>
+            <option value="12">1 yıldan eski</option>
+            <option value="24">2 yıldan eski</option>
+            <option value="60">5 yıldan eski</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Hesap</label>
+          <select id="archiveOldAccount">
+            <option value="">Tüm hesaplar</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="toggle-row">
+            <input type="checkbox" id="archiveOldPreserveImportant" checked>
+            <span>⭐ Önemli işaretli mesajları koru (arşivleme)</span>
+          </label>
+        </div>
+        <div id="archiveOldResult" class="hidden" style="margin-top:14px;padding:10px;background:rgba(46,204,113,0.1);border-radius:6px;color:#2ecc71;"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button class="btn btn-ghost" data-close="modalArchiveOld">İptal</button>
+          <button class="btn btn-primary" id="btnArchiveOldExecute">📥 Arşivle</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.23: Kilit Ekranı (Master Password + 2FA) ===== -->
   <div id="modalLockScreen" class="modal hidden lock-modal">
@@ -146,6 +219,7 @@
           <div class="kbd-row"><span>Tümüne cevapla</span><kbd>A</kbd></div>
           <div class="kbd-row"><span>İlet</span><kbd>F</kbd></div>
           <div class="kbd-row"><span>Sil</span><kbd>#</kbd> veya <kbd>Delete</kbd></div>
+          <div class="kbd-row"><span>📦 Arşivle</span><kbd>E</kbd></div>
           <div class="kbd-row"><span>Önemli (yıldız)</span><kbd>S</kbd></div>
           <div class="kbd-row"><span>Spam işaretle</span><kbd>!</kbd></div>
           <div class="kbd-row"><span>Okundu/Okunmadı</span><kbd>U</kbd></div>
@@ -308,6 +382,27 @@
               <option value="pop3">POP3 - cihaza indirir</option>
             </select>
             <small>Yandex/şirket hesaplarınızda POP3 tercih ediyorsanız buradan ayarlayın - hesap eklerken otomatik uygulanır</small>
+          </div>
+        </div>
+
+        <!-- v1.24: Otomatik Arşivleme -->
+        <div class="form-section full" style="margin-top:18px;">📦 Otomatik Arşivleme</div>
+        <div class="form-grid" style="grid-template-columns:1fr 1fr;">
+          <div class="form-group full">
+            <label class="toggle-row">
+              <input type="checkbox" id="settings_auto_archive">
+              <span>Eski mesajları otomatik arşivle (günde 1 kez kontrol)</span>
+            </label>
+            <small>⭐ Önemli işaretli mesajlar arşivlenmez. Arşivlenen mesajlar listeden gizlenir ama silinmez - "📦 Arşiv" butonundan görüntüleyebilirsiniz.</small>
+          </div>
+          <div class="form-group full">
+            <label>Kaç aydan eski mesajlar arşivlensin?</label>
+            <select id="settings_auto_archive_months">
+              <option value="3">3 aydan eski</option>
+              <option value="6" selected>6 aydan eski (önerilen)</option>
+              <option value="12">1 yıldan eski</option>
+              <option value="24">2 yıldan eski</option>
+            </select>
           </div>
         </div>
 

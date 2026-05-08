@@ -423,6 +423,7 @@ function bindToolbar() {
   document.getElementById('btnScheduled').onclick = openScheduledManager;
   document.getElementById('btnNotes').onclick = openNotes;
   document.getElementById('btnTasks').onclick = openTasks;
+  document.getElementById('btnArchive').onclick = openArchive;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -519,6 +520,9 @@ function bindKeyboard() {
     } else if (e.key === 'u' && state.selectedMessage) {
       e.preventDefault();
       toggleReadCurrentMessage();
+    } else if (e.key === 'e' && state.selectedMessage && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      archiveMessageFromList(state.selectedMessage);
     } else if (e.key === 'c' && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       openCompose();
@@ -666,6 +670,8 @@ function bindSettings() {
     ['settings_auto_start', 'autoStart', 'checkbox'],
     ['settings_start_minimized', 'startMinimized', 'checkbox'],
     ['settings_default_protocol', 'defaultProtocol', 'string'],
+    ['settings_auto_archive', 'autoArchiveEnabled', 'checkbox'],
+    ['settings_auto_archive_months', 'autoArchiveMonths', 'number'],
     ['vt_autoScan', 'virustotalAutoScan', 'checkbox'],
     ['url_scanWithVt', 'urlScanWithVt', 'checkbox']
   ];
@@ -759,6 +765,12 @@ async function openSettings() {
   const dpEl = document.getElementById('settings_default_protocol');
   if (dpEl) dpEl.value = cfg.defaultProtocol || 'imap';
   state.defaultProtocol = cfg.defaultProtocol || 'imap';
+
+  // v1.24: Otomatik arşivleme ayarları
+  const aaEl = document.getElementById('settings_auto_archive');
+  if (aaEl) aaEl.checked = !!cfg.autoArchiveEnabled;
+  const aamEl = document.getElementById('settings_auto_archive_months');
+  if (aamEl) aamEl.value = String(cfg.autoArchiveMonths || 6);
 
   // v1.22: Yazım denetimi ayarları
   await loadSpellSettings();
@@ -1355,6 +1367,7 @@ async function showMessageContextMenu(e, message) {
     }},
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
     { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
+    { label: '📦 Arşivle', action: () => archiveMessageFromList(message) },
     '---',
     ...moveItems,
     '---',
@@ -4765,6 +4778,10 @@ function buildCommandList() {
       action: () => openNotes(), category: 'Modül' },
     { id: 'tasks', label: 'Görevler / To-Do', icon: '✅',
       action: () => openTasks(), category: 'Modül' },
+    { id: 'archive', label: 'Arşiv (eski mesajlar)', icon: '📦',
+      action: () => openArchive(), category: 'Modül' },
+    { id: 'archive-old', label: 'Eski mesajları toplu arşivle', icon: '📥',
+      action: () => openArchiveOldDialog(), category: 'Modül' },
     { id: 'templates', label: 'Şablonlar', icon: '📝',
       action: () => { const b = document.getElementById('btnTemplates'); if (b) b.click(); }, category: 'Modül' },
     { id: 'rules', label: 'Filtre Kuralları', icon: '🔧',
@@ -5411,3 +5428,180 @@ function showRecoveryCodes(codes) {
   document.getElementById('modal2FASetup').classList.remove('hidden');
   renderRecoveryCodesInModal(codes);
 }
+
+// ============= v1.24: Mesaj Arşivleme =============
+let archiveCurrentAccountFilter = null;
+let archiveUIBound = false;
+
+async function archiveMessageFromList(message) {
+  if (!message) return;
+  const r = await window.api.archive.archive(message.id);
+  if (r.ok) {
+    setStatus('📦 Mesaj arşivlendi');
+    await loadMessages();
+    await loadAccounts();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+async function openArchive() {
+  document.getElementById('modalArchive').classList.remove('hidden');
+  if (!archiveUIBound) {
+    archiveUIBound = true;
+    bindArchiveUI();
+  }
+  await renderArchiveView();
+}
+
+function bindArchiveUI() {
+  document.getElementById('archiveSearchInput').oninput = debounce(renderArchiveView, 200);
+  document.getElementById('btnArchiveOldDialog').onclick = openArchiveOldDialog;
+  document.getElementById('btnArchiveOldExecute').onclick = executeArchiveOld;
+}
+
+async function renderArchiveView() {
+  const search = document.getElementById('archiveSearchInput').value.trim();
+  const stats = await window.api.archive.stats();
+  const headerEl = document.getElementById('archiveHeaderCount');
+  if (headerEl) {
+    const sizeMB = (stats.totalSize / (1024 * 1024)).toFixed(1);
+    headerEl.textContent = `(${stats.total} mesaj · ${sizeMB} MB)`;
+  }
+
+  // Hesap filtreleri (sol)
+  const filtersEl = document.getElementById('archiveAccountFilters');
+  let filtersHtml = `
+    <div class="archive-filter ${!archiveCurrentAccountFilter ? 'active' : ''}" data-acc-id="">
+      📂 Tümü <span class="archive-filter-count">${stats.total}</span>
+    </div>
+  `;
+  for (const acc of stats.byAccount || []) {
+    if (acc.count === 0) continue;
+    filtersHtml += `
+      <div class="archive-filter ${archiveCurrentAccountFilter === acc.id ? 'active' : ''}" data-acc-id="${acc.id}">
+        📧 ${escapeHtml(acc.display_name)} <span class="archive-filter-count">${acc.count}</span>
+      </div>
+    `;
+  }
+  filtersEl.innerHTML = filtersHtml;
+  filtersEl.querySelectorAll('.archive-filter').forEach(el => {
+    el.onclick = () => {
+      const accId = el.dataset.accId;
+      archiveCurrentAccountFilter = accId ? parseInt(accId, 10) : null;
+      renderArchiveView();
+    };
+  });
+
+  // Özet panel
+  const summary = document.getElementById('archiveSummary');
+  if (summary) {
+    let html = '';
+    if (stats.oldestArchived) {
+      html += `<div>📅 En eski: ${new Date(stats.oldestArchived).toLocaleDateString('tr-TR')}</div>`;
+    }
+    if (stats.lastArchivedAt) {
+      html += `<div style="margin-top:4px;">⏱ Son işlem: ${new Date(stats.lastArchivedAt).toLocaleDateString('tr-TR')}</div>`;
+    }
+    summary.innerHTML = html || 'Henüz arşivlenmiş mesaj yok';
+  }
+
+  // Mesaj listesi
+  const list = await window.api.archive.list({
+    accountId: archiveCurrentAccountFilter,
+    search,
+    limit: 500
+  });
+  const listEl = document.getElementById('archiveList');
+  if (!list.length) {
+    listEl.innerHTML = '<div class="empty-state" style="padding:50px;font-size:13px;">Arşivde mesaj yok</div>';
+    return;
+  }
+
+  listEl.innerHTML = list.map(m => `
+    <div class="archive-item" data-id="${m.id}">
+      <div class="archive-item-header">
+        <span class="archive-item-from">${escapeHtml(m.from_name || m.from_addr || '')}</span>
+        <span class="archive-item-date">${formatDate(m.date)}</span>
+      </div>
+      <div class="archive-item-subject">${m.is_important ? '⭐ ' : ''}${m.has_attachments ? '📎 ' : ''}${escapeHtml(m.subject || '(Konusuz)')}</div>
+      <div class="archive-item-meta">
+        <span class="archive-item-account">${escapeHtml(m.account_name || '')}</span>
+        <span class="archive-item-folder">${escapeHtml(m.folder_name || '')}</span>
+        <span class="archive-item-archived-at">📦 ${m.archived_at ? new Date(m.archived_at).toLocaleDateString('tr-TR') : ''}</span>
+        <button class="btn btn-ghost archive-unarchive-btn" data-id="${m.id}" title="Arşivden çıkar">↩ Geri Al</button>
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.archive-unarchive-btn').forEach(btn => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const r = await window.api.archive.unarchive(id);
+      if (r.ok) {
+        setStatus('✓ Arşivden çıkarıldı');
+        await renderArchiveView();
+        await loadAccounts();
+      }
+    };
+  });
+}
+
+function openArchiveOldDialog() {
+  // Hesap dropdown doldur
+  const accSel = document.getElementById('archiveOldAccount');
+  accSel.innerHTML = '<option value="">Tüm hesaplar</option>' +
+    (state.accounts || []).map(a => `<option value="${a.id}">${escapeHtml(a.display_name)} - ${escapeHtml(a.email)}</option>`).join('');
+  document.getElementById('archiveOldResult').classList.add('hidden');
+  document.getElementById('modalArchiveOld').classList.remove('hidden');
+}
+
+async function executeArchiveOld() {
+  const months = parseInt(document.getElementById('archiveOldMonths').value, 10);
+  const accountId = document.getElementById('archiveOldAccount').value;
+  const preserveImportant = document.getElementById('archiveOldPreserveImportant').checked;
+
+  const btn = document.getElementById('btnArchiveOldExecute');
+  btn.disabled = true;
+  btn.textContent = '⏳ Arşivleniyor...';
+
+  try {
+    const r = await window.api.archive.archiveOld({
+      months,
+      accountId: accountId ? parseInt(accountId, 10) : undefined,
+      preserveImportant
+    });
+    const resultEl = document.getElementById('archiveOldResult');
+    if (r.ok) {
+      const beforeStr = new Date(r.beforeDate).toLocaleDateString('tr-TR');
+      resultEl.innerHTML = `✅ <strong>${r.count}</strong> mesaj arşivlendi (${beforeStr} öncesi)`;
+      resultEl.classList.remove('hidden');
+      setStatus(`📦 ${r.count} mesaj arşivlendi`);
+      await loadMessages();
+      await loadAccounts();
+      await renderArchiveView();
+      // 2 saniye sonra modal kapat
+      setTimeout(() => document.getElementById('modalArchiveOld').classList.add('hidden'), 2000);
+    } else {
+      resultEl.innerHTML = '❌ Hata: ' + r.error;
+      resultEl.classList.remove('hidden');
+      resultEl.style.background = 'rgba(231,76,60,0.1)';
+      resultEl.style.color = 'var(--danger)';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📥 Arşivle';
+  }
+}
+
+// Otomatik arşivleme bildirimi
+if (window.api && window.api.on) {
+  window.api.on('archive:auto-done', (data) => {
+    setStatus(`📦 Otomatik arşivleme: ${data.count} eski mesaj arşivlendi (${data.months} ay öncesi)`);
+    loadMessages().catch(() => {});
+    loadAccounts().catch(() => {});
+  });
+}
+
+// Klavye kısayolu: E (Gmail tarzı arşivleme)

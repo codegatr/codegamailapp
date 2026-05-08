@@ -127,6 +127,14 @@ contextBridge.exposeInMainWorld('api', {
     regenerateRecoveryCodes: (pw) => ipcRenderer.invoke('security:regenerateRecoveryCodes', pw),
     lockApp: () => ipcRenderer.invoke('security:lockApp')
   },
+  archive: {
+    stats: () => ipcRenderer.invoke('archive:stats'),
+    archive: (id) => ipcRenderer.invoke('archive:message', id),
+    unarchive: (id) => ipcRenderer.invoke('archive:unarchive', id),
+    archiveOld: (opts) => ipcRenderer.invoke('archive:archiveOld', opts),
+    list: (opts) => ipcRenderer.invoke('archive:list', opts),
+    purge: (opts) => ipcRenderer.invoke('archive:purge', opts)
+  },
   tasks: {
     list: (opts) => ipcRenderer.invoke('tasks:list', opts),
     get: (id) => ipcRenderer.invoke('tasks:get', id),
@@ -181,7 +189,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Tepsiden ve updater'dan gelen olaylara abone olma
   on: (channel, cb) => {
-    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked'];
+    const allowed = ['open-compose', 'open-message', 'open-settings', 'background-sync-done', 'update-status', 'inapp-notification', 'sync:progress', 'sync:overall', 'task:reminder', 'security:locked', 'archive:auto-done'];
     if (!allowed.includes(channel)) return () => {};
     const listener = (_, data) => cb(data);
     ipcRenderer.on(channel, listener);

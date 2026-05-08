@@ -522,7 +522,9 @@ ipcMain.handle('config:get', () => ({
   autoUpdateCheck: appConfig.get('autoUpdateCheck') !== false,
   defaultProtocol: appConfig.get('defaultProtocol') || 'imap',
   spellCheckEnabled: appConfig.get('spellCheckEnabled') !== false,
-  spellCheckLanguages: appConfig.get('spellCheckLanguages') || ['tr', 'en-US']
+  spellCheckLanguages: appConfig.get('spellCheckLanguages') || ['tr', 'en-US'],
+  autoArchiveEnabled: !!appConfig.get('autoArchiveEnabled'),
+  autoArchiveMonths: appConfig.get('autoArchiveMonths') || 6
 }));
 
 ipcMain.handle('config:setFirstRunDone', () => {
@@ -1140,6 +1142,89 @@ ipcMain.handle('security:lockApp', () => {
 });
 
 // =====================================================================
+// v1.24 IPC: Mesaj Arşivleme
+// =====================================================================
+ipcMain.handle('archive:stats', () => db.archiveStats());
+
+ipcMain.handle('archive:message', (_, id) => {
+  try {
+    db.archiveMessage(id);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('archive:unarchive', (_, id) => {
+  try {
+    db.unarchiveMessage(id);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('archive:archiveOld', (_, opts) => {
+  try {
+    // opts: { months: 6, accountId, folderId, preserveImportant }
+    const months = opts && typeof opts.months === 'number' ? opts.months : 6;
+    const beforeDate = new Date();
+    beforeDate.setMonth(beforeDate.getMonth() - months);
+    const count = db.archiveOldMessages({
+      beforeDate: beforeDate.toISOString(),
+      accountId: opts?.accountId,
+      folderId: opts?.folderId,
+      preserveImportant: opts?.preserveImportant !== false
+    });
+    db.save();
+    updateTray();
+    return { ok: true, count, beforeDate: beforeDate.toISOString() };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('archive:list', (_, opts) => db.listArchivedMessages(opts || {}));
+
+ipcMain.handle('archive:purge', (_, opts) => {
+  try {
+    // opts: { months: 12, accountId } - X aydan önce arşivlenenler kalıcı silinir
+    const months = opts && typeof opts.months === 'number' ? opts.months : 12;
+    const beforeArchiveDate = new Date();
+    beforeArchiveDate.setMonth(beforeArchiveDate.getMonth() - months);
+    const count = db.purgeArchivedMessages({
+      beforeArchiveDate: beforeArchiveDate.toISOString(),
+      accountId: opts?.accountId
+    });
+    db.save();
+    return { ok: true, count };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Otomatik arşivleme - arka plan scheduler'a bağlı
+async function processAutoArchive() {
+  if (!appConfig.get('autoArchiveEnabled')) return;
+  const months = appConfig.get('autoArchiveMonths') || 6;
+  const lastRun = appConfig.get('autoArchiveLastRun') || 0;
+  const now = Date.now();
+  // Günde bir defadan fazla çalışmasın
+  if (now - lastRun < 23 * 60 * 60 * 1000) return;
+  try {
+    const beforeDate = new Date();
+    beforeDate.setMonth(beforeDate.getMonth() - months);
+    const count = db.archiveOldMessages({
+      beforeDate: beforeDate.toISOString(),
+      preserveImportant: true
+    });
+    if (count > 0) {
+      console.log(`Otomatik arşivleme: ${count} mesaj arşivlendi (${months} aydan eski)`);
+      db.save();
+      updateTray();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('archive:auto-done', { count, months });
+      }
+    }
+    appConfig.set('autoArchiveLastRun', now);
+  } catch (e) { console.warn('Auto-archive hatası:', e.message); }
+}
+
+// =====================================================================
 // v1.18 IPC: Görevler / To-Do
 // =====================================================================
 ipcMain.handle('tasks:list', (_, opts) => db.listTasks(opts || {}));
@@ -1404,6 +1489,7 @@ function startSchedulerLoop() {
   scheduledTimer = setInterval(() => {
     processDueScheduledMessages().catch(e => console.warn('Scheduler error:', e.message));
     processDueTaskReminders().catch(e => console.warn('Task reminder error:', e.message));
+    processAutoArchive().catch(e => console.warn('Auto-archive error:', e.message));
   }, 30 * 1000); // 30 saniye
 }
 

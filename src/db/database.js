@@ -283,6 +283,13 @@ class Database {
     this._safeAlter('ALTER TABLE messages ADD COLUMN auth_dmarc TEXT');
     this._safeAlter('ALTER TABLE messages ADD COLUMN security_flags TEXT');
 
+    // v1.24: Mesaj arşivleme
+    this._safeAlter('ALTER TABLE messages ADD COLUMN is_archived INTEGER DEFAULT 0');
+    this._safeAlter('ALTER TABLE messages ADD COLUMN archived_at TEXT');
+    try {
+      this.exec('CREATE INDEX IF NOT EXISTS idx_msg_archived ON messages(is_archived, account_id, date)');
+    } catch (_) {}
+
     // v1.12: Güvenilir göndericiler tablosu
     try {
       this.exec(`
@@ -633,8 +640,9 @@ class Database {
   }
 
   updateFolderCounts(folderId) {
-    const total = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE folder_id = ?').get(folderId)?.c || 0;
-    const unread = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE folder_id = ? AND is_read = 0').get(folderId)?.c || 0;
+    // v1.24: Arşivlenmiş mesajlar sayıma dahil edilmez
+    const total = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE folder_id = ? AND (is_archived = 0 OR is_archived IS NULL)').get(folderId)?.c || 0;
+    const unread = this.prepare('SELECT COUNT(*) AS c FROM messages WHERE folder_id = ? AND is_read = 0 AND (is_archived = 0 OR is_archived IS NULL)').get(folderId)?.c || 0;
     this.prepare('UPDATE folders SET total_count = ?, unread_count = ? WHERE id = ?')
       .run(total, unread, folderId);
   }
@@ -649,6 +657,14 @@ class Database {
     const offset = opts.offset || 0;
     let where = 'm.folder_id = ?';
     const params = [folderId];
+
+    // v1.24: Arşivlenmiş mesajları varsayılan olarak gösterme
+    // opts.includeArchived === true ise hepsini, opts.archivedOnly === true ise sadece arşivi
+    if (opts.archivedOnly) {
+      where += ' AND m.is_archived = 1';
+    } else if (!opts.includeArchived) {
+      where += ' AND (m.is_archived = 0 OR m.is_archived IS NULL)';
+    }
 
     if (opts.search) {
       where += ' AND (m.subject LIKE ? OR m.from_addr LIKE ? OR m.from_name LIKE ? OR m.body_text LIKE ?)';
@@ -1651,6 +1667,129 @@ class Database {
     try {
       return this.prepare('SELECT COUNT(*) AS c FROM recovery_codes WHERE used_at IS NULL').get().c;
     } catch (_) { return 0; }
+  }
+
+  // ====== v1.24: Mesaj Arşivleme ======
+  archiveMessage(id) {
+    const now = new Date().toISOString();
+    this.prepare('UPDATE messages SET is_archived = 1, archived_at = ? WHERE id = ?').run(now, id);
+    // Folder count güncelle
+    const msg = this.prepare('SELECT folder_id FROM messages WHERE id = ?').get(id);
+    if (msg) this.updateFolderCounts(msg.folder_id);
+  }
+
+  unarchiveMessage(id) {
+    this.prepare('UPDATE messages SET is_archived = 0, archived_at = NULL WHERE id = ?').run(id);
+    const msg = this.prepare('SELECT folder_id FROM messages WHERE id = ?').get(id);
+    if (msg) this.updateFolderCounts(msg.folder_id);
+  }
+
+  /**
+   * Toplu arşivleme: belirli tarihten eski mesajları arşivle
+   * @param {object} opts - { beforeDate, accountId?, folderId? }
+   * @returns {number} - arşivlenen mesaj sayısı
+   */
+  archiveOldMessages(opts = {}) {
+    const beforeDate = opts.beforeDate;
+    if (!beforeDate) return 0;
+    const now = new Date().toISOString();
+
+    let where = 'date < ? AND (is_archived = 0 OR is_archived IS NULL)';
+    const params = [beforeDate];
+    if (opts.accountId) {
+      where += ' AND account_id = ?';
+      params.push(opts.accountId);
+    }
+    if (opts.folderId) {
+      where += ' AND folder_id = ?';
+      params.push(opts.folderId);
+    }
+    if (opts.preserveImportant) {
+      where += ' AND is_important = 0';
+    }
+
+    // Önce sayım
+    const count = this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
+    if (!count) return 0;
+
+    // Etkilenen klasörleri bul (sayaç için)
+    const folders = this.prepare(`SELECT DISTINCT folder_id FROM messages WHERE ${where}`).all(...params);
+
+    // Arşivle
+    this.prepare(`UPDATE messages SET is_archived = 1, archived_at = ? WHERE ${where}`)
+      .run(now, ...params);
+
+    // Folder count güncelle
+    for (const f of folders) {
+      try { this.updateFolderCounts(f.folder_id); } catch (_) {}
+    }
+
+    return count;
+  }
+
+  /**
+   * Arşivdeki mesajları kalıcı olarak sil (disk alanı için)
+   */
+  purgeArchivedMessages(opts = {}) {
+    let where = 'is_archived = 1';
+    const params = [];
+    if (opts.beforeArchiveDate) {
+      where += ' AND archived_at < ?';
+      params.push(opts.beforeArchiveDate);
+    }
+    if (opts.accountId) {
+      where += ' AND account_id = ?';
+      params.push(opts.accountId);
+    }
+    const count = this.prepare(`SELECT COUNT(*) AS c FROM messages WHERE ${where}`).get(...params)?.c || 0;
+    if (!count) return 0;
+    this.prepare(`DELETE FROM messages WHERE ${where}`).run(...params);
+    return count;
+  }
+
+  archiveStats() {
+    const total = this.prepare("SELECT COUNT(*) AS c FROM messages WHERE is_archived = 1").get()?.c || 0;
+    const totalSize = this.prepare("SELECT SUM(size) AS s FROM messages WHERE is_archived = 1").get()?.s || 0;
+    const oldestArchived = this.prepare("SELECT MIN(date) AS d FROM messages WHERE is_archived = 1").get()?.d;
+    const lastArchivedAt = this.prepare("SELECT MAX(archived_at) AS d FROM messages WHERE is_archived = 1").get()?.d;
+    // Hesap başına
+    const byAccount = this.prepare(`
+      SELECT a.id, a.display_name, a.email, COUNT(m.id) AS count, COALESCE(SUM(m.size), 0) AS size
+      FROM accounts a LEFT JOIN messages m ON m.account_id = a.id AND m.is_archived = 1
+      GROUP BY a.id ORDER BY count DESC
+    `).all();
+    return { total, totalSize, oldestArchived, lastArchivedAt, byAccount };
+  }
+
+  /**
+   * Arşivlenmiş mesajları listele (Arşiv görünümü için)
+   */
+  listArchivedMessages(opts = {}) {
+    let where = 'm.is_archived = 1';
+    const params = [];
+    if (opts.accountId) {
+      where += ' AND m.account_id = ?';
+      params.push(opts.accountId);
+    }
+    if (opts.search) {
+      where += ' AND (m.subject LIKE ? OR m.from_addr LIKE ? OR m.from_name LIKE ?)';
+      const q = `%${opts.search}%`;
+      params.push(q, q, q);
+    }
+    const limit = opts.limit || 500;
+    const offset = opts.offset || 0;
+    return this.prepare(`
+      SELECT m.id, m.account_id, m.folder_id, m.from_addr, m.from_name, m.subject, m.date,
+             m.is_read, m.is_important, m.has_attachments, m.size, m.archived_at,
+             SUBSTR(m.body_text, 1, 200) AS preview,
+             a.display_name AS account_name, a.email AS account_email,
+             f.name AS folder_name
+      FROM messages m
+      LEFT JOIN accounts a ON a.id = m.account_id
+      LEFT JOIN folders f ON f.id = m.folder_id
+      WHERE ${where}
+      ORDER BY m.archived_at DESC, m.date DESC LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
   }
 }
 
