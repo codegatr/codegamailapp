@@ -315,6 +315,12 @@ class Database {
           key TEXT PRIMARY KEY,
           value INTEGER DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS url_scan_cache (
+          url TEXT PRIMARY KEY,
+          result TEXT,
+          scanned_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
       `);
     } catch (_) {}
 
@@ -1217,6 +1223,23 @@ class Database {
 
   bayesReset() {
     this.exec('DELETE FROM bayes_tokens; DELETE FROM bayes_meta;');
+  }
+
+  // ====== v1.15: URL Reputation Cache (24h TTL) ======
+  getUrlCache(url) {
+    return this.prepare('SELECT * FROM url_scan_cache WHERE url = ?').get(url);
+  }
+
+  setUrlCache(url, result) {
+    const json = typeof result === 'string' ? result : JSON.stringify(result);
+    this.prepare(`
+      INSERT INTO url_scan_cache (url, result, scanned_at) VALUES (?, ?, ?)
+      ON CONFLICT(url) DO UPDATE SET result = excluded.result, scanned_at = excluded.scanned_at
+    `).run(url, json, new Date().toISOString());
+  }
+
+  clearUrlCache() {
+    this.exec('DELETE FROM url_scan_cache');
   }
 }
 

@@ -475,7 +475,8 @@ function bindSettings() {
     ['settings_close_to_tray', 'closeToTray', 'checkbox'],
     ['settings_auto_start', 'autoStart', 'checkbox'],
     ['settings_start_minimized', 'startMinimized', 'checkbox'],
-    ['vt_autoScan', 'virustotalAutoScan', 'checkbox']
+    ['vt_autoScan', 'virustotalAutoScan', 'checkbox'],
+    ['url_scanWithVt', 'urlScanWithVt', 'checkbox']
   ];
   for (const [domId, key, type] of prefIds) {
     const el = document.getElementById(domId);
@@ -582,6 +583,19 @@ async function openSettings() {
 
   // v1.14: Bayes istatistik
   await refreshBayesStats();
+
+  // v1.15: URL settings
+  const urlVt = document.getElementById('url_scanWithVt');
+  if (urlVt) urlVt.checked = cfg.urlScanWithVt !== false;
+  const btnUrlClear = document.getElementById('btnUrlClearCache');
+  if (btnUrlClear && !btnUrlClear.dataset.bound) {
+    btnUrlClear.dataset.bound = '1';
+    btnUrlClear.onclick = async () => {
+      if (!confirm('URL kontrol önbelleği temizlensin mi? (Bir sonraki kontrolde her URL yeniden taranır)')) return;
+      const r = await window.api.url.clearCache();
+      if (r.ok) setStatus('✓ URL önbelleği temizlendi');
+    };
+  }
 
   await renderSettingsAccountList();
   document.getElementById('modalSettings').classList.remove('hidden');
@@ -1569,6 +1583,9 @@ function renderMessageView(msg) {
   if (msg.attachments && msg.attachments.length) {
     setupAttachmentChips(msg);
   }
+
+  // v1.15: Mail body içindeki tüm linkleri analyze et + click intercept
+  setupBodyLinks();
 
   document.getElementById('btnReply').onclick = () => openCompose({ replyTo: msg });
   document.getElementById('btnForward').onclick = () => openCompose({ forward: msg });
@@ -3492,5 +3509,127 @@ async function refreshBayesStats() {
     const hamNeeded = Math.max(0, 5 - (r.totalHamMsgs || 0));
     elStatus.innerHTML = `🟡 Eğitim<br><span style="font-size:10px;font-weight:400;">${spamNeeded} spam + ${hamNeeded} ham daha</span>`;
     elStatus.style.color = '#f39c12';
+  }
+}
+
+// ============= v1.15: URL Reputation - Body Link Intercept =============
+async function setupBodyLinks() {
+  const body = document.querySelector('.msg-view-body');
+  if (!body) return;
+  const links = body.querySelectorAll('a[href]');
+  if (!links.length) return;
+
+  for (const link of links) {
+    const href = link.getAttribute('href') || '';
+    if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#')) continue;
+    if (!/^https?:/i.test(href)) continue;
+
+    // Click intercept
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleLinkClick(href, link);
+    }, true);
+
+    // Asenkron analiz + badge ekle
+    analyzeAndBadgeLink(link, href);
+  }
+}
+
+async function analyzeAndBadgeLink(linkEl, url) {
+  const r = await window.api.url.analyze(url);
+  if (!r || !r.ok) return;
+
+  // Badge oluştur
+  let badge = linkEl.querySelector('.url-rep-badge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'url-rep-badge';
+    linkEl.appendChild(badge);
+  }
+
+  let icon = '✓', cls = 'url-safe', tip = 'Güvenli görünüyor';
+  if (r.risk === 'critical') { icon = '🚫'; cls = 'url-critical'; tip = 'TEHLİKELİ - phishing/malware'; }
+  else if (r.risk === 'high') { icon = '⚠'; cls = 'url-high'; tip = 'Yüksek risk'; }
+  else if (r.risk === 'medium') { icon = '⚠'; cls = 'url-medium'; tip = 'Şüpheli'; }
+  else if (r.risk === 'low') { icon = '?'; cls = 'url-low'; tip = 'Düşük risk - dikkat'; }
+
+  badge.className = `url-rep-badge ${cls}`;
+  badge.textContent = ` ${icon}`;
+  badge.title = `${tip}\n\n${r.host || ''}${r.reasons && r.reasons.length ? '\n\n• ' + r.reasons.join('\n• ') : ''}`;
+
+  // Link'in kendisine de risk class'ı ekle
+  linkEl.classList.remove('url-link-safe', 'url-link-low', 'url-link-medium', 'url-link-high', 'url-link-critical');
+  linkEl.classList.add(`url-link-${r.risk}`);
+  linkEl.dataset.urlRisk = r.risk;
+  linkEl.dataset.urlAnalysis = JSON.stringify(r);
+}
+
+async function handleLinkClick(url, linkEl) {
+  // Önceki analizi cache'ten al, yoksa yeni
+  let analysis = null;
+  if (linkEl && linkEl.dataset.urlAnalysis) {
+    try { analysis = JSON.parse(linkEl.dataset.urlAnalysis); } catch (_) {}
+  }
+  if (!analysis) {
+    setStatus('🔍 Link analiz ediliyor...');
+    const r = await window.api.url.analyze(url);
+    analysis = r && r.ok ? r : { risk: 'unknown', reasons: ['Analiz yapılamadı'] };
+  }
+
+  // Risk seviyesine göre dialog
+  const risk = analysis.risk || 'safe';
+
+  // Safe → uyarısız aç (sessiz)
+  if (risk === 'safe') {
+    window.api.url.openExternal(url);
+    return;
+  }
+
+  // Low → kısa info aç
+  if (risk === 'low') {
+    setStatus(`Link açılıyor (düşük risk: ${analysis.host || 'host'})`);
+    window.api.url.openExternal(url);
+    return;
+  }
+
+  // Medium / High / Critical → uyarı dialog
+  const icon = risk === 'critical' ? '🚨' : (risk === 'high' ? '⚠️' : '⚠');
+  const title = risk === 'critical' ? 'TEHLİKELİ BAĞLANTI' :
+                risk === 'high' ? 'YÜKSEK RİSKLİ BAĞLANTI' :
+                'ŞÜPHELİ BAĞLANTI';
+
+  let msg = `${icon} ${title}\n\n`;
+  msg += `URL: ${url}\n`;
+  msg += `Host: ${analysis.host || '?'}\n`;
+  msg += `Risk: ${risk.toUpperCase()}\n\n`;
+
+  if (analysis.reasons && analysis.reasons.length) {
+    msg += 'Sebepler:\n';
+    for (const r of analysis.reasons) msg += `  • ${r}\n`;
+    msg += '\n';
+  }
+
+  if (analysis.vt && analysis.vt.found) {
+    msg += `🦠 VirusTotal: ${analysis.vt.malicious} zararlı / ${analysis.vt.suspicious} şüpheli (${analysis.vt.total} motor)\n\n`;
+  }
+
+  if (risk === 'critical') {
+    msg += '🚨 BU BAĞLANTIYI AÇMANIZI ŞİDDETLE TAVSİYE ETMİYORUZ.\n';
+    msg += 'Phishing veya zararlı yazılım yüklemesi olabilir.\n\n';
+    msg += '[Tamam] = RİSKİ BİLEREK AÇ\n[İptal] = Açma (önerilen)';
+  } else if (risk === 'high') {
+    msg += '⚠ Bu bağlantı yüksek risk taşıyor. Kişisel bilgilerinizi vermeyin, indirmeyin.\n\n';
+    msg += '[Tamam] = Aç\n[İptal] = Açma';
+  } else {
+    msg += 'Bu bağlantı şüpheli. Devam etmek istediğinize emin misiniz?\n\n';
+    msg += '[Tamam] = Aç\n[İptal] = Açma';
+  }
+
+  if (confirm(msg)) {
+    window.api.url.openExternal(url);
+    setStatus(`Link açıldı (kullanıcı onayı ile): ${analysis.host}`);
+  } else {
+    setStatus('Link açma iptal edildi (kullanıcı tarafından)');
   }
 }

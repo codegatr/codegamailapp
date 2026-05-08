@@ -262,6 +262,22 @@
           <button class="btn btn-ghost" id="btnBayesReset" style="font-size:11px;color:var(--danger);">🗑 Tüm Eğitimi Sıfırla</button>
         </div>
 
+        <!-- v1.15: URL Reputation -->
+        <div class="form-section full" style="margin-top:18px;">🔗 Bağlantı (URL) Güvenlik Kontrolü</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:10px;">
+          Maillerdeki linklere tıklamadan önce phishing/malware kontrolü yapılır. Heuristik kontroller her zaman çalışır (offline). VirusTotal API anahtarı eklediyseniz ek olarak URL'ler 70+ motorla taranır.
+        </div>
+        <div class="form-row">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input type="checkbox" id="url_scanWithVt">
+            <span>VirusTotal ile URL'leri de tara (API anahtarı gerekir)</span>
+          </label>
+        </div>
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <button class="btn btn-ghost" id="btnUrlClearCache" style="font-size:11px;">🗑 URL Önbelleğini Temizle</button>
+          <span style="font-size:11px;color:var(--muted);">Kontrol edilen tüm linkler 24 saat önbelleklenir</span>
+        </div>
+
         <!-- Hakkında -->
         <div class="form-section full" style="margin-top:18px;">ℹ Hakkında</div>
         <div style="font-size:12px;color:var(--text-2);line-height:1.6;">

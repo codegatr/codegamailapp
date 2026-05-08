@@ -1782,3 +1782,52 @@ body { display: flex; flex-direction: column; }
 @media (max-width: 700px) {
   .bayes-stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ============= v1.15: URL Reputation Badges ============= */
+.url-rep-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 0 4px;
+  margin-left: 3px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: help;
+  vertical-align: baseline;
+}
+.url-safe { color: #2ecc71; }
+.url-low { color: #f1c40f; }
+.url-medium {
+  color: #f39c12;
+  background: rgba(243,156,18,0.12);
+  padding: 1px 5px;
+}
+.url-high {
+  color: #e67e22;
+  background: rgba(230,126,34,0.15);
+  padding: 1px 5px;
+  font-size: 12px;
+}
+.url-critical {
+  color: #fff;
+  background: var(--danger);
+  padding: 1px 6px;
+  font-size: 12px;
+  animation: critical-pulse 2s ease-in-out infinite;
+}
+
+/* Mail body içindeki linklere de stil */
+.msg-view-body a.url-link-medium {
+  border-bottom: 1px dashed #f39c12;
+}
+.msg-view-body a.url-link-high {
+  background: rgba(230,126,34,0.1);
+  border-bottom: 2px solid #e67e22;
+  padding: 0 2px;
+}
+.msg-view-body a.url-link-critical {
+  background: rgba(231,76,60,0.18);
+  border-bottom: 2px solid var(--danger);
+  padding: 0 2px;
+  text-decoration: line-through;
+  color: var(--danger);
+}

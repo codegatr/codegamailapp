@@ -93,6 +93,11 @@ contextBridge.exposeInMainWorld('api', {
     reset: () => ipcRenderer.invoke('bayes:reset'),
     predictMessage: (messageId) => ipcRenderer.invoke('bayes:predictMessage', messageId)
   },
+  url: {
+    analyze: (u) => ipcRenderer.invoke('url:analyze', u),
+    openExternal: (u) => ipcRenderer.invoke('url:openExternal', u),
+    clearCache: () => ipcRenderer.invoke('url:clearCache')
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

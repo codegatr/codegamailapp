@@ -744,6 +744,55 @@ ipcMain.handle('bayes:predictMessage', (_, messageId) => {
   }
 });
 
+// v1.15: URL Reputation IPC
+const UrlReputation = require('./services/url-reputation');
+
+ipcMain.handle('url:analyze', async (_, url) => {
+  if (!url || typeof url !== 'string') return { ok: false, error: 'Geçersiz URL' };
+
+  // Cache kontrol (24h)
+  const cached = db.getUrlCache(url);
+  if (cached) {
+    const age = Date.now() - new Date(cached.scanned_at).getTime();
+    if (age < 24 * 60 * 60 * 1000) {
+      try {
+        const c = JSON.parse(cached.result);
+        return Object.assign(c, { fromCache: true });
+      } catch (_) {}
+    }
+  }
+
+  const apiKey = appConfig.get('virustotalApiKey');
+  const useVt = !!apiKey && appConfig.get('urlScanWithVt') !== false;
+
+  const result = await UrlReputation.analyze(url, {
+    apiKey: useVt ? apiKey.trim() : null,
+    useVt
+  });
+
+  // Cache (heuristik sonuç çok hızlıdır, tekrar harcamayalım)
+  try {
+    db.setUrlCache(url, result);
+    db.save();
+  } catch (_) {}
+
+  return Object.assign({ ok: true }, result);
+});
+
+ipcMain.handle('url:openExternal', (_, url) => {
+  if (!url) return { ok: false };
+  shell.openExternal(url);
+  return { ok: true };
+});
+
+ipcMain.handle('url:clearCache', () => {
+  try {
+    db.clearUrlCache();
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // =====================================================================
 // IPC: Spam Kuralları
 // =====================================================================

@@ -8,7 +8,7 @@ class Config {
     this.data = {
       dataPath: defaultDir,
       firstRun: true,
-      version: '1.14.0',
+      version: '1.15.0',
       // v1.2 yeni ayarlar
       notificationsEnabled: true,
       backgroundSyncMinutes: 5,    // 0 = devre dışı
@@ -21,7 +21,9 @@ class Config {
       conversationView: false,     // Konuşma görünümü (Re: zincirleri grupla)
       // v1.13: VirusTotal entegrasyonu
       virustotalApiKey: '',        // Boş = devre dışı
-      virustotalAutoScan: true     // Medium+ riskli ekler için otomatik tarama
+      virustotalAutoScan: true,    // Medium+ riskli ekler için otomatik tarama
+      // v1.15: URL Reputation
+      urlScanWithVt: true,         // VT API key varsa URL'leri de VT ile tara
     };
     this.load();
   }
