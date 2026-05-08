@@ -125,6 +125,16 @@ contextBridge.exposeInMainWorld('api', {
     removeMember: (gid, cid) => ipcRenderer.invoke('groups:removeMember', gid, cid),
     contactGroups: (cid) => ipcRenderer.invoke('groups:contactGroups', cid)
   },
+  rules: {
+    list: (opts) => ipcRenderer.invoke('rules:list', opts),
+    get: (id) => ipcRenderer.invoke('rules:get', id),
+    add: (rule) => ipcRenderer.invoke('rules:add', rule),
+    update: (id, updates) => ipcRenderer.invoke('rules:update', id, updates),
+    delete: (id) => ipcRenderer.invoke('rules:delete', id),
+    toggle: (id, enabled) => ipcRenderer.invoke('rules:toggle', id, enabled),
+    applyToAll: (opts) => ipcRenderer.invoke('rules:applyToAll', opts),
+    applyToMessage: (id) => ipcRenderer.invoke('rules:applyToMessage', id)
+  },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
   },

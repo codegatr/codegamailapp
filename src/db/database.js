@@ -367,6 +367,24 @@ class Database {
         CREATE INDEX IF NOT EXISTS idx_cgm_group ON contact_group_members(group_id);
         CREATE INDEX IF NOT EXISTS idx_cgm_contact ON contact_group_members(contact_id);
 
+        CREATE TABLE IF NOT EXISTS mail_rules (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          enabled INTEGER DEFAULT 1,
+          sort_order INTEGER DEFAULT 0,
+          conditions TEXT NOT NULL,
+          match_type TEXT DEFAULT 'all',
+          actions TEXT NOT NULL,
+          account_id INTEGER,
+          stop_processing INTEGER DEFAULT 0,
+          run_count INTEGER DEFAULT 0,
+          last_run_at TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT,
+          FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_mail_rules_enabled ON mail_rules(enabled, sort_order);
+
         CREATE TABLE IF NOT EXISTS tasks (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           title TEXT NOT NULL,
@@ -2051,6 +2069,71 @@ class Database {
       WHERE cgm.group_id = ? AND c.email IS NOT NULL AND c.email != ''
       ORDER BY c.name ASC
     `).all(groupId);
+  }
+
+  // ====== v1.35: Mail Kuralları ======
+  listMailRules(opts = {}) {
+    let where = '1=1';
+    const params = [];
+    if (opts.enabledOnly) where += ' AND enabled = 1';
+    if (opts.accountId !== undefined) {
+      where += ' AND (account_id = ? OR account_id IS NULL)';
+      params.push(opts.accountId);
+    }
+    return this.prepare(`
+      SELECT id, name, enabled, sort_order, conditions, match_type, actions,
+             account_id, stop_processing, run_count, last_run_at, created_at
+      FROM mail_rules WHERE ${where}
+      ORDER BY sort_order ASC, id ASC
+    `).all(...params);
+  }
+
+  getMailRule(id) {
+    return this.prepare('SELECT * FROM mail_rules WHERE id = ?').get(id);
+  }
+
+  addMailRule(rule) {
+    const r = this.prepare(`
+      INSERT INTO mail_rules (name, enabled, sort_order, conditions, match_type,
+                              actions, account_id, stop_processing)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      rule.name || 'Yeni Kural',
+      rule.enabled === false ? 0 : 1,
+      rule.sort_order || 0,
+      JSON.stringify(rule.conditions || []),
+      rule.match_type || 'all',
+      JSON.stringify(rule.actions || []),
+      rule.account_id || null,
+      rule.stop_processing ? 1 : 0
+    );
+    return r.lastInsertRowid;
+  }
+
+  updateMailRule(id, updates) {
+    const allowed = ['name', 'enabled', 'sort_order', 'conditions', 'match_type',
+                     'actions', 'account_id', 'stop_processing'];
+    const fields = Object.keys(updates).filter(k => allowed.includes(k));
+    if (!fields.length) return;
+    const setClause = fields.map(f => `${f} = ?`).join(', ') + ', updated_at = ?';
+    const vals = fields.map(f => {
+      let v = updates[f];
+      if (f === 'conditions' || f === 'actions') v = JSON.stringify(v);
+      else if (typeof v === 'boolean') v = v ? 1 : 0;
+      return v;
+    });
+    vals.push(new Date().toISOString());
+    this.prepare(`UPDATE mail_rules SET ${setClause} WHERE id = ?`).run(...vals, id);
+  }
+
+  deleteMailRule(id) {
+    this.prepare('DELETE FROM mail_rules WHERE id = ?').run(id);
+  }
+
+  recordMailRuleRun(id) {
+    const now = new Date().toISOString();
+    this.prepare('UPDATE mail_rules SET run_count = run_count + 1, last_run_at = ? WHERE id = ?')
+      .run(now, id);
   }
 
   // ====== v1.27: Takvim / Events ======

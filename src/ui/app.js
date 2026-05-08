@@ -429,6 +429,7 @@ function bindToolbar() {
   document.getElementById('btnArchive').onclick = openArchive;
   document.getElementById('btnPGP').onclick = openPGP;
   document.getElementById('btnCalendar').onclick = openCalendar;
+  document.getElementById('btnRules').onclick = openRules;
   document.getElementById('btnContacts').onclick = openContacts;
   document.getElementById('btnTrustedSenders').onclick = openTrustedSenders;
 }
@@ -1430,6 +1431,7 @@ async function showMessageContextMenu(e, message) {
     }},
     { label: '📓 Mesajdan Not Oluştur', action: () => createNoteFromMessage(message) },
     { label: '🪟 Yeni Pencerede Aç', action: () => window.api.messages.openInWindow(message.id) },
+    { label: '🔧 Bu Mailden Kural Oluştur', action: () => createRuleFromMessage(message) },
     { label: '✅ Mesajdan Görev Oluştur', action: () => createTaskFromMessage(message) },
     { label: '📅 Mesajdan Etkinlik Oluştur', action: () => createEventFromMessage(message) },
     { label: '🏷 Otomatik Kategorize Et', action: () => autoCategorizeMessageManual(message) },
@@ -5054,6 +5056,8 @@ function buildCommandList() {
       action: () => openArchiveOldDialog(), category: 'Modül' },
     { id: 'calendar', label: 'Takvim', icon: '📅',
       action: () => openCalendar(), category: 'Modül' },
+    { id: 'rules', label: 'Mail Kuralları (Filtreler)', icon: '⚙',
+      action: () => openRules(), category: 'Modül' },
     { id: 'autocategorize-all', label: 'Tüm etiketsiz mailleri otomatik kategorize et', icon: '🏷',
       action: async () => {
         const r = await window.api.autoCategorize.all({ onlyUntagged: true });
@@ -7528,3 +7532,413 @@ document.addEventListener('click', async (e) => {
     document.getElementById('composeBccGroup')?.classList.toggle('hidden');
   }
 });
+
+// ============= v1.35: Mail Kuralları =============
+const rulesState = {
+  bound: false,
+  editingRuleId: null,
+  // Editör state
+  conditions: [],
+  actions: []
+};
+
+const CONDITION_TYPES = [
+  { value: 'fromContains', label: 'Gönderen içerir', needsValue: true, placeholder: 'trendyol.com veya isim' },
+  { value: 'fromEquals', label: 'Gönderen tam eşleşir', needsValue: true, placeholder: 'noreply@trendyol.com' },
+  { value: 'subjectContains', label: 'Konu içerir', needsValue: true, placeholder: 'sipariş, fatura...' },
+  { value: 'subjectEquals', label: 'Konu tam eşleşir', needsValue: true, placeholder: '' },
+  { value: 'bodyContains', label: 'İçerik içerir', needsValue: true, placeholder: 'kelime' },
+  { value: 'toContains', label: 'Alıcı içerir', needsValue: true, placeholder: '' },
+  { value: 'hasAttachment', label: 'Eki var', needsValue: false },
+  { value: 'noAttachment', label: 'Eki yok', needsValue: false },
+  { value: 'isSpam', label: 'Spam olarak işaretlenmiş', needsValue: false },
+  { value: 'sizeGreaterThan', label: 'Boyutu büyük', needsValue: true, placeholder: 'KB cinsinden, örn: 1000' }
+];
+
+const ACTION_TYPES = [
+  { value: 'moveToFolder', label: '📁 Klasöre taşı', needsFolder: true },
+  { value: 'addCategory', label: '🏷 Kategori ekle', needsCategory: true },
+  { value: 'markRead', label: '✓ Okundu işaretle' },
+  { value: 'markImportant', label: '⭐ Önemli işaretle' },
+  { value: 'markSpam', label: '🚫 Spam olarak işaretle' },
+  { value: 'archive', label: '📦 Arşivle' },
+  { value: 'delete', label: '🗑 Sil' }
+];
+
+async function openRules() {
+  document.getElementById('modalRules').classList.remove('hidden');
+  if (!rulesState.bound) {
+    rulesState.bound = true;
+    bindRulesUI();
+  }
+  await renderRulesList();
+}
+
+function bindRulesUI() {
+  document.getElementById('btnNewRule').onclick = () => openRuleEditor(null);
+  document.getElementById('btnAddCondition').onclick = () => addConditionRow();
+  document.getElementById('btnAddAction').onclick = () => addActionRow();
+  document.getElementById('btnSaveRule').onclick = saveCurrentRule;
+  document.getElementById('btnApplyAllRules').onclick = applyAllRules;
+}
+
+async function renderRulesList() {
+  const rules = await window.api.rules.list();
+  const accounts = await window.api.accounts.list();
+  const accountById = {};
+  for (const a of accounts) accountById[a.id] = a;
+
+  const headerEl = document.getElementById('rulesHeaderCount');
+  if (headerEl) {
+    const enabled = rules.filter(r => r.enabled).length;
+    headerEl.textContent = `(${enabled} aktif / ${rules.length} toplam)`;
+  }
+
+  const el = document.getElementById('rulesList');
+  if (!rules.length) {
+    el.innerHTML = `
+      <div class="empty-state" style="padding:50px;font-size:13px;">
+        Henüz kural yok. <strong>+ Yeni Kural</strong> ile ilkini oluşturun.
+        <br><br>
+        <small>Örnekler:</small><br>
+        <small>• "Trendyol mailleri Alışveriş klasörüne taşı"</small><br>
+        <small>• "Eki olan ve büyük (1MB+) mailleri otomatik önemli işaretle"</small><br>
+        <small>• "info@spam.com'dan gelen tüm mailleri sil"</small>
+      </div>
+    `;
+    return;
+  }
+
+  el.innerHTML = rules.map(r => {
+    const conditions = JSON.parse(r.conditions || '[]');
+    const actions = JSON.parse(r.actions || '[]');
+    const accLabel = r.account_id
+      ? `📧 ${accountById[r.account_id]?.display_name || 'Hesap #' + r.account_id}`
+      : '📧 Tüm hesaplar';
+
+    let condHtml = conditions.map(c => `<span class="rule-pill">${escapeHtml(describeRuleCondition(c))}</span>`).join(' ');
+    return `
+      <div class="rule-card ${r.enabled ? '' : 'disabled'}" data-id="${r.id}">
+        <div class="rule-header">
+          <label class="rule-toggle">
+            <input type="checkbox" ${r.enabled ? 'checked' : ''} data-toggle-id="${r.id}">
+          </label>
+          <strong class="rule-name">${escapeHtml(r.name)}</strong>
+          <span class="rule-meta">${accLabel} ${r.run_count > 0 ? `· ${r.run_count}× çalıştı` : ''}</span>
+          <div style="flex:1;"></div>
+          <button class="btn btn-ghost" data-edit-id="${r.id}">✏</button>
+          <button class="btn btn-ghost" data-delete-id="${r.id}" style="color:var(--danger);">🗑</button>
+        </div>
+        <div class="rule-body">
+          <div class="rule-row">
+            <span class="rule-label">${r.match_type === 'any' ? 'Herhangi biri uymalı:' : 'Tümü uymalı:'}</span>
+            ${condHtml}
+          </div>
+          <div class="rule-row">
+            <span class="rule-label">Eylemler:</span>
+            ${actions.map(a => `<span class="rule-pill rule-pill-action">${escapeHtml(describeRuleAction(a))}</span>`).join(' ')}
+          </div>
+          ${r.stop_processing ? '<small style="color:var(--warn);">⏹ Bu kuraldan sonra alttakileri çalıştırmaz</small>' : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  el.querySelectorAll('[data-toggle-id]').forEach(cb => {
+    cb.onchange = async () => {
+      const id = parseInt(cb.dataset.toggleId, 10);
+      await window.api.rules.toggle(id, cb.checked);
+      setStatus(cb.checked ? '✓ Kural aktifleştirildi' : 'Kural devre dışı');
+      await renderRulesList();
+    };
+  });
+  el.querySelectorAll('[data-edit-id]').forEach(btn => {
+    btn.onclick = () => openRuleEditor(parseInt(btn.dataset.editId, 10));
+  });
+  el.querySelectorAll('[data-delete-id]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.deleteId, 10);
+      if (!confirm('Bu kural silinsin mi? Mevcut maillere etkisi yok, sadece bundan sonraki yeni mailler etkilenmez.')) return;
+      await window.api.rules.delete(id);
+      setStatus('Kural silindi');
+      await renderRulesList();
+    };
+  });
+}
+
+function describeRuleCondition(c) {
+  const map = {
+    fromContains: 'Gönderen içerir',
+    fromEquals: 'Gönderen tam eşleşir',
+    subjectContains: 'Konu içerir',
+    subjectEquals: 'Konu tam eşleşir',
+    bodyContains: 'İçerik içerir',
+    toContains: 'Alıcı içerir',
+    hasAttachment: '📎 Eki var',
+    noAttachment: 'Eki yok',
+    isSpam: '🚫 Spam',
+    sizeGreaterThan: 'Boyut > KB'
+  };
+  const label = map[c.type] || c.type;
+  if (c.type === 'hasAttachment' || c.type === 'noAttachment' || c.type === 'isSpam') return label;
+  return `${label}: "${c.value || ''}"`;
+}
+
+function describeRuleAction(a) {
+  switch (a.type) {
+    case 'moveToFolder': return `📁 Klasöre taşı (#${a.folderId})`;
+    case 'addCategory': return `🏷 Kategori ekle (#${a.categoryId})`;
+    case 'markRead': return '✓ Okundu işaretle';
+    case 'markImportant': return '⭐ Önemli işaretle';
+    case 'markSpam': return '🚫 Spam';
+    case 'archive': return '📦 Arşivle';
+    case 'delete': return '🗑 Sil';
+    default: return a.type;
+  }
+}
+
+async function openRuleEditor(ruleId) {
+  rulesState.editingRuleId = ruleId;
+  rulesState.conditions = [];
+  rulesState.actions = [];
+
+  // Hesaplar dropdown
+  const accounts = await window.api.accounts.list();
+  const accSel = document.getElementById('re_account');
+  accSel.innerHTML = '<option value="">— Tüm hesaplar —</option>' +
+    accounts.map(a => `<option value="${a.id}">${escapeHtml(a.display_name)} - ${escapeHtml(a.email)}</option>`).join('');
+
+  if (ruleId) {
+    const r = await window.api.rules.get(ruleId);
+    if (r) {
+      document.getElementById('ruleEditorTitle').textContent = '✏ Kuralı Düzenle';
+      document.getElementById('re_name').value = r.name || '';
+      document.getElementById('re_account').value = r.account_id || '';
+      document.getElementById('re_match_type').value = r.match_type || 'all';
+      document.getElementById('re_stop_processing').checked = !!r.stop_processing;
+      document.getElementById('re_enabled').checked = !!r.enabled;
+      try {
+        rulesState.conditions = JSON.parse(r.conditions || '[]');
+        rulesState.actions = JSON.parse(r.actions || '[]');
+      } catch (_) {}
+    }
+  } else {
+    document.getElementById('ruleEditorTitle').textContent = '+ Yeni Kural';
+    document.getElementById('re_name').value = '';
+    document.getElementById('re_account').value = '';
+    document.getElementById('re_match_type').value = 'all';
+    document.getElementById('re_stop_processing').checked = false;
+    document.getElementById('re_enabled').checked = true;
+    // Default 1 koşul + 1 eylem
+    rulesState.conditions = [{ type: 'fromContains', value: '' }];
+    rulesState.actions = [{ type: 'moveToFolder', folderId: null }];
+  }
+
+  await renderConditionsAndActions();
+  document.getElementById('modalRuleEditor').classList.remove('hidden');
+}
+
+async function renderConditionsAndActions() {
+  const condEl = document.getElementById('re_conditions');
+  condEl.innerHTML = '';
+  rulesState.conditions.forEach((c, idx) => condEl.appendChild(buildConditionRow(c, idx)));
+
+  const actEl = document.getElementById('re_actions');
+  actEl.innerHTML = '';
+  for (let i = 0; i < rulesState.actions.length; i++) {
+    actEl.appendChild(await buildActionRow(rulesState.actions[i], i));
+  }
+}
+
+function buildConditionRow(cond, idx) {
+  const row = document.createElement('div');
+  row.className = 'rule-row-editor';
+  const def = CONDITION_TYPES.find(t => t.value === cond.type) || CONDITION_TYPES[0];
+
+  row.innerHTML = `
+    <select class="re-cond-type" data-idx="${idx}">
+      ${CONDITION_TYPES.map(t => `<option value="${t.value}" ${t.value === cond.type ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
+    </select>
+    <input type="text" class="re-cond-value" data-idx="${idx}"
+           placeholder="${escapeHtml(def.placeholder || '')}"
+           value="${escapeHtml(cond.value || '')}"
+           ${def.needsValue ? '' : 'style="display:none;"'}>
+    <button class="btn btn-ghost re-cond-remove" data-idx="${idx}" style="color:var(--danger);">🗑</button>
+  `;
+
+  row.querySelector('.re-cond-type').onchange = (e) => {
+    rulesState.conditions[idx].type = e.target.value;
+    rulesState.conditions[idx].value = ''; // Reset value
+    renderConditionsAndActions();
+  };
+  row.querySelector('.re-cond-value').oninput = (e) => {
+    rulesState.conditions[idx].value = e.target.value;
+  };
+  row.querySelector('.re-cond-remove').onclick = () => {
+    rulesState.conditions.splice(idx, 1);
+    if (rulesState.conditions.length === 0) {
+      rulesState.conditions.push({ type: 'fromContains', value: '' });
+    }
+    renderConditionsAndActions();
+  };
+
+  return row;
+}
+
+async function buildActionRow(action, idx) {
+  const row = document.createElement('div');
+  row.className = 'rule-row-editor';
+  const def = ACTION_TYPES.find(t => t.value === action.type) || ACTION_TYPES[0];
+
+  let extraHtml = '';
+  if (def.needsFolder) {
+    // Klasör dropdown - tüm hesapların klasörleri
+    const accountId = parseInt(document.getElementById('re_account').value, 10) || null;
+    const accounts = await window.api.accounts.list();
+    const targetAccounts = accountId ? accounts.filter(a => a.id === accountId) : accounts;
+    let opts = '<option value="">— Klasör seç —</option>';
+    for (const a of targetAccounts) {
+      const folders = await window.api.folders.list(a.id);
+      opts += `<optgroup label="${escapeHtml(a.display_name)}">`;
+      for (const f of folders) {
+        opts += `<option value="${f.id}" ${action.folderId === f.id ? 'selected' : ''}>${escapeHtml(f.name)}</option>`;
+      }
+      opts += '</optgroup>';
+    }
+    extraHtml = `<select class="re-action-folder" data-idx="${idx}">${opts}</select>`;
+  } else if (def.needsCategory) {
+    const cats = await window.api.categories.list();
+    const opts = '<option value="">— Kategori seç —</option>' +
+      cats.map(c => `<option value="${c.id}" ${action.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+    extraHtml = `<select class="re-action-category" data-idx="${idx}">${opts}</select>`;
+  }
+
+  row.innerHTML = `
+    <select class="re-action-type" data-idx="${idx}">
+      ${ACTION_TYPES.map(t => `<option value="${t.value}" ${t.value === action.type ? 'selected' : ''}>${escapeHtml(t.label)}</option>`).join('')}
+    </select>
+    ${extraHtml}
+    <button class="btn btn-ghost re-action-remove" data-idx="${idx}" style="color:var(--danger);margin-left:auto;">🗑</button>
+  `;
+
+  row.querySelector('.re-action-type').onchange = (e) => {
+    rulesState.actions[idx] = { type: e.target.value };
+    renderConditionsAndActions();
+  };
+  row.querySelector('.re-action-folder')?.addEventListener('change', (e) => {
+    rulesState.actions[idx].folderId = parseInt(e.target.value, 10);
+  });
+  row.querySelector('.re-action-category')?.addEventListener('change', (e) => {
+    rulesState.actions[idx].categoryId = parseInt(e.target.value, 10);
+  });
+  row.querySelector('.re-action-remove').onclick = () => {
+    rulesState.actions.splice(idx, 1);
+    if (rulesState.actions.length === 0) {
+      rulesState.actions.push({ type: 'moveToFolder' });
+    }
+    renderConditionsAndActions();
+  };
+
+  return row;
+}
+
+function addConditionRow() {
+  rulesState.conditions.push({ type: 'fromContains', value: '' });
+  renderConditionsAndActions();
+}
+
+function addActionRow() {
+  rulesState.actions.push({ type: 'markRead' });
+  renderConditionsAndActions();
+}
+
+async function saveCurrentRule() {
+  const name = document.getElementById('re_name').value.trim();
+  if (!name) { alert('Kural adı gerekli'); return; }
+
+  const accountId = parseInt(document.getElementById('re_account').value, 10) || null;
+  const matchType = document.getElementById('re_match_type').value;
+  const stopProcessing = document.getElementById('re_stop_processing').checked;
+  const enabled = document.getElementById('re_enabled').checked;
+
+  // Boş value'lu koşulları temizle
+  const conditions = rulesState.conditions.filter(c => {
+    const def = CONDITION_TYPES.find(t => t.value === c.type);
+    if (!def) return false;
+    if (def.needsValue) return c.value && c.value.trim();
+    return true;
+  });
+  if (!conditions.length) { alert('En az bir geçerli koşul olmalı'); return; }
+
+  // Geçersiz eylemleri temizle
+  const actions = rulesState.actions.filter(a => {
+    const def = ACTION_TYPES.find(t => t.value === a.type);
+    if (!def) return false;
+    if (def.needsFolder && !a.folderId) return false;
+    if (def.needsCategory && !a.categoryId) return false;
+    return true;
+  });
+  if (!actions.length) { alert('En az bir geçerli eylem olmalı (klasör/kategori seçilmemiş olabilir)'); return; }
+
+  const ruleData = {
+    name, account_id: accountId, match_type: matchType,
+    stop_processing: stopProcessing, enabled,
+    conditions, actions
+  };
+
+  let r;
+  if (rulesState.editingRuleId) {
+    r = await window.api.rules.update(rulesState.editingRuleId, ruleData);
+  } else {
+    r = await window.api.rules.add(ruleData);
+  }
+  if (r.ok) {
+    setStatus('✓ Kural kaydedildi');
+    document.getElementById('modalRuleEditor').classList.add('hidden');
+    await renderRulesList();
+  } else {
+    alert('Hata: ' + r.error);
+  }
+}
+
+async function applyAllRules() {
+  if (!confirm('Tüm mevcut maillere kuralları uygula?\n\nBu işlem mailleri klasör değiştirebilir, kategori ekleyebilir vs. Geri almak için kuralı kaldırıp tekrar düzenlemek gerekir.')) return;
+  const btn = document.getElementById('btnApplyAllRules');
+  btn.disabled = true;
+  btn.textContent = '⏳ Çalışıyor...';
+  try {
+    const r = await window.api.rules.applyToAll({});
+    if (r.ok) {
+      alert(`✅ Tamamlandı:\n\n📊 ${r.processed} mail tarandı\n✏ ${r.modified} mail değiştirildi\n⚡ ${r.totalActions} eylem uygulandı`);
+      setStatus(`✓ Kurallar uygulandı: ${r.modified} mail değiştirildi`);
+      if (state.selectedFolder) await loadMessages();
+      await loadAccounts();
+      await renderRulesList();
+    } else {
+      alert('Hata: ' + r.error);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⚡ Tüm Maillere Uygula';
+  }
+}
+
+/**
+ * Bir mailden hızlıca kural oluştur (sender/subject otomatik dolu)
+ */
+function createRuleFromMessage(message) {
+  if (!message) return;
+  // Editör modalını aç + alanları doldur
+  rulesState.editingRuleId = null;
+  rulesState.conditions = [{ type: 'fromContains', value: message.from_addr || '' }];
+  rulesState.actions = [{ type: 'moveToFolder', folderId: null }];
+
+  openRuleEditor(null).then(() => {
+    document.getElementById('re_name').value = `${(message.from_name || message.from_addr || 'Gönderen').slice(0, 40)} mailleri`;
+    rulesState.conditions = [{ type: 'fromContains', value: message.from_addr || '' }];
+    rulesState.actions = [{ type: 'moveToFolder', folderId: null }];
+    renderConditionsAndActions();
+  });
+}
+
+// Komut paletine ekle

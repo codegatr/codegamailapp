@@ -3645,3 +3645,82 @@ body.dragging-message .folder-item:not(.drop-target) {
 .group-badge-remove:hover {
   opacity: 1;
 }
+
+/* ============= v1.35: Mail Kuralları ============= */
+.rule-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  transition: all 0.15s;
+}
+.rule-card.disabled {
+  opacity: 0.55;
+  background: var(--bg-2);
+}
+.rule-card:hover {
+  border-color: var(--primary);
+}
+.rule-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rule-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.rule-name {
+  font-size: 14px;
+  color: var(--text);
+}
+.rule-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.rule-body { padding-left: 28px; }
+.rule-row {
+  margin-bottom: 6px;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.rule-label {
+  color: var(--text-2);
+  font-weight: 600;
+  min-width: 100px;
+}
+.rule-pill {
+  background: var(--bg-3);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--text);
+}
+.rule-pill-action {
+  background: rgba(0, 120, 212, 0.15);
+  color: var(--primary);
+  font-weight: 600;
+}
+.rule-row-editor {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.rule-row-editor select,
+.rule-row-editor input {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.rule-row-editor select { flex: 0 0 200px; }
+.rule-row-editor input { flex: 1; }
+.rule-row-editor .re-action-folder,
+.rule-row-editor .re-action-category {
+  flex: 1;
+}

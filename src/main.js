@@ -418,6 +418,13 @@ async function runBackgroundSync(forceUiRefresh = false) {
     isBackgroundSyncing = false;
   }
 
+  // v1.35: Kullanıcı kurallarını önce uygula
+  if (allNew.length > 0) {
+    try {
+      applyRulesToNewMessages(allNew.map(m => m.id));
+    } catch (e) { console.warn('Apply rules sync hook:', e.message); }
+  }
+
   // v1.29: Yeni mailleri otomatik kategorize et (eğer açıksa)
   if (allNew.length > 0) {
     try {
@@ -1871,6 +1878,120 @@ ipcMain.handle('groups:removeMember', (_, groupId, contactId) => {
 });
 
 ipcMain.handle('groups:contactGroups', (_, contactId) => db.getContactGroups(contactId));
+
+// =====================================================================
+// v1.35 IPC: Mail Kuralları
+// =====================================================================
+const MailRulesEngine = require('./services/mail-rules');
+
+ipcMain.handle('rules:list', (_, opts) => db.listMailRules(opts || {}));
+ipcMain.handle('rules:get', (_, id) => db.getMailRule(id));
+
+ipcMain.handle('rules:add', (_, rule) => {
+  try {
+    if (!rule.name || !rule.name.trim()) return { ok: false, error: 'Kural adı gerekli' };
+    if (!rule.conditions || !rule.conditions.length) return { ok: false, error: 'En az bir koşul gerekli' };
+    if (!rule.actions || !rule.actions.length) return { ok: false, error: 'En az bir eylem gerekli' };
+    const id = db.addMailRule(rule);
+    db.save();
+    return { ok: true, id };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('rules:update', (_, id, updates) => {
+  try {
+    db.updateMailRule(id, updates);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('rules:delete', (_, id) => {
+  try {
+    db.deleteMailRule(id);
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+ipcMain.handle('rules:toggle', (_, id, enabled) => {
+  try {
+    db.updateMailRule(id, { enabled: !!enabled });
+    db.save();
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+/**
+ * Tüm mevcut mailleri tara ve kuralları uygula (toplu)
+ */
+ipcMain.handle('rules:applyToAll', async (_, opts) => {
+  try {
+    const accountId = opts?.accountId;
+    let where = '1=1';
+    const params = [];
+    if (accountId) {
+      where += ' AND account_id = ?';
+      params.push(accountId);
+    }
+    // Son 5000 mesaj limiti (performans)
+    const messages = db.prepare(`
+      SELECT id FROM messages WHERE ${where}
+      ORDER BY id DESC LIMIT 5000
+    `).all(...params);
+
+    let processed = 0, modified = 0, totalActions = 0;
+    for (const m of messages) {
+      const fullMsg = db.getMessage(m.id);
+      if (!fullMsg) continue;
+      const result = MailRulesEngine.applyRulesToMessage(fullMsg, db);
+      processed++;
+      if (result.applied.length) {
+        modified++;
+        totalActions += result.applied.reduce((s, r) => s + r.actions.length, 0);
+      }
+    }
+    db.save();
+    return { ok: true, processed, modified, totalActions };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+/**
+ * Tek bir maile kuralları uygula (test için)
+ */
+ipcMain.handle('rules:applyToMessage', (_, messageId) => {
+  try {
+    const msg = db.getMessage(messageId);
+    if (!msg) return { ok: false, error: 'Mesaj bulunamadı' };
+    const result = MailRulesEngine.applyRulesToMessage(msg, db);
+    db.save();
+    return { ok: true, applied: result.applied, stopped: result.stopped };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+/**
+ * Sync sonrası yeni mailler için kuralları çalıştır
+ */
+function applyRulesToNewMessages(messageIds) {
+  if (!Array.isArray(messageIds) || !messageIds.length) return;
+  try {
+    let modified = 0;
+    for (const id of messageIds) {
+      const msg = db.getMessage(id);
+      if (!msg) continue;
+      const result = MailRulesEngine.applyRulesToMessage(msg, db);
+      if (result.applied.length) modified++;
+    }
+    if (modified > 0) {
+      console.log(`Mail kuralları: ${modified} mail için uygulandı`);
+      db.save();
+    }
+  } catch (e) { console.warn('applyRulesToNewMessages error:', e.message); }
+}
 
 // =====================================================================
 // v1.18 IPC: Görevler / To-Do

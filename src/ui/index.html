@@ -34,6 +34,7 @@
       <button id="btnArchive" class="btn btn-ghost" title="Arşiv (eski mesajlar)">📦 Arşiv</button>
       <button id="btnPGP" class="btn btn-ghost" title="PGP Anahtarları (uçtan uca şifreleme)">🔐 PGP</button>
       <button id="btnCalendar" class="btn btn-ghost" title="Takvim - etkinlikler ve hatırlatıcılar">📅 Takvim</button>
+      <button id="btnRules" class="btn btn-ghost" title="Mail Kuralları (otomatik klasöre taşıma/etiketleme)">⚙ Kurallar</button>
       <button id="btnContacts" class="btn btn-ghost" title="Adres defteri">👥 Kişiler</button>
       <button id="btnTrustedSenders" class="btn btn-ghost" title="Güvenilir göndericiler">🛡 Güvenilir</button>
       <button id="btnSettings" class="btn btn-ghost" title="Ayarlar">⚙ Ayarlar</button>
@@ -84,6 +85,83 @@
 
   <div id="contextMenu" class="context-menu hidden"></div>
   <div id="inAppNotifContainer" class="in-app-notif-container"></div>
+
+  <!-- ===== v1.35: Mail Kuralları ===== -->
+  <div id="modalRules" class="modal hidden">
+    <div class="modal-content modal-fullscreen">
+      <div class="modal-header">
+        <h2>⚙ Mail Kuralları <span id="rulesHeaderCount" style="font-size:12px;color:var(--muted);font-weight:400;"></span></h2>
+        <div style="flex:1;"></div>
+        <button class="btn" id="btnApplyAllRules" title="Tüm mevcut maillere kuralları uygula">⚡ Tüm Maillere Uygula</button>
+        <button class="btn btn-primary" id="btnNewRule">+ Yeni Kural</button>
+        <button class="modal-close" data-close="modalRules" style="margin-left:8px;">×</button>
+      </div>
+      <div class="modal-body" style="padding:16px;overflow-y:auto;max-height:calc(90vh - 110px);">
+        <p style="font-size:12px;color:var(--text-2);margin-bottom:12px;">
+          Yeni gelen mailler için otomatik kurallar tanımlayın. Kurallar sıraya göre çalışır - "İşlemi durdur" işaretli kurallar zinciri keser.
+        </p>
+        <div id="rulesList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kural Editör Modal -->
+  <div id="modalRuleEditor" class="modal hidden">
+    <div class="modal-content modal-md" style="max-width:680px;">
+      <div class="modal-header">
+        <h2 id="ruleEditorTitle">Yeni Kural</h2>
+        <button class="modal-close" data-close="modalRuleEditor">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Kural Adı</label>
+          <input type="text" id="re_name" placeholder="Örn: Trendyol bildirimlerini Alışveriş klasörüne taşı">
+        </div>
+        <div class="form-row">
+          <label>Hesap (boş = tüm hesaplar)</label>
+          <select id="re_account">
+            <option value="">— Tüm hesaplar —</option>
+          </select>
+        </div>
+
+        <!-- Koşullar -->
+        <div class="form-section" style="margin-top:14px;">📋 Koşullar</div>
+        <div class="form-row">
+          <label>Eşleşme Tipi</label>
+          <select id="re_match_type">
+            <option value="all">Tüm koşullar uymalı (VE)</option>
+            <option value="any">Herhangi biri uymalı (VEYA)</option>
+          </select>
+        </div>
+        <div id="re_conditions"></div>
+        <button class="btn btn-ghost" id="btnAddCondition" style="margin-top:6px;">+ Koşul Ekle</button>
+
+        <!-- Eylemler -->
+        <div class="form-section" style="margin-top:18px;">⚡ Eylemler</div>
+        <div id="re_actions"></div>
+        <button class="btn btn-ghost" id="btnAddAction" style="margin-top:6px;">+ Eylem Ekle</button>
+
+        <!-- Diğer ayarlar -->
+        <div class="form-row" style="margin-top:14px;">
+          <label class="toggle-row">
+            <input type="checkbox" id="re_stop_processing">
+            <span>Bu kural eşleşirse alttaki kuralları çalıştırma</span>
+          </label>
+        </div>
+        <div class="form-row">
+          <label class="toggle-row">
+            <input type="checkbox" id="re_enabled" checked>
+            <span>Kural aktif</span>
+          </label>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+          <button class="btn btn-ghost" data-close="modalRuleEditor">İptal</button>
+          <button class="btn btn-primary" id="btnSaveRule">💾 Kaydet</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== v1.27: Takvim ===== -->
   <div id="modalCalendar" class="modal hidden">
