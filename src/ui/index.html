@@ -199,6 +199,30 @@
         <div class="form-section full" style="margin-top:18px;">📧 Hesap Yönetimi</div>
         <div id="settingsAccountList" class="settings-account-list"></div>
 
+        <!-- v1.13: VirusTotal -->
+        <div class="form-section full" style="margin-top:18px;">🦠 VirusTotal Tarama</div>
+        <div style="font-size:12px;color:var(--text-2);line-height:1.6;margin-bottom:8px;">
+          Ücretsiz <strong>VirusTotal</strong> API anahtarı ekleyerek ek dosyalarınız 70+ antivirüs motoruyla taranabilir. Dosyalar yüklenmez, sadece SHA-256 hash bazlı sorgu yapılır (gizliliğiniz korunur). Anahtar almak için: <a href="#" id="lnkVtJoin" style="color:var(--primary);">virustotal.com/gui/join-us</a>
+        </div>
+        <div class="form-row" style="display:flex;gap:6px;align-items:flex-end;">
+          <div style="flex:1;">
+            <label class="form-label">VirusTotal API Anahtarı</label>
+            <input type="password" id="vt_apiKey" placeholder="64 karakterlik anahtar..." autocomplete="off" style="width:100%;">
+          </div>
+          <button class="btn" id="btnVtTestKey">🔍 Test Et</button>
+          <button class="btn btn-ghost" id="btnVtToggleVisibility" title="Göster/Gizle">👁</button>
+        </div>
+        <div id="vt_keyStatus" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
+        <div class="form-row" style="margin-top:10px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+            <input type="checkbox" id="vt_autoScan">
+            <span>Orta+ riskli ekleri otomatik tara (KRİTİK ekler her zaman taranır)</span>
+          </label>
+        </div>
+        <div style="margin-top:8px;">
+          <button class="btn btn-ghost" id="btnVtClearCache" style="font-size:11px;">🗑 Tarama Önbelleğini Temizle</button>
+        </div>
+
         <!-- Hakkında -->
         <div class="form-section full" style="margin-top:18px;">ℹ Hakkında</div>
         <div style="font-size:12px;color:var(--text-2);line-height:1.6;">

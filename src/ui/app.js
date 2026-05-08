@@ -475,7 +475,8 @@ function bindSettings() {
     ['settings_sync_interval', 'backgroundSyncMinutes', 'number'],
     ['settings_close_to_tray', 'closeToTray', 'checkbox'],
     ['settings_auto_start', 'autoStart', 'checkbox'],
-    ['settings_start_minimized', 'startMinimized', 'checkbox']
+    ['settings_start_minimized', 'startMinimized', 'checkbox'],
+    ['vt_autoScan', 'virustotalAutoScan', 'checkbox']
   ];
   for (const [domId, key, type] of prefIds) {
     const el = document.getElementById(domId);
@@ -514,6 +515,9 @@ function bindSettings() {
       setStatus('Test bildirimi başarısız', 'error');
     }
   };
+
+  // v1.13: VirusTotal handler'ları
+  bindVirusTotalSettings();
 }
 
 function showNotificationTroubleshoot(result) {
@@ -553,6 +557,19 @@ async function openSettings() {
   // v1.3: Güncelleme tercihi
   const autoUpdEl = document.getElementById('settings_auto_update');
   if (autoUpdEl) autoUpdEl.checked = cfg.autoUpdateCheck !== false;
+
+  // v1.13: VirusTotal değerleri
+  const vtKey = document.getElementById('vt_apiKey');
+  if (vtKey) {
+    vtKey.value = cfg.virustotalApiKey || '';
+    const vtStatus = document.getElementById('vt_keyStatus');
+    if (vtStatus) {
+      vtStatus.textContent = cfg.virustotalApiKey ? 'Kayıtlı (doğrulamak için Test Et\'e tıklayın)' : 'Anahtar yok - VT taraması devre dışı';
+      vtStatus.style.color = 'var(--muted)';
+    }
+  }
+  const vtAuto = document.getElementById('vt_autoScan');
+  if (vtAuto) vtAuto.checked = cfg.virustotalAutoScan !== false;
 
   await renderSettingsAccountList();
   document.getElementById('modalSettings').classList.remove('hidden');
@@ -3050,6 +3067,9 @@ if (window.api && window.api.on) {
 // ============= v1.12: Attachment Security UI =============
 async function setupAttachmentChips(msg) {
   const senderEmail = msg.from_addr || '';
+  const cfg = await window.api.config.get();
+  const vtAutoScan = !!(cfg.virustotalApiKey && cfg.virustotalAutoScan !== false);
+
   const chips = document.querySelectorAll('#attachmentChipsContainer .attachment-chip');
   for (const chip of chips) {
     const attId = parseInt(chip.dataset.attId, 10);
@@ -3066,20 +3086,17 @@ async function setupAttachmentChips(msg) {
     chip.dataset.senderTrusted = senderTrusted ? '1' : '0';
     chip.dataset.category = analysis.category;
 
-    // İkon değiştir
     let icon = '📎';
     if (analysis.risk === 'critical') icon = '🚫';
     else if (analysis.risk === 'high') icon = '⚠️';
     else if (analysis.risk === 'medium') icon = '⚠';
-    else if (analysis.risk === 'low') icon = '📎';
-    else icon = '📎';
-
-    // Title (tooltip)
     chip.title = analysis.warning || `Risk: ${analysis.risk}`;
 
+    const sizeText = chip.querySelector('span')?.textContent || '';
     chip.innerHTML = `
-      ${icon} ${escapeHtml(filename)}
-      <span style="color:var(--muted);margin-left:6px;">${chip.querySelector('span')?.textContent || ''}</span>
+      <span class="att-main">${icon} ${escapeHtml(filename)}</span>
+      <span class="att-size" style="color:var(--muted);margin-left:6px;">${sizeText}</span>
+      <span class="att-vt-badge" data-att-id="${attId}"></span>
     `;
 
     chip.onclick = (e) => {
@@ -3087,28 +3104,93 @@ async function setupAttachmentChips(msg) {
       handleAttachmentClick(attId, filename, analysis, senderTrusted, senderEmail);
     };
 
-    // Sağ tık menü - Kaydet seçeneği
     chip.oncontextmenu = (e) => {
       e.preventDefault();
       e.stopPropagation();
       showAttachmentContextMenu(e, attId, filename, analysis, senderTrusted, senderEmail);
     };
+
+    // v1.13: Otomatik VT scan (kritik veya orta+ risk + autoscan açık)
+    const shouldAutoScan = vtAutoScan && (
+      analysis.risk === 'critical' ||
+      analysis.risk === 'high' ||
+      analysis.risk === 'medium'
+    );
+    if (shouldAutoScan) {
+      // Async, UI'yı bloklamadan
+      scanAttachmentWithVT(attId, chip).catch(() => {});
+    }
   }
 }
 
+// ============= v1.13: VirusTotal Scan UI =============
+async function scanAttachmentWithVT(attachmentId, chipEl) {
+  const badgeEl = chipEl ? chipEl.querySelector('.att-vt-badge') : null;
+  if (badgeEl) {
+    badgeEl.innerHTML = `<span class="vt-badge vt-loading" title="VirusTotal taranıyor...">⏳ VT</span>`;
+  }
+  const r = await window.api.virustotal.scan(attachmentId);
+  if (!badgeEl) return r;
+
+  if (!r.ok) {
+    if (r.noKey) {
+      badgeEl.innerHTML = '';
+      return r;
+    }
+    badgeEl.innerHTML = `<span class="vt-badge vt-error" title="${escapeHtml(r.error || 'hata')}">! VT</span>`;
+    return r;
+  }
+
+  if (!r.found) {
+    badgeEl.innerHTML = `<span class="vt-badge vt-unknown" title="VirusTotal veritabanında yok">? VT</span>`;
+    return r;
+  }
+
+  // Sonuç var
+  let cls = 'vt-clean';
+  let label = '✓';
+  if (r.verdict === 'malicious') { cls = 'vt-malicious'; label = '🚨'; }
+  else if (r.verdict === 'suspicious') { cls = 'vt-suspicious'; label = '⚠'; }
+  else if (r.verdict === 'low_risk') { cls = 'vt-lowrisk'; label = '⚠'; }
+
+  const text = `${label} ${r.malicious}/${r.total}`;
+  const tip = `VirusTotal:\n${r.malicious} antivirüs zararlı dedi\n${r.suspicious} şüpheli\n${r.harmless} temiz\n${r.undetected} algılayamadı\nToplam: ${r.total} motor`;
+  badgeEl.innerHTML = `<span class="vt-badge ${cls}" title="${escapeHtml(tip)}">${escapeHtml(text)}</span>`;
+
+  // Eğer malicious bulundu ve chip kritik değilse, chip'i kritik seviyeye çıkar
+  if (r.verdict === 'malicious' && chipEl) {
+    chipEl.classList.remove('att-risk-safe', 'att-risk-low', 'att-risk-medium', 'att-risk-high');
+    chipEl.classList.add('att-risk-critical');
+    chipEl.dataset.risk = 'critical';
+    chipEl.dataset.canOpen = '0';
+    chipEl.dataset.warning = `🚨 VirusTotal: ${r.malicious}/${r.total} antivirüs zararlı yazılım tespit etti! ASLA AÇMAYIN.`;
+  }
+
+  return r;
+}
+
 async function handleAttachmentClick(attId, filename, analysis, senderTrusted, senderEmail) {
+  // v1.13: VT sonucunu dialog'a ekleyebilmek için chip'ten oku
+  const chip = document.querySelector(`.attachment-chip[data-att-id="${attId}"]`);
+  let vtSummary = '';
+  if (chip) {
+    const badge = chip.querySelector('.att-vt-badge');
+    if (badge && badge.title) {
+      vtSummary = '\n\n--- VirusTotal ---\n' + badge.title;
+    }
+  }
+
   // Kritik tehdit (executable, çift uzantı, script) - kesinlikle açma
   if (analysis.risk === 'critical') {
     const ok = confirm(
       `🚫 BU EK ÇOK TEHLİKELİ — VARSAYILAN OLARAK AÇILMAYACAK\n\n` +
       `Dosya: ${filename}\n` +
       `Gönderici: ${senderEmail || 'bilinmiyor'} ${senderTrusted ? '(güvenilir listede)' : '(TANIMIYOR)'}\n\n` +
-      `${analysis.warning}\n\n` +
+      `${analysis.warning}${vtSummary}\n\n` +
       `Yine de yalnızca DOSYAYI DİSKE KAYDETMEK ister misiniz? (açmak için ayrıca tıklamanız gerekecek)\n\n` +
       `İptal etmenizi şiddetle öneririm.`
     );
     if (ok) {
-      // Sadece kaydet, açma!
       const r = await window.api.attachments.save(attId);
       if (r && r.ok) {
         setStatus(`Ek diske kaydedildi: ${r.path} - LÜTFEN ANTİVİRÜS İLE TARAYIN!`);
@@ -3125,17 +3207,13 @@ async function handleAttachmentClick(attId, filename, analysis, senderTrusted, s
     prompt += `Dosya: ${filename}\n`;
     prompt += `Risk: ${analysis.risk.toUpperCase()}\n`;
     prompt += `Gönderici: ${senderEmail || 'bilinmiyor'}\n`;
-    prompt += `Güvenilir liste: ${senderTrusted ? '✓ EVET' : '✗ HAYIR (TANIMIYOR)'}\n\n`;
-    if (analysis.warning) prompt += `${analysis.warning}\n\n`;
-
+    prompt += `Güvenilir liste: ${senderTrusted ? '✓ EVET' : '✗ HAYIR (TANIMIYOR)'}\n`;
+    if (analysis.warning) prompt += `\n${analysis.warning}\n`;
+    prompt += vtSummary;
     if (!senderTrusted) {
-      prompt += `❗ Bu kişiden daha önce mail almadınız. Tanımadığınız kişilerden gelen ek dosyaları açmamanız önerilir.\n\n`;
+      prompt += `\n\n❗ Bu kişiden daha önce mail almadınız. Tanımadığınız kişilerden gelen ek dosyaları açmamanız önerilir.`;
     }
-
-    prompt += `Açmak istediğinize emin misiniz?\n\n`;
-    prompt += `[Tamam] = Aç (varsayılan uygulama ile)\n`;
-    prompt += `[İptal] = Açma`;
-
+    prompt += `\n\nAçmak istediğinize emin misiniz?`;
     if (!confirm(prompt)) return;
   }
 
@@ -3157,6 +3235,42 @@ function showAttachmentContextMenu(e, attId, filename, analysis, senderTrusted, 
         if (r?.ok) setStatus(`Kaydedildi: ${r.path}`);
         else if (!r?.canceled) setStatus('Hata: ' + (r?.error || ''), 'error');
       }
+    },
+    {
+      label: '🦠 VirusTotal ile Tara',
+      action: async () => {
+        const chip = document.querySelector(`.attachment-chip[data-att-id="${attId}"]`);
+        const r = await scanAttachmentWithVT(attId, chip);
+        if (!r) return;
+        if (!r.ok) {
+          if (r.noKey) {
+            alert('VirusTotal API anahtarı tanımlı değil.\n\nAyarlar > VirusTotal Tarama bölümünden ücretsiz bir anahtar ekleyebilirsiniz.\n\nAnahtar al: virustotal.com/gui/join-us');
+          } else {
+            alert('VirusTotal hatası: ' + (r.error || 'bilinmeyen'));
+          }
+          return;
+        }
+        if (!r.found) {
+          alert(`Dosya VirusTotal veritabanında bulunamadı.\n\nSHA-256: ${r.sha256}\n\nBu dosya daha önce VT'ye sunulmamış. Bilinmeyen bir dosya - dikkatli olun.`);
+          return;
+        }
+        let msg = `🦠 VirusTotal Sonucu\n\n`;
+        msg += `Dosya: ${filename}\n`;
+        msg += `SHA-256: ${r.sha256}\n`;
+        if (r.typeDescription) msg += `Tür: ${r.typeDescription}\n`;
+        msg += `\nKarar: ${r.verdict.toUpperCase()}\n\n`;
+        msg += `🚨 Zararlı: ${r.malicious}\n`;
+        msg += `⚠ Şüpheli: ${r.suspicious}\n`;
+        msg += `✓ Temiz: ${r.harmless}\n`;
+        msg += `? Algılayamadı: ${r.undetected}\n`;
+        msg += `Toplam motor: ${r.total}\n`;
+        if (r.lastAnalysisDate) msg += `\nSon tarama: ${new Date(r.lastAnalysisDate * 1000).toLocaleString('tr-TR')}`;
+        if (r.fromCache) msg += `\n(Önbellekten - ${new Date(r.cachedAt).toLocaleString('tr-TR')})`;
+        if (r.malicious >= 3) msg += `\n\n🚨 BU DOSYA BÜYÜK İHTİMALLE ZARARLI! AÇMAYIN!`;
+        else if (r.malicious >= 1 || r.suspicious >= 1) msg += `\n\n⚠ Bu dosya şüpheli. Açmadan önce iyice düşünün.`;
+        else msg += `\n\n✓ Hiçbir motor zararlı bulmadı (ama yine de dikkatli olun).`;
+        alert(msg);
+      }
     }
   ];
   if (analysis.canOpen || analysis.risk !== 'critical') {
@@ -3165,7 +3279,6 @@ function showAttachmentContextMenu(e, attId, filename, analysis, senderTrusted, 
       action: () => handleAttachmentClick(attId, filename, analysis, senderTrusted, senderEmail)
     });
   }
-  // Generic context menu kullan
   const menu = document.getElementById('contextMenu');
   if (!menu) return;
   menu.innerHTML = items.map((it, i) =>
@@ -3234,5 +3347,70 @@ async function addTrustedSenderManual() {
     document.getElementById('ts_name').value = '';
     await renderTrustedSendersList();
     setStatus(`✓ "${email}" güvenilir listeye eklendi`);
+  }
+}
+
+// ============= v1.13: VirusTotal Settings UI =============
+function bindVirusTotalSettings() {
+  const keyEl = document.getElementById('vt_apiKey');
+  const statusEl = document.getElementById('vt_keyStatus');
+  const btnTest = document.getElementById('btnVtTestKey');
+  const btnToggle = document.getElementById('btnVtToggleVisibility');
+  const btnClear = document.getElementById('btnVtClearCache');
+  const lnkJoin = document.getElementById('lnkVtJoin');
+
+  if (!keyEl || keyEl.dataset.bound) return;
+  keyEl.dataset.bound = '1';
+
+  // Anahtar değiştiğinde otomatik kaydet
+  keyEl.addEventListener('change', async () => {
+    const v = keyEl.value.trim();
+    await window.api.config.updatePrefs({ virustotalApiKey: v });
+    statusEl.textContent = v ? 'Kayıtlı (Test ile doğrulayın)' : 'Boş - VT entegrasyonu devre dışı';
+    statusEl.style.color = v ? 'var(--text-2)' : 'var(--muted)';
+  });
+
+  btnTest.onclick = async () => {
+    const apiKey = keyEl.value.trim();
+    if (!apiKey) {
+      statusEl.textContent = 'Önce bir API anahtarı girin';
+      statusEl.style.color = 'var(--danger)';
+      return;
+    }
+    statusEl.textContent = '⏳ Test ediliyor...';
+    statusEl.style.color = 'var(--muted)';
+    const r = await window.api.virustotal.testKey(apiKey);
+    if (r.ok) {
+      // Kaydet
+      await window.api.config.updatePrefs({ virustotalApiKey: apiKey });
+      let txt = `✓ Geçerli anahtar`;
+      if (r.user) txt += ` (${r.user})`;
+      if (r.quotas) {
+        const dq = r.quotas.api_requests_daily;
+        if (dq) txt += ` · Günlük: ${dq.user.used}/${dq.user.allowed}`;
+      }
+      statusEl.textContent = txt;
+      statusEl.style.color = '#2ecc71';
+    } else {
+      statusEl.textContent = '✗ ' + (r.error || 'Doğrulama başarısız');
+      statusEl.style.color = 'var(--danger)';
+    }
+  };
+
+  btnToggle.onclick = () => {
+    keyEl.type = keyEl.type === 'password' ? 'text' : 'password';
+  };
+
+  btnClear.onclick = async () => {
+    if (!confirm('VirusTotal tarama önbelleği temizlensin mi?\n\n(Bir sonraki taramada tekrar VT\'ye sorgu atılır)')) return;
+    const r = await window.api.virustotal.clearCache();
+    if (r.ok) setStatus('✓ VT önbelleği temizlendi');
+  };
+
+  if (lnkJoin) {
+    lnkJoin.onclick = (e) => {
+      e.preventDefault();
+      window.api.app.openExternal('https://www.virustotal.com/gui/join-us');
+    };
   }
 }

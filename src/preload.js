@@ -83,6 +83,11 @@ contextBridge.exposeInMainWorld('api', {
     save: (id) => ipcRenderer.invoke('attachments:save', id),
     open: (id) => ipcRenderer.invoke('attachments:open', id)
   },
+  virustotal: {
+    scan: (attachmentId) => ipcRenderer.invoke('virustotal:scan', attachmentId),
+    testKey: (apiKey) => ipcRenderer.invoke('virustotal:testKey', apiKey),
+    clearCache: () => ipcRenderer.invoke('virustotal:clearCache')
+  },
   spam: {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),

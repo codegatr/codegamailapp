@@ -8,7 +8,7 @@ class Config {
     this.data = {
       dataPath: defaultDir,
       firstRun: true,
-      version: '1.12.0',
+      version: '1.13.0',
       // v1.2 yeni ayarlar
       notificationsEnabled: true,
       backgroundSyncMinutes: 5,    // 0 = devre dışı
@@ -18,7 +18,10 @@ class Config {
       // v1.3 yeni ayarlar
       autoUpdateCheck: true,       // GitHub'dan otomatik güncelleme kontrolü
       // v1.9 yeni ayarlar
-      conversationView: false      // Konuşma görünümü (Re: zincirleri grupla)
+      conversationView: false,     // Konuşma görünümü (Re: zincirleri grupla)
+      // v1.13: VirusTotal entegrasyonu
+      virustotalApiKey: '',        // Boş = devre dışı
+      virustotalAutoScan: true     // Medium+ riskli ekler için otomatik tarama
     };
     this.load();
   }

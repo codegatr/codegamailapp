@@ -953,6 +953,69 @@ ipcMain.handle('security:removeTrustedSender', (_, email) => {
   return { ok: true };
 });
 
+// =====================================================================
+// v1.13 IPC: VirusTotal Entegrasyonu
+// =====================================================================
+const VirusTotalScanner = require('./services/virustotal');
+
+ipcMain.handle('virustotal:scan', async (_, attachmentId) => {
+  const apiKey = appConfig.get('virustotalApiKey');
+  if (!apiKey || !apiKey.trim()) {
+    return { ok: false, noKey: true, error: 'VirusTotal API anahtarı tanımlı değil. Ayarlar > Güvenlik bölümünden ekleyebilirsiniz.' };
+  }
+
+  const att = db.getAttachmentData(attachmentId);
+  if (!att) return { ok: false, error: 'Ek bulunamadı' };
+
+  let buf = att.data;
+  if (!Buffer.isBuffer(buf)) {
+    if (!buf) return { ok: false, error: 'Ek verisi yok' };
+    buf = Buffer.from(buf);
+  }
+
+  const sha256 = VirusTotalScanner.computeHash(buf);
+
+  // 24 saatlik cache
+  const cached = db.getVtCache(sha256);
+  if (cached) {
+    const age = Date.now() - new Date(cached.scanned_at).getTime();
+    if (age < 24 * 60 * 60 * 1000) {
+      try {
+        const cachedResult = JSON.parse(cached.result);
+        return Object.assign(cachedResult, { fromCache: true, cachedAt: cached.scanned_at });
+      } catch (_) {}
+    }
+  }
+
+  const result = await VirusTotalScanner.scanByHash(sha256, apiKey.trim());
+  result.sha256 = sha256;
+  result.filename = att.filename;
+
+  // Cache (sadece başarılı veya 404=found:false sonuçlar)
+  if (result.ok && !result.rateLimited && !result.invalidKey) {
+    try {
+      db.setVtCache(sha256, result);
+      db.save();
+    } catch (_) {}
+  }
+
+  return result;
+});
+
+ipcMain.handle('virustotal:testKey', async (_, apiKey) => {
+  return await VirusTotalScanner.testApiKey(apiKey);
+});
+
+ipcMain.handle('virustotal:clearCache', () => {
+  try {
+    db.prepare('DELETE FROM vt_scan_cache').run();
+    db.save();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 // v1.12: Attachment Save / Open
 ipcMain.handle('attachments:save', async (_, attachmentId) => {
   const att = db.getAttachmentData(attachmentId);

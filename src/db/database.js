@@ -296,6 +296,12 @@ class Database {
           manually_added INTEGER DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_trusted_email ON trusted_senders(email);
+
+        CREATE TABLE IF NOT EXISTS vt_scan_cache (
+          sha256 TEXT PRIMARY KEY,
+          result TEXT,
+          scanned_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
       `);
     } catch (_) {}
 
@@ -1107,6 +1113,24 @@ class Database {
       typeof security.flags === 'string' ? security.flags : JSON.stringify(security.flags || {}),
       messageId
     );
+  }
+
+  // v1.13: VirusTotal cache (24h TTL)
+  getVtCache(sha256) {
+    return this.prepare('SELECT * FROM vt_scan_cache WHERE sha256 = ?').get(sha256);
+  }
+
+  setVtCache(sha256, result) {
+    const json = typeof result === 'string' ? result : JSON.stringify(result);
+    this.prepare(`
+      INSERT INTO vt_scan_cache (sha256, result, scanned_at) VALUES (?, ?, ?)
+      ON CONFLICT(sha256) DO UPDATE SET result = excluded.result, scanned_at = excluded.scanned_at
+    `).run(sha256, json, new Date().toISOString());
+  }
+
+  clearOldVtCache(daysOld = 30) {
+    const cutoff = new Date(Date.now() - daysOld * 86400000).toISOString();
+    this.prepare('DELETE FROM vt_scan_cache WHERE scanned_at < ?').run(cutoff);
   }
 }
 
