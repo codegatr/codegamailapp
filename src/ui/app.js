@@ -477,6 +477,9 @@ function bindKeyboard() {
       return;
     }
     if (e.key === 'F5') { e.preventDefault(); syncAll(); return; }
+    // v1.58: Outlook uyumlu F9 + Ctrl+F5 senkronize kısayolları
+    if (e.key === 'F9') { e.preventDefault(); syncAll(); return; }
+    if (e.ctrlKey && e.key === 'F5') { e.preventDefault(); syncAll(); return; }
     if (e.key === 'Escape') hideContextMenu();
 
     // Düzenlenebilir alandayken (input/textarea/editor) tek harfli kısayolları yakalamayalım
@@ -1151,12 +1154,8 @@ async function openAccountModal(editAccountId = null) {
   document.getElementById('advancedToggle').open = false;
 
   // v1.6: imza editörünü init (sadece bir kere) ve içeriği temizle
-  if (!state.signatureEditor && typeof RichEditor !== 'undefined') {
-    state.signatureEditor = new RichEditor('signatureEditor', {
-      placeholder: '-- imzanızı buraya yazın (Bold, italic, link, vs.) --',
-      compact: true
-    });
-  }
+  // v1.58 FIX: Modal görünür olduktan sonra init (contenteditable doğru kurulur)
+  // Burada hidden'sa init yapma - showModal sonrasında requestAnimationFrame içinde yapacağız
   if (state.signatureEditor) state.signatureEditor.clear();
 
   if (editAccountId) {
@@ -1204,6 +1203,35 @@ async function openAccountModal(editAccountId = null) {
   }
 
   document.getElementById('modalAccount').classList.remove('hidden');
+
+  // v1.58 FIX: Modal görünür olduktan SONRA signatureEditor init et + ilk input'a focus
+  requestAnimationFrame(() => {
+    if (!state.signatureEditor && typeof RichEditor !== 'undefined') {
+      try {
+        state.signatureEditor = new RichEditor('signatureEditor', {
+          placeholder: '-- imzanızı buraya yazın (Bold, italic, link, vs.) --',
+          compact: true
+        });
+      } catch (e) { console.warn('signatureEditor init hata:', e.message); }
+    }
+    // İmza editörüne mevcut imzayı tekrar yükle (init sonrası)
+    if (editAccountId && state.signatureEditor) {
+      window.api.accounts.get(editAccountId).then(acc => {
+        if (acc) {
+          const sig = acc.signature || '';
+          const sigIsHtml = /<[a-z][\s\S]*>/i.test(sig);
+          state.signatureEditor.setHTML(sigIsHtml ? sig : '<p>' + escapeHtml(sig).replace(/\n/g, '<br>') + '</p>');
+        }
+      }).catch(() => {});
+    }
+    // Yeni hesap ekleme: e-posta input'una focus
+    setTimeout(() => {
+      if (!editAccountId) {
+        const emailInput = document.getElementById('acc_email');
+        if (emailInput) emailInput.focus();
+      }
+    }, 50);
+  });
 }
 
 function readAccountForm() {
@@ -2720,14 +2748,18 @@ function bindCompose() {
     });
 
     // Pencere genelinde sürükleme - kullanıcı dropzone dışına bırakırsa sayfa açılmasın
-    document.addEventListener('dragover', (e) => {
-      const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
-      if (composeOpen) e.preventDefault();
-    });
-    document.addEventListener('drop', (e) => {
-      const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
-      if (composeOpen) e.preventDefault();
-    });
+    // v1.58 FIX: Sadece BİR KERE bağla (her compose açılışında re-bind memory leak yaratıyordu)
+    if (!state._composeDropBound) {
+      state._composeDropBound = true;
+      document.addEventListener('dragover', (e) => {
+        const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
+        if (composeOpen) e.preventDefault();
+      });
+      document.addEventListener('drop', (e) => {
+        const composeOpen = !document.getElementById('modalCompose').classList.contains('hidden');
+        if (composeOpen) e.preventDefault();
+      });
+    }
 
     // Paste - panodaki dosyayı/görüntüyü ek olarak al
     // v1.6: artık compose_body div editör. Editor element'inde paste'i yakala
@@ -2851,13 +2883,6 @@ function openCompose(opts = {}) {
   bindComposeEncryptListener();
   refreshComposeEncryptToggle().catch(() => {});
 
-  // v1.6: editor varsa init et (modal hidden iken init zor olabilir, burada da güvence)
-  if (!state.composeEditor && typeof RichEditor !== 'undefined') {
-    state.composeEditor = new RichEditor('composeEditor', {
-      placeholder: 'Mesajınızı yazın...'
-    });
-  }
-
   let to = '', subject = '', initialHTML = '<p><br></p>';
   if (opts.to) to = opts.to;
   if (opts.replyTo) {
@@ -2889,12 +2914,41 @@ function openCompose(opts = {}) {
   document.getElementById('compose_to').value = to;
   document.getElementById('compose_cc').value = '';
   document.getElementById('compose_subject').value = subject;
-  if (state.composeEditor) state.composeEditor.setHTML(initialHTML);
+
   // v1.10: şablon dropdown'unu doldur
   refreshComposeTemplateDropdown().catch(() => {});
+
+  // v1.58 FIX: Modal'ı ÖNCE görünür yap, sonra editor init + focus
   document.getElementById('modalCompose').classList.remove('hidden');
-  // Cursor en başa
-  setTimeout(() => state.composeEditor?.focus(), 100);
+
+  // Modal artık DOM'da görünür - bir frame bekle, sonra editör init + focus
+  requestAnimationFrame(() => {
+    // v1.58 FIX: Editor init - modal görünür olduktan SONRA yap (contenteditable doğru kurulur)
+    if (!state.composeEditor && typeof RichEditor !== 'undefined') {
+      state.composeEditor = new RichEditor('composeEditor', {
+        placeholder: 'Mesajınızı yazın...'
+      });
+    }
+    if (state.composeEditor) state.composeEditor.setHTML(initialHTML);
+
+    // v1.58 FIX: Focus yönlendirme
+    // - Yeni mesaj → Kime alanı
+    // - Reply (kime dolu) → Editor (yazıya devam)
+    // - Forward → Kime alanı (alıcı belirsiz)
+    setTimeout(() => {
+      if (opts.replyTo && to) {
+        // Reply: editor'a odak
+        state.composeEditor?.focus();
+      } else if (opts.forward || !to) {
+        // Forward veya yeni mesaj: Kime
+        const toInput = document.getElementById('compose_to');
+        if (toInput) { toInput.focus(); toInput.select(); }
+      } else {
+        // To dolu ise konu'ya
+        document.getElementById('compose_subject')?.focus();
+      }
+    }, 50);
+  });
 }
 
 async function sendMail() {
@@ -11344,3 +11398,13 @@ window.api.on('merge:progress', (p) => {
 if (typeof RIBBON_ACTIONS !== 'undefined') {
   RIBBON_ACTIONS['mail-merge'] = () => openMergeWizard();
 }
+
+// ============= v1.58: Toolbar Görünür Butonları =============
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btnSyncAllVisible')) {
+    document.getElementById('btnSyncAll').click();
+  }
+  if (e.target.closest('#btnComposeVisible')) {
+    openCompose();
+  }
+});
