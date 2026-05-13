@@ -175,12 +175,17 @@ async function startAuthFlow(provider) {
   const cfg = OAUTH_CONFIG[provider];
   if (!cfg) throw new Error('Bilinmeyen sağlayıcı: ' + provider);
   if (!cfg.clientId) {
+    // v1.61: Daha açıklayıcı tanı mesajı
+    const fromEnv = process.env[provider === 'microsoft' ? 'CODEGA_MS_CLIENT_ID' : 'CODEGA_GOOGLE_CLIENT_ID'];
+    const fromConfig = _appConfigRef?.get(provider === 'microsoft' ? 'oauth2MicrosoftClientId' : 'oauth2GoogleClientId');
+    const configReady = !!_appConfigRef;
     throw new Error(
-      `${provider} OAuth2 yapılandırılmamış.\n\n` +
-      `Geliştirici notu: ${provider === 'microsoft' ? 'Azure Portal' : 'Google Cloud Console'}'da ` +
-      `"Public client / Desktop app" tipinde uygulama kayıt edilip CLIENT_ID environment variable olarak ` +
-      `ayarlanmalı (CODEGA_${provider === 'microsoft' ? 'MS' : 'GOOGLE'}_CLIENT_ID).\n\n` +
-      `Geçici çözüm: Outlook.com hesapları için "App Password" kullanılabilir.`
+      `Client ID bulunamadı.\n\n` +
+      `Tanı:\n` +
+      `  • Env variable: ${fromEnv ? 'VAR' : 'yok'}\n` +
+      `  • Config'te değer: ${fromConfig ? '"' + fromConfig.slice(0, 8) + '..." (VAR)' : 'yok'}\n` +
+      `  • Config bağlantısı: ${configReady ? 'OK' : 'BAĞLI DEĞİL (kritik bug)'}\n\n` +
+      `Çözüm: OAuth2 Kurulum Sihirbazı'nda Client ID'yi yapıştır, KAYDET butonuna bas, sonra Test'e tekrar bas.`
     );
   }
 

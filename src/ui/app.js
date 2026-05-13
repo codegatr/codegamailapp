@@ -9570,13 +9570,30 @@ async function renderOAuthSetupContent(provider) {
     };
     const btnTest = document.getElementById('btnTestMsConnect');
     if (btnTest) btnTest.onclick = async () => {
+      // v1.61 FIX: Test'e basmadan önce input'taki Client ID'i otomatik kaydet
+      const inputEl = document.getElementById('oauthMsClientId');
+      const currentId = inputEl?.value?.trim() || '';
+      if (!currentId) {
+        alert('Önce Client ID yapıştırın ve Kaydet\'e basın.');
+        return;
+      }
+      // Otomatik kaydet (forget-to-save problemini çöz)
+      const saveRes = await window.api.oauth2.saveClientId('microsoft', currentId);
+      if (!saveRes.ok) {
+        alert('Client ID kaydedilemedi: ' + saveRes.error);
+        return;
+      }
+      // Config'in main process'e ulaştığından emin olmak için 100ms bekle
+      await new Promise(r => setTimeout(r, 100));
+
       document.getElementById('modalOAuth2Setup').classList.add('hidden');
-      // Hesap ekleme modali açılmazsa connect direkt
       const r = await window.api.oauth2.startFlow('microsoft');
       if (r.ok) {
         alert(`✓ Test başarılı!\n\nGiriş yapan: ${r.email}\n\nArtık + Hesap > 🟦 Microsoft ile Bağlan ile gerçek hesap ekleyebilirsiniz.`);
       } else {
-        alert('Test başarısız: ' + r.error);
+        // Modal'ı geri aç ki kullanıcı kaldığı yerden devam etsin
+        document.getElementById('modalOAuth2Setup').classList.remove('hidden');
+        alert('Test başarısız:\n\n' + r.error);
       }
     };
   }
