@@ -266,6 +266,36 @@ function openBrowserWindowAndCaptureCode(authUrl, redirectUri, expectedState) {
 
     let resolved = false;
 
+    // v1.60: Microsoft AADSTS hata kodlarını Türkçe açıkla
+    function translateMicrosoftError(errorCode, errorDesc) {
+      const lower = (errorCode + ' ' + errorDesc).toLowerCase();
+      if (lower.includes('aadsts7000218') || lower.includes('public client flow')) {
+        return 'Azure App\'inde "Allow public client flows" AÇIK değil!\n\nÇözüm: Azure Portal > App registration > Authentication > Aşağıda "Allow public client flows" → YES → Save';
+      }
+      if (lower.includes('aadsts500113') || lower.includes('no reply address')) {
+        return 'Azure App\'inde Redirect URI tanımlanmamış!\n\nÇözüm: Azure Portal > Authentication > + Add a platform > Mobile and desktop applications > URI ekle: http://localhost:51842/callback';
+      }
+      if (lower.includes('aadsts50194') || lower.includes('not configured as a multi-tenant') || lower.includes('aadsts50020')) {
+        return 'Azure App hesap tipi yanlış seçildi!\n\nKişisel Microsoft hesabı (outlook.com / hotmail) için:\nAzure Portal > Authentication > "Personal Microsoft accounts only" veya "Both organizational and personal" seçin.';
+      }
+      if (lower.includes('aadsts65001') || lower.includes('consent') || lower.includes('admin')) {
+        return 'API izinleri için onay gerekli.\n\nÇözüm: Azure Portal > API permissions > "Grant admin consent for ..." butonuna basın (kişisel hesap için bu adım gerekmez, hesabı popup\'ta tekrar onaylayın).';
+      }
+      if (lower.includes('aadsts50011') || lower.includes('reply url mismatch')) {
+        return 'Redirect URI EŞLEŞMİYOR!\n\nAzure\'a kayıtlı URI ile kodun beklediği farklı.\nKodun beklediği: http://localhost:51842/callback\n\nAzure Portal > Authentication > Redirect URIs altında bu adresin TAM AYNI olması gerekir.';
+      }
+      if (lower.includes('aadsts900971') || lower.includes('no reply')) {
+        return 'Redirect URI eksik. Authentication > Mobile and desktop applications > http://localhost:51842/callback ekleyin.';
+      }
+      if (lower.includes('aadsts7000222')) {
+        return 'Client secret kullanıyorsunuz ama PKCE flow lazım. Public client olarak kaydedin.';
+      }
+      if (lower.includes('invalid_client')) {
+        return 'Client ID hatalı veya app silinmiş. Azure Portal > Overview > Application (client) ID alanını tekrar kopyalayın.';
+      }
+      return null; // Bilinmeyen hata
+    }
+
     function handleNavigation(navUrl) {
       if (!navUrl || !navUrl.startsWith(redirectUri.split('?')[0])) return;
       try {
@@ -276,7 +306,10 @@ function openBrowserWindowAndCaptureCode(authUrl, redirectUri, expectedState) {
         const errorDesc = parsed.searchParams.get('error_description');
 
         if (error) {
-          if (!resolved) { resolved = true; win.close(); reject(new Error(errorDesc || error)); }
+          // v1.60: Türkçe açıklama
+          const translated = translateMicrosoftError(error, errorDesc || '');
+          const message = translated || `${error}: ${errorDesc || 'Bilinmeyen hata'}`;
+          if (!resolved) { resolved = true; win.close(); reject(new Error(message)); }
           return;
         }
         if (state !== expectedState) {
@@ -293,8 +326,17 @@ function openBrowserWindowAndCaptureCode(authUrl, redirectUri, expectedState) {
 
     win.webContents.on('will-redirect', (_, navUrl) => handleNavigation(navUrl));
     win.webContents.on('will-navigate', (_, navUrl) => handleNavigation(navUrl));
-    // Bazı redirect'ler did-navigate olarak gelir
     win.webContents.on('did-navigate', (_, navUrl) => handleNavigation(navUrl));
+
+    // v1.60: Sayfa yüklenemezse (network/DNS hatası) yakala
+    win.webContents.on('did-fail-load', (_, errorCode, errorDesc, validatedURL) => {
+      if (errorCode === -3) return; // -3 = aborted (redirect sırasında normal)
+      if (!resolved && !validatedURL.startsWith(redirectUri.split('?')[0])) {
+        resolved = true;
+        win.close();
+        reject(new Error(`Sayfa yüklenemedi: ${errorDesc} (${errorCode})`));
+      }
+    });
 
     win.on('closed', () => {
       if (!resolved) {
