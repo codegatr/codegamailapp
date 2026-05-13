@@ -56,12 +56,49 @@ const startedHidden = process.argv.includes('--hidden');
 // =====================================================================
 // Hata logu
 // =====================================================================
+// v1.57: Error log spam koruması - aynı hata 30sn içinde tekrar yazılmaz, max 5 MB
+const _errorLogCache = new Map(); // key -> {lastTime, count}
+const ERROR_DEDUPE_WINDOW = 30000; // 30 saniye
+const ERROR_LOG_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+
 function logError(stage, err) {
   try {
     const logDir = app.getPath('userData');
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
     const logPath = path.join(logDir, 'error.log');
-    const line = `[${new Date().toISOString()}] [${stage}] ${err.stack || err.message || err}\n`;
+
+    // Dedupe: aynı stage + hata mesajı son 30 saniyede yazıldıysa skip + sayaç tut
+    const errMsg = (err.message || String(err)).slice(0, 200);
+    const dedupeKey = `${stage}|${errMsg}`;
+    const now = Date.now();
+    const cached = _errorLogCache.get(dedupeKey);
+    if (cached && (now - cached.lastTime) < ERROR_DEDUPE_WINDOW) {
+      cached.count++;
+      cached.lastTime = now;
+      return logPath; // spam koruması
+    }
+    _errorLogCache.set(dedupeKey, { lastTime: now, count: cached ? cached.count + 1 : 1 });
+
+    // Cache temizleme (memory leak engelleme)
+    if (_errorLogCache.size > 200) {
+      const cutoff = now - 10 * 60 * 1000; // 10 dk eski entry'leri sil
+      for (const [k, v] of _errorLogCache) {
+        if (v.lastTime < cutoff) _errorLogCache.delete(k);
+      }
+    }
+
+    // Log dosyası 5 MB'tan büyükse rotate
+    try {
+      const stats = fs.statSync(logPath);
+      if (stats.size > ERROR_LOG_MAX_SIZE) {
+        const oldPath = logPath + '.old';
+        try { fs.unlinkSync(oldPath); } catch (_) {}
+        fs.renameSync(logPath, oldPath);
+      }
+    } catch (_) {}
+
+    const suppressed = cached && cached.count > 1 ? ` (önceden ${cached.count - 1}x bastırıldı)` : '';
+    const line = `[${new Date().toISOString()}] [${stage}]${suppressed} ${err.stack || err.message || err}\n`;
     fs.appendFileSync(logPath, line, 'utf8');
     return logPath;
   } catch (_) { return null; }

@@ -45,10 +45,56 @@ class Database {
   save() {
     if (!this._dirty && fs.existsSync(this.dbPath)) return;
     const data = this._sql.export();
+    const buffer = Buffer.from(data);
     const tmp = this.dbPath + '.tmp';
-    fs.writeFileSync(tmp, Buffer.from(data));
-    fs.renameSync(tmp, this.dbPath);
-    this._dirty = false;
+
+    // v1.57 FIX: EPERM rename - Windows'ta antivirüs/diğer process dosyayı kilitleyebilir
+    // Çözüm: rename'i 5 kere retry et, başarısız olursa doğrudan üzerine yaz
+    try {
+      fs.writeFileSync(tmp, buffer);
+    } catch (e) {
+      console.error('DB tmp yazma hatası:', e.message);
+      // Tmp yazılamazsa doğrudan ana dosyaya yaz
+      try {
+        fs.writeFileSync(this.dbPath, buffer);
+        this._dirty = false;
+        return;
+      } catch (e2) {
+        console.error('DB doğrudan yazma da başarısız:', e2.message);
+        return;
+      }
+    }
+
+    let lastErr = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.renameSync(tmp, this.dbPath);
+        this._dirty = false;
+        return;
+      } catch (e) {
+        lastErr = e;
+        // EPERM (kilit), EBUSY (kullanım) - kısa bekleme
+        if (e.code === 'EPERM' || e.code === 'EBUSY' || e.code === 'EACCES') {
+          // Senkron bekleme (50ms, 100ms, 200ms, 400ms, 800ms - exponential)
+          const wait = 50 * Math.pow(2, attempt);
+          const end = Date.now() + wait;
+          while (Date.now() < end) { /* busy wait */ }
+          continue;
+        }
+        break; // Başka hata - retry yapma
+      }
+    }
+
+    // Rename hala başarısız - tmp'den oku, doğrudan ana dosyaya yaz (atomic değil ama veri kaybı yok)
+    console.error(`DB rename ${5} denemede başarısız:`, lastErr?.message);
+    try {
+      fs.writeFileSync(this.dbPath, buffer);
+      try { fs.unlinkSync(tmp); } catch (_) {}
+      this._dirty = false;
+    } catch (e3) {
+      console.error('DB son fallback yazma da başarısız:', e3.message);
+      // Tmp dosyası kalır - sonraki save'de tekrar denenir
+    }
   }
 
   pragma(_) { /* sql.js no-op */ }

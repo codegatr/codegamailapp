@@ -81,7 +81,16 @@ contextBridge.exposeInMainWorld('api', {
     isTrustedSender: (email) => ipcRenderer.invoke('security:isTrustedSender', email),
     listTrustedSenders: () => ipcRenderer.invoke('security:listTrustedSenders'),
     addTrustedSender: (email, name) => ipcRenderer.invoke('security:addTrustedSender', email, name),
-    removeTrustedSender: (email) => ipcRenderer.invoke('security:removeTrustedSender', email)
+    removeTrustedSender: (email) => ipcRenderer.invoke('security:removeTrustedSender', email),
+    status: () => ipcRenderer.invoke('security:status'),
+    setMasterPassword: (params) => ipcRenderer.invoke('security:setMasterPassword', params),
+    removeMasterPassword: (pw) => ipcRenderer.invoke('security:removeMasterPassword', pw),
+    verifyMasterPassword: (params) => ipcRenderer.invoke('security:verifyMasterPassword', params),
+    start2FASetup: (params) => ipcRenderer.invoke('security:start2FASetup', params),
+    confirm2FASetup: (params) => ipcRenderer.invoke('security:confirm2FASetup', params),
+    disable2FA: (pw) => ipcRenderer.invoke('security:disable2FA', pw),
+    regenerateRecoveryCodes: (pw) => ipcRenderer.invoke('security:regenerateRecoveryCodes', pw),
+    lockApp: () => ipcRenderer.invoke('security:lockApp')
   },
   attachments: {
     save: (id) => ipcRenderer.invoke('attachments:save', id),
@@ -127,7 +136,7 @@ contextBridge.exposeInMainWorld('api', {
     contactGroups: (cid) => ipcRenderer.invoke('groups:contactGroups', cid)
   },
   rules: {
-    list: (opts) => ipcRenderer.invoke('rules:list', opts),
+    list: (opts) => ipcRenderer.invoke('rules:list', typeof opts === 'number' ? { accountId: opts } : opts),
     get: (id) => ipcRenderer.invoke('rules:get', id),
     add: (rule) => ipcRenderer.invoke('rules:add', rule),
     update: (id, updates) => ipcRenderer.invoke('rules:update', id, updates),
@@ -186,7 +195,13 @@ contextBridge.exposeInMainWorld('api', {
   readReceipt: {
     send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
     ignore: (senderEmail) => ipcRenderer.invoke('readReceipt:ignore', senderEmail),
-    markResponded: (messageId) => ipcRenderer.invoke('readReceipt:markResponded', messageId)
+    markResponded: (messageId) => ipcRenderer.invoke('readReceipt:markResponded', messageId),
+    dismiss: (messageId) => ipcRenderer.invoke('readReceipt:dismiss', messageId),
+    ignoreSender: (email) => ipcRenderer.invoke('readReceipt:ignoreSender', email),
+    getPolicy: () => ipcRenderer.invoke('readReceipt:getPolicy'),
+    setPolicy: (policy) => ipcRenderer.invoke('readReceipt:setPolicy', policy),
+    setRequestDefault: (val) => ipcRenderer.invoke('readReceipt:setRequestDefault', val),
+    removeIgnored: (email) => ipcRenderer.invoke('readReceipt:removeIgnored', email)
   },
   oauth2: {
     isConfigured: (provider) => ipcRenderer.invoke('oauth2:isConfigured', provider),
@@ -194,15 +209,6 @@ contextBridge.exposeInMainWorld('api', {
     refresh: (accountId) => ipcRenderer.invoke('oauth2:refresh', accountId),
     saveClientId: (provider, clientId) => ipcRenderer.invoke('oauth2:saveClientId', provider, clientId),
     getClientIds: () => ipcRenderer.invoke('oauth2:getClientIds')
-  },
-  readReceipt: {
-    send: (messageId) => ipcRenderer.invoke('readReceipt:send', messageId),
-    dismiss: (messageId) => ipcRenderer.invoke('readReceipt:dismiss', messageId),
-    ignoreSender: (email) => ipcRenderer.invoke('readReceipt:ignoreSender', email),
-    getPolicy: () => ipcRenderer.invoke('readReceipt:getPolicy'),
-    setPolicy: (policy) => ipcRenderer.invoke('readReceipt:setPolicy', policy),
-    setRequestDefault: (val) => ipcRenderer.invoke('readReceipt:setRequestDefault', val),
-    removeIgnored: (email) => ipcRenderer.invoke('readReceipt:removeIgnored', email)
   },
   autoconfig: {
     detect: (email) => ipcRenderer.invoke('autoconfig:detect', email)
@@ -212,17 +218,6 @@ contextBridge.exposeInMainWorld('api', {
     setLanguages: (langs) => ipcRenderer.invoke('spell:setLanguages', langs),
     setEnabled: (enabled) => ipcRenderer.invoke('spell:setEnabled', enabled),
     removeWord: (word) => ipcRenderer.invoke('spell:removeWord', word)
-  },
-  security: {
-    status: () => ipcRenderer.invoke('security:status'),
-    setMasterPassword: (params) => ipcRenderer.invoke('security:setMasterPassword', params),
-    removeMasterPassword: (pw) => ipcRenderer.invoke('security:removeMasterPassword', pw),
-    verifyMasterPassword: (params) => ipcRenderer.invoke('security:verifyMasterPassword', params),
-    start2FASetup: (params) => ipcRenderer.invoke('security:start2FASetup', params),
-    confirm2FASetup: (params) => ipcRenderer.invoke('security:confirm2FASetup', params),
-    disable2FA: (pw) => ipcRenderer.invoke('security:disable2FA', pw),
-    regenerateRecoveryCodes: (pw) => ipcRenderer.invoke('security:regenerateRecoveryCodes', pw),
-    lockApp: () => ipcRenderer.invoke('security:lockApp')
   },
   archive: {
     stats: () => ipcRenderer.invoke('archive:stats'),
@@ -283,14 +278,6 @@ contextBridge.exposeInMainWorld('api', {
     list: (accountId) => ipcRenderer.invoke('spam:list', accountId),
     add: (rule) => ipcRenderer.invoke('spam:add', rule),
     delete: (id) => ipcRenderer.invoke('spam:delete', id)
-  },
-  rules: {
-    list: (accountId) => ipcRenderer.invoke('rules:list', accountId),
-    get: (id) => ipcRenderer.invoke('rules:get', id),
-    add: (rule) => ipcRenderer.invoke('rules:add', rule),
-    update: (id, updates) => ipcRenderer.invoke('rules:update', id, updates),
-    delete: (id) => ipcRenderer.invoke('rules:delete', id),
-    applyNow: (ruleId, accountId) => ipcRenderer.invoke('rules:applyNow', ruleId, accountId)
   },
   sync: {
     account: (id) => ipcRenderer.invoke('sync:account', id),
