@@ -2182,6 +2182,15 @@
             <label>E-posta Adresi</label>
             <input type="email" id="acc_email" placeholder="ornek@gmail.com" autocomplete="off">
             <div id="providerHint" class="provider-hint"></div>
+            <!-- v1.59: OAuth2 zorunlu uyarısı (Outlook.com / Gmail) -->
+            <div id="oauth2RequiredWarning" class="oauth2-required-warning hidden">
+              <div class="oauth2-warn-icon">🔐</div>
+              <div class="oauth2-warn-body">
+                <div class="oauth2-warn-title">Bu hesap için OAuth2 gerekli</div>
+                <div class="oauth2-warn-desc" id="oauth2WarnDesc"></div>
+                <button type="button" class="btn btn-primary" id="oauth2GoSetupBtn" style="margin-top:8px;">🚀 OAuth2 Kurulumu Aç</button>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label>Şifre <span style="font-weight:normal;text-transform:none;font-size:10px;color:var(--muted);">veya Uygulama Şifresi</span></label>

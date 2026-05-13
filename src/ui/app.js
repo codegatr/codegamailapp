@@ -2605,15 +2605,59 @@ function renderSyncErrors() {
     document.getElementById('syncErrorCount').textContent = '0';
     return;
   }
-  list.innerHTML = syncState.errors.map(e => `
-    <div class="sync-error-item">
-      <div class="sync-error-account">⚠ ${escapeHtml(e.displayName)} <span style="color:var(--muted);font-weight:400;font-size:11px;">${escapeHtml(e.email)}</span></div>
-      <div class="sync-error-msg">${escapeHtml(e.error)}</div>
-      <div class="sync-error-time">${e.time.toLocaleTimeString('tr-TR')}</div>
-    </div>
-  `).join('');
+  list.innerHTML = syncState.errors.map(e => {
+    // v1.59: Authentication failure + outlook.com/hotmail → akıllı uyarı
+    let smartHint = '';
+    const errMsg = (e.error || '').toLowerCase();
+    const email = (e.email || '').toLowerCase();
+    const isAuthFail = errMsg.includes('authentication failure') || errMsg.includes('bad password') ||
+                       errMsg.includes('unknown user name') || errMsg.includes('login failed') ||
+                       errMsg.includes('auth') && errMsg.includes('fail');
+    if (isAuthFail) {
+      const isOutlook = /@(outlook|hotmail|live|msn)\.\w+$/.test(email);
+      const isGmail = /@(gmail|googlemail)\.com$/.test(email);
+      if (isOutlook) {
+        smartHint = `
+          <div class="sync-error-hint">
+            <strong>⚠ Microsoft Basic Auth Kapalı</strong><br>
+            Outlook.com / Hotmail / Live, 2022\'den beri IMAP\'a parola ile girişi engelliyor.
+            <strong>OAuth2</strong> kullanmanız gerekiyor:<br>
+            <button type="button" class="btn btn-primary btn-sm sync-err-action" data-action="oauth2-microsoft" data-account="${e.accountId || ''}">🔐 Microsoft ile OAuth2\'ye Geç</button>
+          </div>`;
+      } else if (isGmail) {
+        smartHint = `
+          <div class="sync-error-hint">
+            <strong>⚠ Gmail Less Secure Apps Kapalı</strong><br>
+            Gmail için <strong>App Password</strong> üretin veya <strong>OAuth2</strong> kullanın.
+            <button type="button" class="btn btn-primary btn-sm sync-err-action" data-action="oauth2-google" data-account="${e.accountId || ''}">🔐 Google ile OAuth2\'ye Geç</button>
+          </div>`;
+      } else {
+        smartHint = `
+          <div class="sync-error-hint">
+            <strong>💡 İpucu:</strong> Parolanız doğru mu? Bazı sağlayıcılar normal parola yerine <strong>App Password</strong> ister.
+          </div>`;
+      }
+    }
+    return `
+      <div class="sync-error-item">
+        <div class="sync-error-account">⚠ ${escapeHtml(e.displayName)} <span style="color:var(--muted);font-weight:400;font-size:11px;">${escapeHtml(e.email)}</span></div>
+        <div class="sync-error-msg">${escapeHtml(e.error)}</div>
+        ${smartHint}
+        <div class="sync-error-time">${e.time.toLocaleTimeString('tr-TR')}</div>
+      </div>
+    `;
+  }).join('');
   document.getElementById('syncErrorCount').textContent = String(syncState.errors.length);
 }
+
+// v1.59: Sync error hint butonları
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.sync-err-action');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (action === 'oauth2-microsoft') openOAuth2Setup('microsoft');
+  if (action === 'oauth2-google') openOAuth2Setup('google');
+});
 
 function updateSyncSummary() {
   const summary = document.getElementById('syncSummaryText');
@@ -11406,5 +11450,74 @@ document.addEventListener('click', (e) => {
   }
   if (e.target.closest('#btnComposeVisible')) {
     openCompose();
+  }
+});
+
+// ============= v1.59: OAuth2 Required Detection (Outlook.com / Gmail) =============
+function detectOAuth2Required(email) {
+  email = (email || '').toLowerCase().trim();
+  if (!email.includes('@')) return null;
+  const domain = email.split('@')[1] || '';
+
+  // Microsoft consumer accounts (Basic Auth kapatıldı, OAuth2 zorunlu)
+  const microsoftConsumer = /^(outlook|hotmail|live|msn)\.com|^outlook\.com\.tr$|^outlook\.\w{2}$/;
+  if (microsoftConsumer.test(domain)) {
+    return {
+      provider: 'microsoft',
+      label: 'Microsoft (Outlook.com)',
+      reason: 'Microsoft, 2022\'den beri Outlook.com / Hotmail / Live için IMAP\'a parola ile girişi kapattı. Sadece OAuth2 (modern auth) çalışıyor. Şifre doğru olsa bile "Authentication failure" hatası alırsın.'
+    };
+  }
+
+  // Microsoft 365 / Office 365 işyeri hesapları
+  if (/onmicrosoft\.com$/.test(domain)) {
+    return {
+      provider: 'microsoft',
+      label: 'Microsoft 365 (İşyeri)',
+      reason: 'Office 365 / Microsoft 365 işyeri hesapları için OAuth2 önerilir. Bazı tenant\'larda Basic Auth admin tarafından kapatılmış olabilir.'
+    };
+  }
+
+  // Gmail - Basic Auth Mayıs 2022\'de kapatıldı
+  if (/^gmail\.com$/.test(domain) || /^googlemail\.com$/.test(domain)) {
+    return {
+      provider: 'google',
+      label: 'Gmail',
+      reason: 'Google, Mayıs 2022\'den beri "Less Secure Apps" özelliğini kapattı. App Password ile girilebilir veya tercih edilen yöntem: OAuth2.'
+    };
+  }
+
+  return null;
+}
+
+// Email input değişiklik handler
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'acc_email') {
+    const detection = detectOAuth2Required(e.target.value);
+    const warning = document.getElementById('oauth2RequiredWarning');
+    const descEl = document.getElementById('oauth2WarnDesc');
+    if (!warning) return;
+
+    if (detection) {
+      warning.classList.remove('hidden');
+      warning.dataset.provider = detection.provider;
+      if (descEl) descEl.innerHTML = `<strong>${escapeHtml(detection.label)}</strong>: ${escapeHtml(detection.reason)}`;
+    } else {
+      warning.classList.add('hidden');
+    }
+  }
+});
+
+// OAuth2 Setup butonuna yönlendir
+document.addEventListener('click', (e) => {
+  if (e.target.id === 'oauth2GoSetupBtn') {
+    const warning = document.getElementById('oauth2RequiredWarning');
+    const provider = warning?.dataset?.provider || 'microsoft';
+    // Hesap modalını kapat, OAuth2 setup'ı aç
+    document.getElementById('modalAccount').classList.add('hidden');
+    setTimeout(() => {
+      if (typeof openOAuth2Setup === 'function') openOAuth2Setup(provider);
+      else alert('OAuth2 Setup açılamadı - lütfen ayarlardan açın.');
+    }, 200);
   }
 });
